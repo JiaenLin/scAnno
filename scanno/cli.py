@@ -150,6 +150,122 @@ def _calibrate(a):
     return 0
 
 
+def _annotate(a):
+    """Label the clusters of one object. The main command."""
+    import numpy as np
+    from .classify import classify
+    from .corpus import load_assertions
+    from .query import OOD_MIN_COVERED, cluster_profile, standardise
+    from .store import build_store
+    try:
+        import anndata as ad
+        import scanpy as sc
+    except ImportError:
+        print("scanno: annotate needs anndata + scanpy.  pip install -e '.[run]'",
+              file=sys.stderr)
+        return 1
+
+    tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
+    A = ad.read_h5ad(a.h5ad)
+    if a.cluster_key not in A.obs:
+        print(f"scanno: {a.h5ad} has no obs column {a.cluster_key!r}. Available: "
+              f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
+        return 1
+    src = A.raw if (a.use_raw and A.raw is not None) else A
+    X, genes = src.X, np.array([str(v).upper() for v in src.var_names])
+
+    # Counts or already normalised? Measured, not assumed - feeding scaled or raw values
+    # to a scorer expecting log1p returns a number for the wrong quantity.
+    import scipy.sparse as sp
+    head = X[:200].toarray() if sp.issparse(X) else np.asarray(X[:200])
+    if float(np.max(head)) > 50 and np.allclose(head, np.round(head)):
+        print("  .X looks like raw counts -> normalize_total(1e4) + log1p")
+        tmp = ad.AnnData(X=X.copy())
+        sc.pp.normalize_total(tmp, target_sum=1e4)
+        sc.pp.log1p(tmp)
+        X = tmp.X
+    elif float(np.min(head)) < 0:
+        print("scanno: REFUSE - .X contains negative values, so it is scaled rather than"
+              "\n        log-normalised. Pass --use-raw, or supply an object whose .X is"
+              "\n        log1p counts.", file=sys.stderr)
+        return REFUSE
+
+    lab = A.obs[a.cluster_key].astype(str).values
+    cats = sorted(set(lab), key=lambda s: (len(s), s))
+    y = np.array([cats.index(v) for v in lab])
+    M, D, counts = cluster_profile(X, y, len(cats))
+
+    # The gene background. Without one there is nothing external to standardise against,
+    # and a cluster's score becomes a property of what else was sequenced beside it.
+    if a.store:
+        from .calibrate import load_store
+        store = load_store(a.store)
+        bg = f"store {Path(a.store).name} (digest {store.digest})"
+    elif a.background_from_clusters:
+        store = build_store([("query", genes, X, lab)],
+                            {"species": a.species, "tissue": a.tissue, "assay": a.assay})
+        bg = "THIS OBJECT's own clusters"
+        print("  REVIEW  the gene background comes from this object's own clusters, so a\n"
+              "          score is not fully independent of what else was sequenced in it.\n"
+              "          Use ONE store across every sample if you intend to compare them.")
+    else:
+        print("scanno: REFUSE - no gene background.\n"
+              "        Pass --store from `scanno calibrate`, or "
+              "--background-from-clusters to\n"
+              "        derive one from this object and accept that scores are then not\n"
+              "        independent of its composition.", file=sys.stderr)
+        return REFUSE
+
+    Z, usable, st = standardise(M, D, genes, store)
+    if st["ood_covered"] < OOD_MIN_COVERED:
+        print(f"scanno: REFUSE - the background covers only "
+              f"{100*st['ood_covered']:.0f}% of the genes this object expresses "
+              f"(floor {100*OOD_MIN_COVERED:.0f}%).\n"
+              f"        It cannot speak to this data.", file=sys.stderr)
+        return REFUSE
+
+    asr = None
+    if a.db:
+        asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
+        if not asr:
+            print(f"scanno: REFUSE - the corpus has nothing for {a.species}/{a.tissue} "
+                  f"at tier<={a.min_tier}.", file=sys.stderr)
+            return REFUSE
+    tree["genes"] = store.genes
+    res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
+                   gap_min=a.gap_min)
+
+    src_txt = "corpus" if asr else "atlas profiles"
+    print("")
+    print(f"{a.cluster_key}: {len(cats)} clusters, {A.shape[0]:,} cells   "
+          f"weights={src_txt}   background={bg}")
+    print(f"genes usable {st['genes_usable']:,} / {st['genes_detected']:,} detected   "
+          f"OOD coverage {100*st['ood_covered']:.0f}%")
+    print("")
+    print(f"{'cluster':>10} {'n':>8}  {'label':<34}{'depth':>6}{'gap':>7}")
+    for r in res:
+        c = r["cluster"]
+        print(f"{cats[c]:>10} {counts[c]:>8,.0f}  {r['path']:<34}"
+              f"{r['depth']:>6}{r['gap']:>7.2f}")
+    unres = sum(counts[r["cluster"]] for r in res if r["path"] == "UNRESOLVED")
+    n_un = sum(1 for r in res if r["path"] == "UNRESOLVED")
+    print("")
+    print(f"UNRESOLVED {n_un} clusters = {unres:,.0f} cells "
+          f"({100*unres/counts.sum():.1f}%)")
+
+    if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        with Path(a.out).open("w", encoding="utf-8") as fh:
+            fh.write("\t".join(["cluster", "n_cells", "label", "path", "depth",
+                                "gap"]) + "\n")
+            for r in res:
+                c = r["cluster"]
+                fh.write("\t".join([cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
+                                    str(r["depth"]), f"{r['gap']:.4f}"]) + "\n")
+        print(f"wrote {a.out}")
+    return 0
+
+
 def _panel(a):
     """Show the corpus panel for one context — what the untrained path would score on."""
     from .corpus import load_assertions
@@ -188,6 +304,24 @@ def main(argv=None):
 
     s = sub.add_parser("selftest", help="run the adversarial suite")
     s.set_defaults(fn=_selftest)
+
+    s = sub.add_parser("annotate", help="label the clusters of one object")
+    s.add_argument("--h5ad", required=True, type=Path)
+    s.add_argument("--cluster-key", required=True)
+    s.add_argument("--tree", required=True, type=Path)
+    s.add_argument("--species", required=True)
+    s.add_argument("--tissue", required=True)
+    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    s.add_argument("--db", type=Path, help="marker corpus (corpus weight path)")
+    s.add_argument("--store", type=Path, help="store.npz from `scanno calibrate`")
+    s.add_argument("--background-from-clusters", action="store_true",
+                   help="derive the gene background from this object; reported as REVIEW")
+    s.add_argument("--gap-min", type=float, default=None,
+                   help="override the descent threshold (0.30 corpus, 0.15 profiles)")
+    s.add_argument("--min-tier", type=int, default=4)
+    s.add_argument("--use-raw", action="store_true")
+    s.add_argument("--out", type=Path)
+    s.set_defaults(fn=_annotate)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
     s.add_argument("--db", required=True, type=Path)

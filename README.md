@@ -10,8 +10,8 @@ the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T 
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
 > **Read [Status](#status) before planning anything.** At `0.1.0-dev` this is a validated
-> prototype, not a pipeline. The classifier works and is tested; there is no task graph, no report
-> and no CLI beyond `selftest`.
+> prototype, not a pipeline. `scanno annotate` and `scanno calibrate` work and are tested; there
+> is no clustering driver, no report and no task graph.
 
 ---
 
@@ -111,6 +111,8 @@ yourself, the same way scQC ships a reference registry and not a genome.
 
 | | |
 |---|---|
+| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | **start here** — install, tree, annotate, read the output |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | every command, every refusal, and the gene background |
 | [docs/PRINCIPLES.md](docs/PRINCIPLES.md) | the four rules the code enforces, and what each cost to learn |
 | [docs/CLASSIFIER.md](docs/CLASSIFIER.md) | the design as built: `Z`, the walk, both weight sources |
 | [docs/CALIBRATION.md](docs/CALIBRATION.md) | how the store learns from atlases, and the promotion ladder |
@@ -129,7 +131,8 @@ yourself, the same way scQC ships a reference registry and not a genome.
 | ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. |
 | ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
 | ✅ **calibration** | `scanno calibrate` builds the store, learns bounded marker reliability and emits the reordered panels. Tested on synthetic data in `tests/test_calibrate.py`. |
-| ❌ **no driver, no report, no task graph** | steps 0, 1 and 3 are specified and not built. Only step 2 exists. |
+| ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `selftest`. Exit code 2 is a refusal. |
+| ❌ **no clustering driver, no report, no task graph** | steps 0, 1 and 3 are specified and not built. Only step 2 exists. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
 
 ## Licence
