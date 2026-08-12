@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scanno"
+version = "0.1.0"
+description = "Hierarchical cell-type annotation that truncates rather than guesses"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Jiaen Lin" }]
+keywords = ["single-cell", "annotation", "cell-type", "snRNA-seq"]
+
+# numpy and scipy only. The decision layer stays light on purpose: a tool that is hard to
+# install is a tool that gets skipped, and the corpus path needs nothing else.
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+# Only the store builder and the adversarial suite need the analysis stack.
+run = ["anndata>=0.10", "scanpy>=1.10"]
+test = ["anndata>=0.10", "scanpy>=1.10"]
+
+[project.scripts]
+scanno = "scanno.cli:main"
+
+[tool.setuptools]
+packages = ["scanno"]

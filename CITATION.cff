@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: scAnno
+message: Hierarchical cell-type annotation that truncates rather than guesses.
+type: software
+authors:
+  - family-names: Lin
+    given-names: Jiaen
+version: 0.1.0
+license: MIT

@@ -1,0 +1,2 @@
+name	species	tissue	assay	source	version	notes
+cellmarker3-human-blood	Human	Blood	sc	CellMarker 3.0	2024	worked example of a complete registry row; the corpus itself is NOT distributed

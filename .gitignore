@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Test fixtures are downloaded, never committed
+tests/_data/
+
+# Stores and corpora are built, never committed. Neither is redistributed.
+*.db
+*.sqlite
+*.npz
+*.h5ad

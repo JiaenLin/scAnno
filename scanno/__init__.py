@@ -1,0 +1,22 @@
+"""scAnno — hierarchical cell-type annotation that truncates rather than guesses.
+
+    from scanno import build_store, cluster_profile, standardise, classify
+
+The classifier is a pure function of (query, store-or-corpus, declared tree). It fits
+nothing at runtime, so a result is reproducible from the store digest and the tree.
+"""
+from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_nodes,
+                       node_profiles, profile_weights)
+from .corpus import TIER_W, load_assertions, node_weights
+from .query import DETECT_FLOOR, cluster_profile, standardise
+from .store import NORM, ProfileStore, build_store, safe_scale
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "build_store", "ProfileStore", "safe_scale", "NORM",
+    "cluster_profile", "standardise", "DETECT_FLOOR",
+    "load_assertions", "node_weights", "TIER_W",
+    "classify", "node_profiles", "profile_weights", "missing_nodes", "gate_auc",
+    "GAP_PROFILE", "GAP_CORPUS", "__version__",
+]
