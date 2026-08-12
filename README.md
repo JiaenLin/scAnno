@@ -83,8 +83,9 @@ Each was built, measured and removed. Listed so they do not come back without ne
 | correlation novelty gate | rejected 4 real populations on independent data |
 | negative marker weights | 2 errors on independent data, **invisible on the self-test** |
 | node-coherence gate | its statistic depended on which other nodes existed |
+| design-differential gate | refused on a comparison where 2 libraries of 10 held 94% of the unresolved nuclei |
 
-**Four proposed additions measurably made this worse.** Hence the standing rule:
+**Five proposed additions measurably made this worse.** Hence the standing rule:
 
 > **No statistic gates an output until it has been shown to separate correct from incorrect calls
 > on held-out data, reported as an AUC beside the gate it justifies.**

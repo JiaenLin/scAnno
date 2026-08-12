@@ -25,6 +25,20 @@ belonging to none of them is pushed harder toward one. Measured: training fixed 
 confusions and converted one correctly-withheld novel type into a confident wrong call. The size
 of that trade has not been bounded.
 
+## The design-differential gate was removed
+
+A check refusing when the UNRESOLVED rate differed ≥3× across arms of an experimental design was
+specified and never shipped in code. On its first real run it refused a diet comparison in which
+two libraries of ten held 94% of the unresolved nuclei, and three of five samples in the
+"affected" arm were at zero.
+
+A per-arm rate is dominated by whichever libraries inside the arm happen to fail, and the
+materiality floor does not help because the arm clears it on those same libraries. The gate was
+never shown to predict correctness, which by the standing rule means it must not gate.
+
+Per-arm and per-library rates remain worth computing — they are the diagnostic that found the two
+libraries. They are not a refusal, and deciding that a study's arms differ is not the tool's call.
+
 ## Validated on one tissue and one species
 
 Human blood, two datasets, 18 populations, all common types. No rare type, no disease state, no

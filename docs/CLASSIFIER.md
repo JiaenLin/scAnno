@@ -170,7 +170,7 @@ that they must not come back without new evidence.
 | **negative weights** | 2 errors on independent data, invisible on the self-test |
 | **node-coherence gate** | its statistic depends on which other nodes exist — the same composition-dependence it was added alongside a fix for |
 
-**Four proposed additions have measurably made this worse.** Every improvement has come from fixing
+**Five proposed additions have measurably made this worse.** Every improvement has come from fixing
 a mechanical defect or deleting a component. The standing rule that follows:
 
 > **No statistic gates an output until it has been shown to separate correct from incorrect calls
@@ -195,12 +195,26 @@ flowchart LR
         C --> K
         B --> K
     end
-    S2 --> G["the gate<br/>UNRESOLVED rate per design arm × level"]
-    G --> S3["step 3<br/>assign"]
+    S2 --> S3["step 3<br/>assign"]
     style A fill:#1F4E5F,color:#fff
     style B fill:#4A4A4A,color:#fff
-    style G fill:#8B2635,color:#fff
 ```
+
+**There is no design-differential gate, and one was removed rather than shipped.** A check on the
+UNRESOLVED rate per arm of an experimental design was specified here and carried over from a
+sibling QC tool by analogy. On its first run against real data it returned REFUSE on a diet
+comparison where **94% of the unresolved nuclei sat in two libraries of ten** — three of five
+samples in the "affected" arm were at zero. A rate computed per arm is dominated by whichever
+libraries inside it happen to fail, and a materiality floor does not catch that, because the arm
+clears the floor on the strength of those same libraries.
+
+It never predicted correctness and was never shown to. That is the fifth component in this design
+removed for the same reason (§5), and the standing rule in [PRINCIPLES.md](PRINCIPLES.md) §3
+exists because of it.
+
+**Per-arm and per-library UNRESOLVED rates are still worth looking at** — they are how the two
+libraries above were found. Compute and read them. They do not gate anything, and a tool is not
+the right place to decide that a study's arms differ.
 
 `Z` is computed once and read by stream A, by stream C's top-marker extraction, and by the `UNK/`
 namer — which is why the single pass over cells happens once and everything after is milliseconds.
