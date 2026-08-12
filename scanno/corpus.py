@@ -111,3 +111,27 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
         cols.append(masked / (full if full > 0 else 1.0))
         cover.append(masked.sum() / (full if full > 0 else 1.0))
     return np.vstack(cols).T, names, np.array(cover), hits
+
+
+def node_support(db, species, tissue, node_patterns, max_tier=2):
+    """Curated assertions behind each node — the reliability signal the gap does not carry.
+
+    A node's `gap` says how far it beat its siblings on THIS data. It says nothing about
+    how much evidence the panel rests on, and a small, concentrated panel can beat a large
+    diluted one with a perfectly healthy gap. Deep nodes are where that bites: a level-3
+    node resting on a handful of curated assertions will look exactly as confident as a
+    level-1 node resting on fifty.
+
+    Reported beside every call so a reader can see the difference.
+    """
+    import sqlite3
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = con.execute(
+        "SELECT cell_name, COUNT(*) FROM assertion WHERE species=? AND tissue_class=? "
+        "AND evidence_tier<=? GROUP BY 1", (species, tissue, max_tier)).fetchall()
+    con.close()
+    out = {}
+    for node, pats in node_patterns.items():
+        out[node] = sum(n for cell, n in rows
+                        if any(p in cell.lower() for p in pats))
+    return out

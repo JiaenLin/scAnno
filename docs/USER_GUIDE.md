@@ -74,6 +74,16 @@ processed objects keep their log-normalised counts.
 | `path` | the label, e.g. `Lymphoid/T cell`. `UNRESOLVED` only if the root decision failed |
 | `depth` | how far down the tree the evidence reached. Part of the answer, not a quality score |
 | `gap` | `(top − runner-up) / max|score|` at the last decision made |
+| `support` | curated (tier ≤2) assertions behind the winning node's panel |
+
+**`gap` and `support` answer different questions and you need both.** `gap` says how far the
+winner beat its siblings *on this data*. `support` says how much curated evidence the panel rests
+on. A small, concentrated panel can beat a large diffuse one with a perfectly healthy gap — so a
+node with `gap 0.9` and `support 7` is not the same claim as `gap 0.9, support 50`. Nodes under 10
+are starred and listed.
+
+**This bites hardest deep in a tree.** Level-1 nodes usually rest on tens of curated assertions;
+level-3 nodes often rest on a handful, and nothing in the score reflects that.
 
 ### Refusals
 

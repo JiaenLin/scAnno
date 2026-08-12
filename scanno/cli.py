@@ -235,6 +235,11 @@ def _annotate(a):
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
                    gap_min=a.gap_min)
 
+    support = {}
+    if a.db:
+        from .corpus import node_support
+        support = node_support(a.db, a.species, a.tissue, tree.get("patterns", {}))
+
     src_txt = "corpus" if asr else "atlas profiles"
     print("")
     print(f"{a.cluster_key}: {len(cats)} clusters, {A.shape[0]:,} cells   "
@@ -242,11 +247,20 @@ def _annotate(a):
     print(f"genes usable {st['genes_usable']:,} / {st['genes_detected']:,} detected   "
           f"OOD coverage {100*st['ood_covered']:.0f}%")
     print("")
-    print(f"{'cluster':>10} {'n':>8}  {'label':<34}{'depth':>6}{'gap':>7}")
+    print(f"{'cluster':>10} {'n':>8}  {'label':<40}{'depth':>6}{'gap':>7}{'support':>9}")
     for r in res:
         c = r["cluster"]
-        print(f"{cats[c]:>10} {counts[c]:>8,.0f}  {r['path']:<34}"
-              f"{r['depth']:>6}{r['gap']:>7.2f}")
+        sup = support.get(r["label"], "")
+        warn = " *" if isinstance(sup, int) and 0 < sup < 10 else ""
+        print(f"{cats[c]:>10} {counts[c]:>8,.0f}  {r['path']:<40}"
+              f"{r['depth']:>6}{r['gap']:>7.2f}{str(sup):>9}{warn}")
+    thin = sorted({r["label"] for r in res
+                   if isinstance(support.get(r["label"]), int)
+                   and 0 < support[r["label"]] < 10})
+    if thin:
+        print("")
+        print("  * fewer than 10 curated assertions behind the panel: " + ", ".join(thin))
+        print("    A thin panel can win with a healthy gap. Treat these as provisional.")
     unres = sum(counts[r["cluster"]] for r in res if r["path"] == "UNRESOLVED")
     n_un = sum(1 for r in res if r["path"] == "UNRESOLVED")
     print("")
