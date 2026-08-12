@@ -42,6 +42,43 @@ def load_assertions(db, species: str, tissue: str, min_tier: int = 4) -> dict:
     return out
 
 
+class GeneSpaceMismatch(SystemExit):
+    """The corpus and the query do not share a gene naming scheme."""
+
+
+def check_gene_space(assertions, genes, min_overlap=50):
+    """Refuse when the corpus cannot address the query's genes at all.
+
+    Nothing downstream notices this. Every marker panel comes out empty, every node is
+    dropped for having too few markers, the walk finds fewer than two children at the root
+    and returns UNRESOLVED - for every cluster, silently, at what looks like a successful
+    run. It happened: an object keyed by Ensembl IDs against a symbol-keyed corpus produced
+    0 of 34,290 overlapping genes and 100% UNRESOLVED with no error.
+
+    The out-of-distribution check does not catch it either, because that compares the query
+    against the STORE, and a store built from the same object shares its naming scheme. The
+    mismatch is between both of them and the CORPUS.
+    """
+    corpus = set()
+    for d in assertions.values():
+        corpus |= set(d)
+    have = {str(g).upper() for g in genes}
+    n = len(have & corpus)
+    if n < min_overlap:
+        ex_c = ", ".join(sorted(corpus)[:4])
+        ex_g = ", ".join(str(g) for g in list(genes)[:4])
+        raise GeneSpaceMismatch("\n".join([
+            f"scanno: REFUSE - the corpus and this object share only {n} gene symbols "
+            f"(floor {min_overlap}).",
+            f"        corpus looks like : {ex_c}",
+            f"        object looks like : {ex_g}",
+            "        Every marker panel would be empty and every cluster would come back",
+            "        UNRESOLVED, which reads as a completed run. Map the object's var_names",
+            "        to symbols first - many objects keep them in var['gene_symbol'].",
+        ]))
+    return n
+
+
 def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
                  sibling_contrast=True):
     """genes x nodes, from the corpus alone.
