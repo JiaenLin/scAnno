@@ -94,7 +94,14 @@ Each was built, measured and removed. Listed so they do not come back without ne
 ```bash
 git clone <this repo> && cd scAnno
 pip install -e .
+python tests/test_calibrate.py        # synthetic; no data needed
 python tests/test_adversarial.py      # needs scanpy + the PBMC datasets
+```
+
+To learn marker reliability from atlases you already have:
+
+```bash
+scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \n                 --species Human --tissue Blood --out calib/
 ```
 
 The marker corpus is **not** distributed — `scanno build-markers` ingests a release you fetch
@@ -121,6 +128,7 @@ yourself, the same way scQC ships a reference registry and not a genome.
 | ⚠️ **one tissue, one species** | human blood. Every number is an existence proof, not a range. |
 | ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. |
 | ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
+| ✅ **calibration** | `scanno calibrate` builds the store, learns bounded marker reliability and emits the reordered panels. Tested on synthetic data in `tests/test_calibrate.py`. |
 | ❌ **no driver, no report, no task graph** | steps 0, 1 and 3 are specified and not built. Only step 2 exists. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
 

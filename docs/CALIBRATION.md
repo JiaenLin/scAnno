@@ -3,8 +3,18 @@
 How the marker corpus is calibrated against atlas data at scale — the weight a marker carries, and
 how a computation-derived assertion earns one.
 
-Companion to [CLASSIFIER.md](CLASSIFIER.md). This document specifies `scanno calibrate`.
-Nothing here is built.
+Companion to [CLASSIFIER.md](CLASSIFIER.md). This document specifies `scanno calibrate`,
+which is **built** — see the command below and `tests/test_calibrate.py`. The leave-one-context-out
+validation in [TRAINING.md](TRAINING.md) is not.
+
+```bash
+scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \n                 --species Human --tissue Blood --out calib/
+```
+
+The manifest is a TSV of `path, source_id, label_key, provenance`. Datasets that do not share a
+gene space are **refused** unless `--harmonise` is passed, and the intersection is then reported
+and floored at `--min-shared-genes`: silently intersecting would make the store's coverage depend
+on which atlas loaded first.
 
 ---
 

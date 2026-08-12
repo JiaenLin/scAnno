@@ -29,6 +29,11 @@ NORM = {"target_sum": 1e4, "transform": "log1p"}
 MIN_CELLS_IN_STORE = 10      # a cell type ENTERS the store here
 MIN_CELLS_PRESENT = 50       # ...and counts as PRESENT for grading only here
 
+#: Label provenance that is NOT derived from the markers being calibrated. Anything else -
+#: including unrecorded provenance - is treated as marker-derived, because a provenance
+#: that defaults to clean is how a circular result gets in.
+CLEAN_PROVENANCE = {"sorted", "facs", "genetic", "hashing", "multimodal", "cite-seq", "curated"}
+
 
 def safe_scale(sd):
     """The ONLY route by which a scale becomes a denominator in this package.
@@ -83,6 +88,7 @@ class ProfileStore:
     n_present: np.ndarray                              # datasets with >= MIN_CELLS_PRESENT
     n_sources: np.ndarray                              # INDEPENDENT sources, not datasets
     between_sd: np.ndarray
+    n_clean: np.ndarray = None                         # sources whose labels are not marker-derived
     gene_mu: np.ndarray = field(default=None)
     gene_sd: np.ndarray = field(default=None)
     digest: str = ""
@@ -109,9 +115,13 @@ class ProfileStore:
         type in the store but never well sampled is a real, weak profile.
         """
         src = int(self.n_sources[i])
+        clean = int(self.n_clean[i]) if self.n_clean is not None else 0
         if int(self.n_present[i]) == 0:
             return "C3"
-        if src >= 5:
+        # C1 additionally requires label-clean sources. Atlas labels are usually
+        # marker-derived, and learning from labels assigned by the very markers being
+        # graded measures agreement with prior practice rather than truth.
+        if src >= 5 and clean >= 3:
             return "C1"
         if src >= 3:
             return "C2"
@@ -121,13 +131,19 @@ class ProfileStore:
 def build_store(datasets, context: dict) -> ProfileStore:
     """One streaming pass per dataset. Cells are discarded; only statistics survive.
 
-    `datasets` yields (source_id, gene_symbols, X, celltype_labels). `source_id` groups
-    releases that are NOT independent - same consortium, same donors - because public
-    atlases reuse samples and counting them separately inflates every C grade.
+    `datasets` yields (source_id, gene_symbols, X, celltype_labels[, provenance]).
+
+    `source_id` groups releases that are NOT independent - same consortium, same donors -
+    because public atlases reuse samples and counting them separately inflates every C
+    grade. `provenance` says how the labels were obtained; anything other than sorted,
+    multimodal or curated is treated as marker-derived, and UNKNOWN is never assumed
+    clean.
     """
     genes = None
     per_ct = {}
-    for src, gsym, X, lab in datasets:
+    for entry in datasets:
+        src, gsym, X, lab = entry[:4]
+        prov = (entry[4] if len(entry) > 4 else "unknown")
         g = np.array([str(s).upper() for s in gsym])
         if genes is None:
             genes = g
@@ -149,7 +165,8 @@ def build_store(datasets, context: dict) -> ProfileStore:
             acc = _Accum(len(g))
             acc.add(X[m])
             per_ct.setdefault(ct, []).append(
-                (src, acc.mean(), acc.detect(), n, n >= MIN_CELLS_PRESENT))
+                (src, acc.mean(), acc.detect(), n, n >= MIN_CELLS_PRESENT,
+                 str(prov).lower() in CLEAN_PROVENANCE))
 
     celltypes = sorted(per_ct)
     ng = len(genes)
@@ -159,6 +176,7 @@ def build_store(datasets, context: dict) -> ProfileStore:
     n_cells = np.zeros(len(celltypes))
     n_present = np.zeros(len(celltypes))
     n_sources = np.zeros(len(celltypes))
+    n_clean = np.zeros(len(celltypes))
     for i, ct in enumerate(celltypes):
         rows = per_ct[ct]
         Ms = np.vstack([r[1] for r in rows])
@@ -171,5 +189,6 @@ def build_store(datasets, context: dict) -> ProfileStore:
         n_cells[i] = sum(r[3] for r in rows)
         n_present[i] = sum(1 for r in rows if r[4])
         n_sources[i] = len({r[0] for r in rows if r[4]})
+        n_clean[i] = len({r[0] for r in rows if r[4] and r[5]})
     return ProfileStore(context, genes, celltypes, mean, detect,
-                        n_cells, n_present, n_sources, bsd)
+                        n_cells, n_present, n_sources, bsd, n_clean=n_clean)

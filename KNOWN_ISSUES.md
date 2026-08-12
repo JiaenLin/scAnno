@@ -46,5 +46,13 @@ project does not have.
 
 ## Steps 0, 1 and 3 are specified and not built
 
-Only step 2, the classifier, exists. There is no ingest, no clustering driver, no assign step, no
-report and no task graph.
+Only step 2, the classifier, exists — plus `scanno calibrate`, which is offline and separate.
+There is no ingest, no clustering driver, no assign step, no report and no task graph.
+
+## Calibration is bounded by how many independent sources you have
+
+With one source the partial pooling shrinks node-specific weights most of the way toward the
+gene-level prior, which is correct but means a single-atlas calibration barely reorders anything.
+`C1` additionally requires five sources of which three are label-clean, so a small calibration will
+report `C1 0` and say so. This is a property of the evidence, not a defect, but it does mean the
+command is worth running only when you have several independent atlases.
