@@ -80,28 +80,43 @@ def classify(Z, usable, tree, store=None, assertions=None, gap_min=None):
         while children.get(node):
             kids = children[node]
             if use_corpus:
-                W, order, cover = corpus_node_weights(
+                W, order, cover, _hits, surv = corpus_node_weights(
                     assertions, {k: tree["patterns"][k] for k in kids
                                  if k in tree.get("patterns", {})},
-                    tree["genes"], usable)[:3]
+                    tree["genes"], usable)
             else:
                 W, order, cover = profile_weights(store, tree["members"], kids, usable)
+                surv = None
             if W is None:
                 break
             s = Z[c] @ W
             srt = np.argsort(-s)
             spread = float(np.abs(s).max()) or 1.0
             gap = float(s[srt[0]] - s[srt[1]]) / spread if len(order) > 1 else 1.0
-            trace.append({"at": node, "top": order[srt[0]], "gap": gap})
+            # `survival` travels with the call because the sibling contrast is depth-biased
+            # and could not be de-biased without costing accuracy (scanno/corpus.py). A win on
+            # a panel that lost 40% of its evidence to better-cited neighbours is a weaker
+            # result than the same gap on an intact one, and nothing else in the output says so.
+            trace.append({"at": node, "top": order[srt[0]], "gap": gap,
+                          "survival": (float(surv[srt[0]]) if surv is not None
+                                       else float("nan")),
+                          "cover": (float(cover[srt[0]]) if cover is not None
+                                    else float("nan"))})
             if gap < gap_min:
                 break                                    # TRUNCATE, do not abstain
             node = order[srt[0]]
             path.append(node)
+        # The statistics of the step that produced the LABEL - the last accepted one - not of
+        # the step that truncated. Reporting the failed step's numbers beside a label the
+        # previous step chose describes a decision that was not taken.
+        acc = trace[len(path) - 1] if path else (trace[-1] if trace else None)
         out.append({"cluster": c,
                     "label": path[-1] if path else "UNRESOLVED",
                     "path": "/".join(path) or "UNRESOLVED",
                     "depth": len(path),
                     "gap": trace[-1]["gap"] if trace else 0.0,
+                    "survival": acc["survival"] if acc else float("nan"),
+                    "cover": acc["cover"] if acc else float("nan"),
                     "trace": trace})
     return out
 

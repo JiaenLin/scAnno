@@ -156,9 +156,10 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
         raw.append(col)
         hits.append(n_hit)
     if len(names) < 2:
-        return None, names, None, None
+        return None, names, None, None, None
 
     R = np.vstack(raw)
+    RAW = R.copy()
     if sibling_contrast:
         # Compare shares of each node's own panel, not raw citation weight. See the docstring:
         # the absolute form charged a rare type its neighbour's fame.
@@ -171,6 +172,14 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
                 D[j] = R[j]
         R = D
 
+    # How much of each node's own evidence still carries a claim after the contrast. This is
+    # the depth bias made visible per call: it runs ~91% for a panel of 100+ markers and ~68%
+    # for one under 20, so a call on a low-survival node beat its siblings on a panel that had
+    # already been stripped by better-cited neighbours. The bias could not be removed without
+    # costing accuracy (see the docstring's table), so it is reported instead.
+    surv = np.array([float(RAW[j][R[j] > 0].sum() / RAW[j].sum()) if RAW[j].sum() > 0 else 0.0
+                     for j in range(len(names))])
+
     cols, cover = [], []
     for j in range(len(names)):
         full = R[j].sum()
@@ -181,7 +190,7 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
         # that lost every real marker got scored on housekeeping leftovers.
         cols.append(masked / (full if full > 0 else 1.0))
         cover.append(masked.sum() / (full if full > 0 else 1.0))
-    return np.vstack(cols).T, names, np.array(cover), hits
+    return np.vstack(cols).T, names, np.array(cover), hits, surv
 
 
 def node_support(db, species, tissue, node_patterns, max_tier=2):
