@@ -55,6 +55,26 @@ EXCLUDED = "EXCLUDED"
 #: a threshold and the caller should pass it deliberately.
 FLAG_SHARE = 0.5
 
+#: The two ways a per-cell flag can become an exclusion.
+#:
+#:   CELL     exclude exactly the flagged nuclei. They contribute to no cluster profile and are
+#:            labelled EXCLUDED. Nothing that is not flagged is touched.
+#:   CLUSTER  exclude whole clusters that are at least `share` flagged. Kept because a caller
+#:            may want it; NOT the default.
+#:
+#: WHY CELL IS THE DEFAULT, measured rather than argued. The cluster form excludes nuclei that
+#: carry NO flag, because the cluster around them was mostly flagged: on the cohort this was
+#: written for, 525 of 2,244 excluded nuclei were unflagged - a quarter of the exclusion was
+#: cells that upstream QC had passed, removed for their neighbours.
+#:
+#: It also makes the excluded set a property of the CALLER's clustering granularity rather than
+#: of the flag. The same flags, re-projected through a finer partition, excluded 4,080 nuclei;
+#: through a coarser one, 42. A flag computed once, upstream, must not change meaning because
+#: something downstream chose a different resolution - and 2,154 of the 3,873 flagged nuclei were
+#: kept, so the cluster form was not even a superset of what it was asked to exclude.
+CELL, CLUSTER = "cell", "cluster"
+MODES = (CELL, CLUSTER)
+
 
 class ExclusionMismatch(ValueError):
     """Raised when an exclusion mask cannot be matched to the clustering it is meant to describe.
@@ -90,6 +110,68 @@ def cluster_flags(labels, flagged, n_clusters: int | None = None, *,
         if m.any():
             out[c] = float(flagged[m].mean()) >= share
     return out
+
+
+def unprofilable(labels, keep, n_clusters: int | None = None) -> np.ndarray:
+    """Clusters left with no KEPT cell, as a per-cluster mask.
+
+    The companion to per-CELL exclusion. When the flagged nuclei are dropped from the profile,
+    a cluster all of whose cells were flagged has no profile at all - not a weak one, none - and
+    a walk over it would score a vector of zeros against the tree and return whatever node is
+    closest to nothing. Those clusters are excluded from the walk; every cell in them was flagged
+    anyway, so no unflagged nucleus is affected.
+
+    This is the ONLY cluster-level exclusion the cell mode performs, and it is forced by
+    arithmetic rather than chosen by a threshold.
+    """
+    labels = np.asarray(labels)
+    keep = np.asarray(keep, dtype=bool)
+    if labels.shape != keep.shape:
+        raise ExclusionMismatch(
+            f"labels has {labels.shape[0]} cells and the keep mask has {keep.shape[0]}. "
+            f"They must describe the same cells, in the same order.")
+    k = int(n_clusters if n_clusters is not None else (labels.max() + 1 if labels.size else 0))
+    out = np.zeros(k, dtype=bool)
+    for c in range(k):
+        m = labels == c
+        out[c] = bool(m.any()) and not bool(keep[m].any())
+    return out
+
+
+def exclusion_record_cells(flagged, labels, n_clusters: int | None = None, *,
+                           reason: str) -> dict:
+    """What a per-CELL exclusion removed, in the form a run log can keep.
+
+    Deliberately reports `cells_excluded` as the flag's own count and `passengers` as zero: the
+    number exists so that the two modes can be compared on the one axis that separates them, and
+    a mode that cannot produce passengers should say so rather than leave the field absent.
+    """
+    if not str(reason).strip():
+        raise ValueError(
+            "exclusion_record_cells needs a `reason`. An exclusion whose justification lives "
+            "only in the caller's head is one nobody can review.")
+    flagged = np.asarray(flagged, dtype=bool)
+    labels = np.asarray(labels)
+    if flagged.shape != labels.shape:
+        raise ExclusionMismatch(
+            f"the flag covers {flagged.shape[0]} cells and the labels {labels.shape[0]}.")
+    emptied = unprofilable(labels, ~flagged, n_clusters)
+    total = int(flagged.size)
+    n_out = int(flagged.sum())
+    return {
+        "reason": str(reason),
+        "mode": CELL,
+        "share_threshold": None,
+        "clusters_excluded": [int(i) for i in np.flatnonzero(emptied)],
+        "clusters_kept": int((~emptied).sum()),
+        "cells_excluded": n_out,
+        "cells_total": total,
+        "fraction_excluded": float(n_out / total) if total else 0.0,
+        "passengers": 0,
+        "per_cluster": {int(c): int((flagged & (labels == c)).sum())
+                        for c in np.unique(labels) if int((flagged & (labels == c)).sum())},
+        "label": EXCLUDED,
+    }
 
 
 def as_mask(exclude, n_clusters: int) -> np.ndarray:

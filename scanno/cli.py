@@ -287,7 +287,8 @@ def _annotate(a):
     import numpy as np
     from .classify import classify
     from .corpus import load_assertions
-    from .exclude import EXCLUDED, cluster_flags, exclusion_record
+    from .exclude import (CELL, EXCLUDED, cluster_flags, exclusion_record,
+                          exclusion_record_cells, unprofilable)
     from .query import OOD_MIN_COVERED, cluster_profile, standardise
     from .store import build_store
     try:
@@ -326,30 +327,52 @@ def _annotate(a):
     lab = A.obs[a.cluster_key].astype(str).values
     cats = sorted(set(lab), key=lambda s: (len(s), s))
     y = np.array([cats.index(v) for v in lab])
-    M, D, counts = cluster_profile(X, y, len(cats))
 
-    # --- clusters upstream QC flagged: excluded from the walk, never from the object ---
-    drop, excl = None, None
+    # --- nuclei upstream QC flagged: excluded from the walk, never from the object ---
+    #
+    # TWO MODES, and the default is `cell`. In cell mode the flagged nuclei are dropped from the
+    # PROFILE - they contribute to no cluster's mean and to no detection rate - and are labelled
+    # EXCLUDED individually. In cluster mode a whole cluster goes once it is `share` flagged,
+    # which also takes its unflagged members. See scanno/exclude.py for why cell is the default.
+    drop, excl, flag = None, None, None
     if a.exclude_flag:
         if a.exclude_flag not in A.obs:
             print(f"scanno: {a.h5ad} has no obs column {a.exclude_flag!r}. Boolean columns "
                   f"available: {[c for c in A.obs if A.obs[c].dtype == bool]}", file=sys.stderr)
             return 1
         flag = A.obs[a.exclude_flag].fillna(False).astype(bool).to_numpy()
-        drop = cluster_flags(y, flag, len(cats), share=a.exclude_share)
-        excl = exclusion_record(drop, counts, reason=f"obs[{a.exclude_flag!r}]",
-                                share=a.exclude_share)
-        if not drop.any():
-            print(f"--exclude-flag {a.exclude_flag}: no cluster reaches "
-                  f"{100*a.exclude_share:.0f}% flagged cells; nothing excluded")
-        else:
-            print(f"--exclude-flag {a.exclude_flag}: excluding "
-                  f"{len(excl['clusters_excluded'])} of {len(cats)} clusters, "
-                  f"{excl['cells_excluded']:,} cells "
-                  f"({100*excl['fraction_excluded']:.1f}% of the object). They keep their "
-                  f"place and are labelled {EXCLUDED}; nothing is deleted.")
-            for i in excl["clusters_excluded"]:
-                print(f"    cluster {cats[i]}   {int(counts[i]):,} cells")
+
+    if a.exclude_flag and a.exclude_mode == CELL:
+        # Profiled over the KEPT cells only. This is the whole of the mode: a flagged nucleus
+        # cannot influence the label of the cluster it sat in, because it is not in the mean.
+        M, D, counts = cluster_profile(X[~flag], y[~flag], len(cats))
+        drop = unprofilable(y, ~flag, len(cats))
+        excl = exclusion_record_cells(flag, y, len(cats), reason=f"obs[{a.exclude_flag!r}]")
+        print(f"--exclude-flag {a.exclude_flag} (mode cell): excluding "
+              f"{excl['cells_excluded']:,} flagged nuclei "
+              f"({100*excl['fraction_excluded']:.1f}% of the object), 0 passengers. They keep "
+              f"their place and are labelled {EXCLUDED}; nothing is deleted.")
+        if drop.any():
+            print(f"    {int(drop.sum())} cluster(s) had every cell flagged and cannot be "
+                  f"profiled: {', '.join(cats[i] for i in np.flatnonzero(drop))}")
+    else:
+        M, D, counts = cluster_profile(X, y, len(cats))
+        if a.exclude_flag:
+            drop = cluster_flags(y, flag, len(cats), share=a.exclude_share)
+            excl = exclusion_record(drop, counts, reason=f"obs[{a.exclude_flag!r}]",
+                                    share=a.exclude_share)
+            if not drop.any():
+                print(f"--exclude-flag {a.exclude_flag}: no cluster reaches "
+                      f"{100*a.exclude_share:.0f}% flagged cells; nothing excluded")
+            else:
+                print(f"--exclude-flag {a.exclude_flag} (mode cluster): excluding "
+                      f"{len(excl['clusters_excluded'])} of {len(cats)} clusters, "
+                      f"{excl['cells_excluded']:,} cells "
+                      f"({100*excl['fraction_excluded']:.1f}% of the object), of which "
+                      f"{int((~flag & np.isin(y, excl['clusters_excluded'])).sum()):,} carry no "
+                      f"flag. They keep their place and are labelled {EXCLUDED}.")
+                for i in excl["clusters_excluded"]:
+                    print(f"    cluster {cats[i]}   {int(counts[i]):,} cells")
 
     # The gene background. Without one there is nothing external to standardise against,
     # and a cluster's score becomes a property of what else was sequenced beside it.
@@ -494,6 +517,12 @@ def main(argv=None):
                         "labelled EXCLUDED. Nothing is deleted: the cells keep their place, and "
                         "for a fixed clustering every other cluster gets exactly the label it "
                         "would have got had these cells never been there")
+    s.add_argument("--exclude-mode", choices=("cell", "cluster"), default="cell",
+                   help="'cell' (default) excludes exactly the flagged nuclei: they contribute "
+                        "to no cluster profile and are labelled EXCLUDED. 'cluster' excludes "
+                        "whole clusters that are --exclude-share flagged, which also removes "
+                        "their unflagged members and makes the excluded set depend on this "
+                        "run's clustering granularity")
     s.add_argument("--exclude-share", type=float, default=0.5, metavar="F",
                    help="share of a cluster's cells that must carry the flag before the CLUSTER "
                         "counts as flagged (default 0.5, a majority)")

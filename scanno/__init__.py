@@ -9,8 +9,8 @@ from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_node
                        node_profiles, profile_weights)
 from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertions,
                      node_weights)
-from .exclude import (EXCLUDED, FLAG_SHARE, ExclusionMismatch, as_mask, cluster_flags,
-                      exclusion_record)
+from .exclude import (CELL, CLUSTER, EXCLUDED, FLAG_SHARE, MODES, ExclusionMismatch, as_mask,
+                      cluster_flags, exclusion_record, exclusion_record_cells, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
 from .query import DETECT_FLOOR, cluster_profile, standardise
 from .resolution import (derived_tolerance, format_report, pick_resolution,
@@ -29,7 +29,7 @@ __all__ = [
     "sweep_stability", "pick_resolution", "derived_tolerance", "format_report",
     "cluster_neighbourhood", "label_flow",
     "cluster_flags", "exclusion_record", "as_mask", "EXCLUDED", "FLAG_SHARE",
-    "ExclusionMismatch",
+    "ExclusionMismatch", "unprofilable", "exclusion_record_cells", "CELL", "CLUSTER", "MODES",
     "__version__",
 ]
 
