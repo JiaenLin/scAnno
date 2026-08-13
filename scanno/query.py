@@ -27,7 +27,7 @@ def cluster_profile(X, labels: np.ndarray, n_clusters: int):
     return M / denom, D / denom, counts
 
 
-def standardise(M, D, query_genes, store):
+def standardise(M, D, query_genes, store, exclude=None):
     """`Z` in the STORE's gene space, standardised against the store's gene background.
 
     Returns (Z, usable, stats).
@@ -44,11 +44,25 @@ def standardise(M, D, query_genes, store):
 
     The detection floor is per CLUSTER. A dataset-wide floor cannot be cleared by a
     population smaller than the floor, so it deleted rare cell types by construction.
+
+    `exclude` - a per-cluster boolean mask, or cluster indices - is the ONE place property 1
+    does not already hold. The usable-gene set is `any` over clusters, so without it a cluster
+    the caller had excluded could still be the sole reason a gene was admitted, and the labels
+    of the kept clusters would depend on the one that was removed. Excluded rows are still
+    standardised and returned; `classify` decides not to walk them. See `scanno/exclude.py`.
     """
+    from .exclude import as_mask
+
     qg = np.array([str(g).upper() for g in query_genes])
     pos = {str(g): i for i, g in enumerate(store.genes)}
     in_store = np.array([g in pos for g in qg])
-    detected = (D >= DETECT_FLOOR).any(axis=0)
+    drop = as_mask(exclude, D.shape[0])
+    D_admit = D[~drop] if drop.any() else D
+    if not D_admit.size:
+        raise ValueError(
+            "every cluster is excluded - there is nothing left to admit genes from, so no "
+            "annotation is possible. Check the flag before the clustering.")
+    detected = (D_admit >= DETECT_FLOOR).any(axis=0)
     usable_q = in_store & detected
     sidx = np.array([pos[g] for g in qg[usable_q]], dtype=int)
 
@@ -65,5 +79,8 @@ def standardise(M, D, query_genes, store):
         "genes_usable": int(usable.sum()),
         # Of what the query actually expresses, how much can the store speak to?
         "ood_covered": float((in_store & detected).sum() / max(detected.sum(), 1)),
+        # Named even when nothing is excluded, so a reader of the stats can tell "no clusters
+        # were excluded" from "this run predates the option".
+        "clusters_excluded": int(drop.sum()),
     }
     return Z, usable, stats

@@ -64,18 +64,35 @@ def missing_nodes(store, members_of):
     return {n: ms for n, ms in members_of.items() if not (set(ms) & have)}
 
 
-def classify(Z, usable, tree, store=None, assertions=None, gap_min=None):
+def classify(Z, usable, tree, store=None, assertions=None, gap_min=None, exclude=None):
     """Walk the tree per cluster. Weights from profiles if a store is given, else corpus.
 
     `tree` is {"children": {node: [child, ...]}, "members": {...}, "patterns": {...}}.
     `members` maps a node to store cell-type names; `patterns` to corpus name substrings.
+
+    `exclude` - a per-cluster boolean mask, or cluster indices - names clusters upstream QC
+    flagged. They are NOT walked and receive the sentinel label `EXCLUDED`, which is not a cell
+    type. Every cluster still appears in the output, in order, carrying `excluded: True`: a
+    caller that drops rows loses the record of what was removed, and a caller that reindexes
+    silently mislabels everything after the first gap. Pass the same mask to `standardise`, or
+    an excluded cluster can still decide which genes are usable - see `scanno/exclude.py`.
     """
+    from .exclude import EXCLUDED, as_mask
+
     use_corpus = store is None or assertions is not None
     if gap_min is None:
         gap_min = GAP_CORPUS if use_corpus else GAP_PROFILE
     children = tree["children"]
+    drop = as_mask(exclude, Z.shape[0])
     out = []
     for c in range(Z.shape[0]):
+        if drop[c]:
+            # No walk, no gap, no survival. A number here would be a statistic about a decision
+            # that was not taken, and would sort and average alongside ones that were.
+            out.append({"cluster": c, "label": EXCLUDED, "path": EXCLUDED, "depth": 0,
+                        "gap": float("nan"), "survival": float("nan"),
+                        "cover": float("nan"), "excluded": True, "trace": []})
+            continue
         node, path, trace = "root", [], []
         while children.get(node):
             kids = children[node]
@@ -117,6 +134,7 @@ def classify(Z, usable, tree, store=None, assertions=None, gap_min=None):
                     "gap": trace[-1]["gap"] if trace else 0.0,
                     "survival": acc["survival"] if acc else float("nan"),
                     "cover": acc["cover"] if acc else float("nan"),
+                    "excluded": False,
                     "trace": trace})
     return out
 

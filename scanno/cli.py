@@ -287,6 +287,7 @@ def _annotate(a):
     import numpy as np
     from .classify import classify
     from .corpus import load_assertions
+    from .exclude import EXCLUDED, cluster_flags, exclusion_record
     from .query import OOD_MIN_COVERED, cluster_profile, standardise
     from .store import build_store
     try:
@@ -327,6 +328,29 @@ def _annotate(a):
     y = np.array([cats.index(v) for v in lab])
     M, D, counts = cluster_profile(X, y, len(cats))
 
+    # --- clusters upstream QC flagged: excluded from the walk, never from the object ---
+    drop, excl = None, None
+    if a.exclude_flag:
+        if a.exclude_flag not in A.obs:
+            print(f"scanno: {a.h5ad} has no obs column {a.exclude_flag!r}. Boolean columns "
+                  f"available: {[c for c in A.obs if A.obs[c].dtype == bool]}", file=sys.stderr)
+            return 1
+        flag = A.obs[a.exclude_flag].fillna(False).astype(bool).to_numpy()
+        drop = cluster_flags(y, flag, len(cats), share=a.exclude_share)
+        excl = exclusion_record(drop, counts, reason=f"obs[{a.exclude_flag!r}]",
+                                share=a.exclude_share)
+        if not drop.any():
+            print(f"--exclude-flag {a.exclude_flag}: no cluster reaches "
+                  f"{100*a.exclude_share:.0f}% flagged cells; nothing excluded")
+        else:
+            print(f"--exclude-flag {a.exclude_flag}: excluding "
+                  f"{len(excl['clusters_excluded'])} of {len(cats)} clusters, "
+                  f"{excl['cells_excluded']:,} cells "
+                  f"({100*excl['fraction_excluded']:.1f}% of the object). They keep their "
+                  f"place and are labelled {EXCLUDED}; nothing is deleted.")
+            for i in excl["clusters_excluded"]:
+                print(f"    cluster {cats[i]}   {int(counts[i]):,} cells")
+
     # The gene background. Without one there is nothing external to standardise against,
     # and a cluster's score becomes a property of what else was sequenced beside it.
     if a.store:
@@ -348,7 +372,9 @@ def _annotate(a):
               "        independent of its composition.", file=sys.stderr)
         return REFUSE
 
-    Z, usable, st = standardise(M, D, genes, store)
+    # `drop` goes to BOTH: the usable-gene set is `any` over clusters, so without it here an
+    # excluded cluster still decides which genes the kept ones are scored on.
+    Z, usable, st = standardise(M, D, genes, store, exclude=drop)
     if st["ood_covered"] < OOD_MIN_COVERED:
         print(f"scanno: REFUSE - the background covers only "
               f"{100*st['ood_covered']:.0f}% of the genes this object expresses "
@@ -365,7 +391,7 @@ def _annotate(a):
             return REFUSE
     tree["genes"] = store.genes
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
-                   gap_min=a.gap_min)
+                   gap_min=a.gap_min, exclude=drop)
 
     support = {}
     if a.db:
@@ -462,6 +488,15 @@ def main(argv=None):
     s.add_argument("--store", type=Path, help="store.npz from `scanno calibrate`")
     s.add_argument("--background-from-clusters", action="store_true",
                    help="derive the gene background from this object; reported as REVIEW")
+    s.add_argument("--exclude-flag", metavar="OBS_COLUMN",
+                   help="obs column marking cells whose CLUSTER upstream QC flagged - doublet- "
+                        "or debris-dominated, say. Flagged clusters are not walked and are "
+                        "labelled EXCLUDED. Nothing is deleted: the cells keep their place, and "
+                        "for a fixed clustering every other cluster gets exactly the label it "
+                        "would have got had these cells never been there")
+    s.add_argument("--exclude-share", type=float, default=0.5, metavar="F",
+                   help="share of a cluster's cells that must carry the flag before the CLUSTER "
+                        "counts as flagged (default 0.5, a majority)")
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
