@@ -25,6 +25,93 @@ def _selftest(_):
     return subprocess.call([sys.executable, str(t)])
 
 
+def _http_presets():
+    from .agent import HTTPProvider
+    return HTTPProvider.PRESETS
+
+
+def _agent(a):
+    """A second opinion on each cluster, from a model you supply. Never replaces `annotate`."""
+    import csv as _csv
+
+    import anndata as ad
+    import numpy as np
+
+    from . import (check_gene_space, classify, cluster_profile, load_assertions,
+                   standardise)
+    from .agent import CommandProvider, HTTPProvider, agreement, annotate_agentic
+    from .store import build_store
+
+    if a.command:
+        if a.web:
+            print("scanno: --web applies to hosted providers. A --command agent brings its own "
+                  "tools; scAnno neither adds nor removes them.", file=sys.stderr)
+            return REFUSE
+        prov = CommandProvider(a.command, model=a.model)
+    else:
+        try:
+            prov = HTTPProvider(preset=a.provider, model=a.model, url=a.url,
+                                temperature=a.temperature, web=a.web)
+        except (RuntimeError, ValueError) as e:
+            print(f"scanno: {e}", file=sys.stderr)
+            return REFUSE
+    print(f"provider {prov.name}  model {getattr(prov, 'model', '?')}  votes {a.votes}"
+          f"  web {'on' if getattr(prov, 'web', False) else 'off'}")
+
+    A = ad.read_h5ad(a.object)
+    genes = np.array([str(v).upper() for v in
+                      (A.var["gene_symbol"] if "gene_symbol" in A.var else A.var_names)])
+    lab = A.obs[a.cluster_key].astype(str).values
+    cats = sorted(set(lab), key=lambda v: (len(v), v))
+    y = np.array([cats.index(v) for v in lab])
+    M, D, counts = cluster_profile(A.X, y, len(cats))
+
+    tree = json.loads(a.tree.read_text(encoding="utf-8"))
+    store = build_store([("query", genes, A.X, lab)],
+                        {"species": a.species, "tissue": a.tissue, "assay": a.assay})
+    Z, usable, _ = standardise(M, D, genes, store)
+    tree["genes"] = store.genes
+
+    corpus = None
+    if a.db:
+        asr = load_assertions(str(a.db), a.species, a.tissue, min_tier=4)
+        check_gene_space(asr, store.genes)
+        corpus = classify(Z, usable, tree, store=None, assertions=asr)
+        print("the corpus call is computed for COMPARISON and is never shown to the model")
+
+    rows = annotate_agentic(prov, Z, usable, store.genes, tree, db=a.db, top_n=a.top_n,
+                            votes=a.votes, species=a.species, tissue=a.tissue, assay=a.assay,
+                            corpus_calls=corpus, log=print)
+    for r, c in zip(rows, cats):
+        r["cluster_id"], r["n_cells"] = c, int(counts[r["cluster"]])
+
+    cols = ["cluster_id", "n_cells", "tier", "resolved", "cl", "label", "confidence",
+            "consensus", "votes", "reason", "corpus_path", "comparable", "agrees",
+            "provider", "model", "prompt_sha", "top_genes", "error", "raw"]
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    with a.out.open("w", encoding="utf-8", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    print(f"wrote {a.out}")
+    ag = agreement(rows)
+    if corpus is not None and ag["n_comparable"]:
+        print(f"\non the taxonomy, where the agent used it: {ag['agree']:.0%} of "
+              f"{ag['n_comparable']} clusters agree with the corpus")
+        for c, cp, al in ag["disagreements"]:
+            print(f"  cluster {cats[c]:<6} corpus {cp:<38} agent {al}")
+    if ag["off_tree"]:
+        print(f"\n{len(ag['off_tree'])} cluster(s) the agent placed OUTSIDE the taxonomy. "
+              f"These are not disagreements - they say the tree has no word for this:")
+        for c, tier, lab, cl, cp in ag["off_tree"]:
+            print(f"  cluster {cats[c]:<6} [{tier}] {lab}{f' [{cl}]' if cl else ''}"
+                  f"{f'   corpus called it {cp}' if cp else ''}")
+    print("\nNothing here changed a classifier call. `scanno annotate` is unaffected; this is a "
+          "second column to read beside it.")
+    return 0
+
+
 def _resolution(a):
     """Choose a resolution from an already-annotated sweep. Reads obs only."""
     import anndata as ad
@@ -411,6 +498,45 @@ def main(argv=None):
     s = sub.add_parser("store-info", help="describe a saved profile store")
     s.add_argument("--store", required=True, type=Path)
     s.set_defaults(fn=_store_info)
+
+    s = sub.add_parser("agent",
+                       help="a second opinion per cluster from a model you supply. Never "
+                            "replaces `annotate` - it writes a separate table")
+    s.add_argument("object", type=Path, help="clustered .h5ad")
+    s.add_argument("--cluster-key", default="leiden_1.0")
+    s.add_argument("--tree", required=True, type=Path,
+                   help="declared tree, JSON. The PREFERRED vocabulary, not a closed one: the "
+                        "model answers freely and the reply is resolved onto a node via the "
+                        "tree's synonym patterns, onto a standard cell type name, or kept "
+                        "verbatim as a proposal")
+    s.add_argument("--db", type=Path,
+                   help="CellMarker db. Supplies three things: what the corpus knows about each "
+                        "cluster's genes (shown to the model), the standard cell type names and "
+                        "Cell Ontology ids for this tissue (offered to the model), and the "
+                        "corpus call itself (used for comparison and NEVER shown to it)")
+    s.add_argument("--species", required=True)
+    s.add_argument("--tissue", required=True)
+    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--provider", default="openai", choices=sorted(_http_presets()),
+                   help="hosted API; the key comes from the environment and is never stored")
+    g.add_argument("--command", help="BRING YOUR OWN AGENT: any command that reads the prompt "
+                                     "on stdin and writes the reply on stdout, e.g. "
+                                     "--command 'ollama run llama3'")
+    s.add_argument("--model")
+    s.add_argument("--url", help="override the endpoint for an OpenAI-compatible server")
+    s.add_argument("--temperature", type=float, default=0.0)
+    s.add_argument("--web", action="store_true",
+                   help="let a hosted provider search the web. Refused for a provider this "
+                        "package has no tool block for, rather than silently ignored. A "
+                        "--command agent brings its own tools and this flag does not apply")
+    s.add_argument("--top-n", type=int, default=30, dest="top_n",
+                   help="genes shown per cluster (default 30)")
+    s.add_argument("--votes", type=int, default=1,
+                   help="ask each cluster this many times and report the agreement rate. A "
+                        "label that changes between identical calls is a finding")
+    s.add_argument("--out", type=Path, default=Path("scanno_agent.csv"))
+    s.set_defaults(fn=_agent)
 
     s = sub.add_parser("resolution",
                        help="choose a clustering resolution from an annotated sweep")
