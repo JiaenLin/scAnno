@@ -10,6 +10,8 @@ from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_node
 from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertions,
                      node_weights)
 from .query import DETECT_FLOOR, cluster_profile, standardise
+from .resolution import (derived_tolerance, format_report, pick_resolution,
+                         sweep_stability)
 from .store import NORM, ProfileStore, build_store, safe_scale
 
 __version__ = "0.1.0"
@@ -20,5 +22,7 @@ __all__ = [
     "load_assertions", "node_weights", "TIER_W", "check_gene_space",
     "GeneSpaceMismatch",
     "classify", "node_profiles", "profile_weights", "missing_nodes", "gate_auc",
-    "GAP_PROFILE", "GAP_CORPUS", "__version__",
+    "GAP_PROFILE", "GAP_CORPUS",
+    "sweep_stability", "pick_resolution", "derived_tolerance", "format_report",
+    "__version__",
 ]

@@ -25,6 +25,51 @@ def _selftest(_):
     return subprocess.call([sys.executable, str(t)])
 
 
+def _resolution(a):
+    """Choose a resolution from an already-annotated sweep. Reads obs only."""
+    import anndata as ad
+    import numpy as np
+
+    from .resolution import format_report, pick_resolution
+
+    depths = tuple(int(x) for x in str(a.depths).split(",") if x.strip())
+    labels, clusters, groups, res = {}, {}, [], None
+    for path in a.objects:
+        A = ad.read_h5ad(path, backed="r")
+        cols = [c for c in A.obs.columns if c.startswith(a.prefix)]
+        got = [c[len(a.prefix):] for c in cols]
+        if res is None:
+            res = got
+        elif got != res:
+            print(f"scanno: {path} carries resolutions {got}, expected {res}. A sweep pooled "
+                  f"across objects must be the same sweep in each.", file=sys.stderr)
+            return REFUSE
+        if not res:
+            print(f"scanno: no obs column starts with {a.prefix!r} in {path}", file=sys.stderr)
+            return REFUSE
+        tag = Path(path).stem
+        groups.append(A.obs[a.group_key].astype(str).values
+                      if a.group_key in A.obs else np.full(A.n_obs, tag))
+        for r, c in zip(res, cols):
+            labels.setdefault(r, []).append(A.obs[c].astype(str).values)
+            # Cluster ids are per object; qualify them or every object's cluster 0 merges.
+            ck = a.cluster_prefix + r.replace("p", ".")
+            if ck in A.obs:
+                clusters.setdefault(r, []).append(
+                    np.char.add(tag + ":", A.obs[ck].astype(str).values))
+
+    labels = {r: np.concatenate(v) for r, v in labels.items()}
+    clusters = ({r: np.concatenate(v) for r, v in clusters.items()}
+                if len(clusters) == len(labels) else None)
+    tree = json.loads(a.tree.read_text(encoding="utf-8")) if a.tree else None
+    if tree is None:
+        print("  no --tree given: completeness is not measured and that tie-break is skipped")
+    out = pick_resolution(labels, tree=tree, groups=np.concatenate(groups), depths=depths,
+                          clusters_by_res=clusters)
+    print(format_report(out, depths=depths))
+    return 0
+
+
 def _read_manifest(path):
     """TSV: path, source_id, label_key, provenance. One row per annotated dataset.
 
@@ -366,6 +411,25 @@ def main(argv=None):
     s = sub.add_parser("store-info", help="describe a saved profile store")
     s.add_argument("--store", required=True, type=Path)
     s.set_defaults(fn=_store_info)
+
+    s = sub.add_parser("resolution",
+                       help="choose a clustering resolution from an annotated sweep")
+    s.add_argument("objects", nargs="+", type=Path,
+                   help="annotated .h5ad file(s), pooled - which is what you want when "
+                        "clustering was done per sample")
+    s.add_argument("--prefix", default="scanno_path_r",
+                   help="obs column prefix; the rest of the name is the resolution")
+    s.add_argument("--tree", type=Path,
+                   help="declared tree, JSON. Without it completeness cannot be measured and "
+                        "that tie-break is skipped rather than guessed")
+    s.add_argument("--depths", default="1,2",
+                   help="tree depths the choice must serve (default 1,2)")
+    s.add_argument("--group-key", default="sample",
+                   help="obs column naming the biological unit, for rare-label presence")
+    s.add_argument("--cluster-prefix", default="leiden_",
+                   help="obs prefix for cluster ids, used only for the parsimony tie-break. "
+                        "Absent, distinct labels are counted and are SAID to be")
+    s.set_defaults(fn=_resolution)
 
     a = p.parse_args(argv)
     return a.fn(a)
