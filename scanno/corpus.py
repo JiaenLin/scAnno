@@ -80,7 +80,7 @@ def check_gene_space(assertions, genes, min_overlap=50):
 
 
 def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
-                 sibling_contrast=True):
+                 sibling_contrast=True, relative_contrast=False):
     """genes x nodes, from the corpus alone.
 
     SIBLING CONTRAST — the untrained path's fix, and it needs no atlas.
@@ -101,6 +101,37 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
     evidence; it never argues against a node.
 
     A node left with nothing keeps its raw panel rather than becoming unscoreable.
+
+    THE CONTRAST IS DEPTH-BIASED, THIS IS MEASURED, AND FIVE FIXES ALL FAILED
+
+    `w_bib` carries `ln(1 + n_pmids)`, so a well-studied cell type has a larger number for
+    the SAME gene simply because more papers mention it, and an absolute subtraction charges
+    a rare type its neighbour's fame. On mouse heart: panels of >=100 markers keep 91% of
+    their mass through the contrast, panels of <20 keep 68%, corr(log10 panel size,
+    survival) = +0.37. Lymphatic endothelial loses ALL SIX of its markers to Vascular
+    endothelial; Monocyte keeps 41% against Macrophage; Endocardial 48%.
+
+    That is a real bias and every attempt to remove it cost accuracy on PBMC, self-test and
+    independent (`--relative-contrast` and three reweightings):
+
+        weighting / contrast          bias r    3k self         68k independent
+        tier x ln(pmids), absolute    +0.37     8 ex, 0 wrong   6 ex, 1 wrong   <- shipped
+        tier x ln(pmids), RELATIVE    -0.46     7 ex, 0 wrong   6 ex, 2 wrong
+        tier only,        absolute    +0.46     6 ex, 0 wrong   7 ex, 1 wrong
+        tier x specificity            +0.37     8 ex, 0 wrong   6 ex, 2 wrong
+        tier x pmids x specificity    +0.26     8 ex, 0 wrong   6 ex, 2 wrong
+
+    Two things worth reading off that table. The relative form REVERSES the bias rather than
+    removing it (+0.37 to -0.46) - small panels then win genes they share with large ones,
+    and Macrophage drops from 95% survival to 77%. And dropping the publication term, the
+    obvious suspect, makes the bias WORSE, not better: the depth advantage is not mainly
+    coming from citation counts.
+
+    So the shipped weighting is the least-bad of five measured, not a solution. The bias is
+    a known limitation of a curated corpus - rare types genuinely have narrower panels - and
+    it is reported per call through `cover` and `node_support` rather than corrected away.
+    `relative_contrast=True` is kept so the alternative can be re-measured on another corpus,
+    not because it is recommended here.
     """
     gi = {str(g): i for i, g in enumerate(genes)}
     names, raw, hits = [], [], []
@@ -129,10 +160,13 @@ def node_weights(assertions, node_patterns, genes, usable, min_markers=3,
 
     R = np.vstack(raw)
     if sibling_contrast:
+        # Compare shares of each node's own panel, not raw citation weight. See the docstring:
+        # the absolute form charged a rare type its neighbour's fame.
+        C = (R / np.maximum(R.sum(axis=1, keepdims=True), 1e-12)) if relative_contrast else R
         D = np.empty_like(R)
         for j in range(len(names)):
-            others = np.delete(R, j, axis=0)
-            D[j] = np.clip(R[j] - others.max(axis=0), 0.0, None)
+            others = np.delete(C, j, axis=0)
+            D[j] = np.clip(C[j] - others.max(axis=0), 0.0, None)
             if D[j].sum() <= 0:
                 D[j] = R[j]
         R = D
