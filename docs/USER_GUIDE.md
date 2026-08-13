@@ -94,6 +94,38 @@ level-3 nodes often rest on a handful, and nothing in the score reflects that.
 | `the background covers only N%` | fewer than 30% of expressed genes are in the background | use a background built for this tissue and assay |
 | `the corpus has nothing for X/Y` | no assertions at `--min-tier` | check `scanno panel`; try a neighbouring tissue name |
 
+### Withholding what upstream QC flagged
+
+```bash
+scanno annotate ... --exclude-flag cluster_FLAG          # boolean obs column
+scanno annotate ... --exclude-flag cluster_FLAG --exclude-mode cluster --exclude-share 0.5
+```
+
+| | |
+|---|---|
+| `--exclude-flag COL` | a boolean `obs` column. Its nuclei are withheld from the walk and labelled `EXCLUDED` |
+| `--exclude-mode` | **`cell`** (default) withholds exactly those nuclei. `cluster` withholds whole clusters that are `--exclude-share` flagged |
+| `--exclude-share F` | `cluster` mode only. Ignored in `cell` mode, where there is no share to set |
+
+**Nothing is deleted.** Every nucleus keeps its place in the object and its counts; only its label
+changes, and re-running without the flag restores it. `EXCLUDED` is upper case and is not a cell
+type in any taxonomy, so a consumer that treats it as one is making an obvious error rather than
+a quiet one.
+
+**Why `cell` is the default.** In `cluster` mode an unflagged nucleus is withheld when the cluster
+around it is mostly flagged. On one cohort that was 525 of 2,244 withheld nuclei — a quarter of
+the exclusion was cells the upstream QC had *passed*. It also makes the withheld set depend on
+your clustering: the same flags gave 42 nuclei at resolution 0.25 and 4,080 at 2.0, and at the
+resolution in use it withheld only 1,719 of the 3,873 nuclei that were actually flagged.
+
+In `cell` mode the withheld nuclei are dropped from the cluster **profile**, so they contribute to
+no mean and no detection rate and cannot influence any other nucleus's label. One cluster-level
+consequence remains and is unavoidable: a cluster whose every member was flagged has no profile
+at all and is not walked. It is reported, not silent.
+
+**What it cannot tell you** is whether the flag was right. scAnno takes that decision as input and
+demands a `reason` with it.
+
 ---
 
 ## `scanno panel`

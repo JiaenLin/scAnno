@@ -3,15 +3,17 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.1.0--dev-orange.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.2.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.1.0-dev` this is a validated
-> prototype, not a pipeline. `scanno annotate` and `scanno calibrate` work and are tested; there
-> is no clustering driver, no report and no task graph.
+> **Read [Status](#status) before planning anything.** At `0.2.0` this is a validated
+> prototype, not a pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are
+> tested, and `--exclude-flag` withholds what upstream QC marked without deleting it. There is
+> still no ingest step, no assign step, no report and no task graph, and the validation remains
+> human blood — see [Status](#status) before trusting it on anything else.
 
 ---
 
@@ -71,6 +73,41 @@ The untrained path costs one exact call and one extra coarse label. It makes no 
 Four, not eight. scQC needs eight because each gates a deletion and deletions compound; nothing in
 annotation compounds, and a label is replaced by re-running.
 
+## Excluding what upstream QC flagged
+
+Upstream QC often marks nuclei it considers technical. Annotating them produces a label, and a
+label is indistinguishable downstream from one anybody should believe.
+
+```bash
+scanno annotate ... --exclude-flag cluster_FLAG        # an obs column of booleans
+```
+
+The flagged nuclei are dropped from the cluster **profile** — they contribute to no mean and no
+detection rate, so they cannot influence any other nucleus's label — and each is labelled
+`EXCLUDED`, a sentinel that is not a cell type in any taxonomy. **Nothing is deleted:** every
+nucleus keeps its place in the object, and the exclusion is undone by re-running without the flag.
+
+**`--exclude-mode cell` is the default, and the alternative is kept only because it existed.**
+`cluster` excludes a whole cluster once `--exclude-share` of it is flagged, which has two costs
+that the cell mode does not:
+
+| | `cell` (default) | `cluster` |
+|---|---|---|
+| excludes | exactly the flagged nuclei | whole clusters ≥ share flagged |
+| unflagged nuclei removed | **none** | on one cohort, **525 of 2,244** — a quarter of the exclusion |
+| depends on your clustering | no | yes: the same flags gave **42** nuclei at resolution 0.25 and **4,080** at 2.0 |
+| covers the flag | fully | no — 2,154 of 3,873 flagged nuclei were *kept*, being in clusters under the share |
+
+A flag computed once, upstream, should not change meaning because something downstream chose a
+different resolution. The only cluster-level exclusion `cell` performs is a cluster whose every
+member was flagged: it has no profile at all, so it cannot be walked — arithmetic, not a
+threshold.
+
+**What this cannot do** is tell you whether the flag was right. scAnno takes the decision as
+input, demands a reason with it, and reports which clusters were emptied and what it cost. Whether
+a flagged nucleus is damaged or is a cell type your QC does not expect is not a question this tool
+can answer.
+
 ## What is deliberately absent
 
 Each was built, measured and removed. Listed so they do not come back without new evidence.
@@ -122,18 +159,23 @@ yourself, the same way scQC ships a reference registry and not a genome.
 
 ## Status
 
-**0.1.0-dev.** Precise, because a tool that overstates itself does damage quietly.
+**0.2.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
+checked against the tree rather than remembered.
 
 | | |
 |---|---|
 | ✅ **built and tested** | the classifier: store, gene background, corpus weights, rooted walk with truncation. `tests/test_adversarial.py` re-runs every attack that found a defect. |
 | ✅ **validated** | PBMC, two datasets, 18 populations, zero errors on both paths. One of the two is independent with FACS labels. |
 | ⚠️ **one tissue, one species** | human blood. Every number is an existence proof, not a range. |
-| ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. |
+| ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. **It is nevertheless being used on single-nucleus data**, which is a limitation of that use and not a property this tool has earned. |
 | ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
 | ✅ **calibration** | `scanno calibrate` builds the store, learns bounded marker reliability and emits the reordered panels. Tested on synthetic data in `tests/test_calibrate.py`. |
-| ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `selftest`. Exit code 2 is a refusal. |
-| ❌ **no clustering driver, no report, no task graph** | steps 0, 1 and 3 are specified and not built. Only step 2 exists. |
+| ✅ **exclusion** | `--exclude-flag` withholds what upstream QC flagged, per nucleus by default, without deleting anything. `tests/test_exclude.py` asserts equivalence to deletion; `tests/test_exclude_cell.py` asserts the excluded set is exactly the flag at any clustering granularity. |
+| ✅ **resolution** | `scanno resolution` picks a clustering resolution from the annotation rather than from the geometry, with a derived tolerance. |
+| ✅ **kNN diagnostic** | `cluster_neighbourhood` / `label_flow` ask whether the annotation respects the manifold. It changes no call. |
+| ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |
+| ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `resolution`, `agent`, `selftest`. Exit code 2 is a refusal. |
+| ❌ **no ingest, no assign step, no report, no task graph** | steps 0 and 3 are specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
 
 ## Licence
