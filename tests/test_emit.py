@@ -234,6 +234,42 @@ print("\n11 - the report puts what blocks a viewer first")
 lines = format_readiness(lab_readiness(toy(embedding=False), "scanno_cell_type"))
 check("MISSING sorts above ok", "MISSING" in lines[0], lines[0] if lines else "")
 
+
+print("\n12 - the written object is keyed by SYMBOL, and no gene is merged into another")
+from scanno.emit import format_reindex, reindex_by_symbol  # noqa: E402
+
+D = toy(n=20, g=6)
+D.var_names = [f"ENSMUSG{i:011d}" for i in range(D.n_vars)]
+# Two accessions share `Myh6`, one has no symbol at all. Both are real: this reference has 43
+# shared symbols, which is exactly why the object is keyed by accession in the first place.
+D.var["gene_symbol"] = ["Myh6", "Myh6", "Tnnt2", "Pecam1", "", "Dcn"]
+acc = list(map(str, D.var_names))
+counts_before = D.X.copy()
+rep = reindex_by_symbol(D)
+
+check("it applied", rep["applied"])
+check("no gene was merged: the row count is unchanged", D.n_vars == 6, str(D.n_vars))
+check("and the matrix is untouched", (D.X != counts_before).nnz == 0)
+check("the duplicate is disambiguated, not dropped",
+      sorted(str(v) for v in D.var_names if str(v).startswith("Myh6")) == ["Myh6", "Myh6-1"],
+      str(list(D.var_names)))
+check("it is reported as shared rather than passed over",
+      rep["n_duplicate_symbols"] == 1 and rep["n_rows_sharing_a_symbol"] == 2, str(rep))
+check("the gene with no symbol keeps its accession", acc[4] in list(map(str, D.var_names)))
+check("and that is reported too", rep["n_without_symbol"] == 1, str(rep))
+check("the accession is preserved, so the mapping is reversible",
+      list(D.var["gene_id"].astype(str)) == acc)
+check("var_names are unique", rep["unique"])
+lines = format_reindex(rep)
+check("the report says merging would sum two genes",
+      any("sum two genes" in ln for ln in lines), str(lines))
+
+E = toy(n=20, g=6)
+before = list(map(str, E.var_names))
+rep2 = reindex_by_symbol(E, key="not_a_column")
+check("a missing column changes nothing", not rep2["applied"]
+      and list(map(str, E.var_names)) == before, str(rep2))
+
 print("\n" + "=" * 64)
 if fails:
     print(f"emit: {len(fails)} FAILED - " + ", ".join(fails))

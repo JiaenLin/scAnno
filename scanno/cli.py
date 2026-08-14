@@ -493,11 +493,20 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
-    from .emit import annotate_obs, format_readiness, lab_readiness
+    from .emit import (annotate_obs, format_readiness, format_reindex, lab_readiness,
+                       reindex_by_symbol)
 
     if a.out_h5ad:
         written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
                                support=support or None, suffix=a.label_suffix)
+        # The WRITTEN object is keyed by symbol, because that is the name a reader looks a
+        # gene up by. Accessions are the right index for an object being computed on - symbols
+        # are not unique - so the change is made here, at the boundary, and never silently: the
+        # accession is preserved and every duplicated symbol keeps its own row.
+        if a.out_gene_key:
+            rep = reindex_by_symbol(A, key=a.out_gene_key)
+            for line in format_reindex(rep):
+                print(line)
         Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
         A.write_h5ad(a.out_h5ad, compression="gzip")
         print("")
@@ -860,6 +869,12 @@ def main(argv=None):
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
     s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    s.add_argument("--out-gene-key", metavar="VAR_COLUMN", default="gene_symbol",
+                   help="var column to key the WRITTEN object by (default gene_symbol). "
+                        "Accessions are the right index to compute on because symbols are not "
+                        "unique, but a reader looks a gene up by symbol. Duplicated symbols keep "
+                        "every row and are disambiguated; the accession is preserved in "
+                        "var['gene_id']. Pass an empty string to leave var_names alone")
     s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
                    help="var column holding the gene names, defaulting to var['gene_symbol'] "
                         "when present. Must match what `annotate` uses or the background "

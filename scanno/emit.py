@@ -131,6 +131,76 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     return written
 
 
+def reindex_by_symbol(adata, key="gene_symbol", keep_as="gene_id"):
+    """Re-index `var` by the symbol column, without ever merging two genes into one.
+
+    An object is usually keyed by accession because SYMBOLS ARE NOT UNIQUE - this reference has
+    43 symbols shared by more than one accession - and a reader that wants to look up `Myh6`
+    should not have to know that. So the written object is keyed by symbol.
+
+    THE ONE THING THIS MUST NOT DO is collapse the duplicates. Two accessions sharing a symbol
+    are two genes; summing them puts one gene's counts under another's name and nothing
+    downstream can tell. So every row survives: duplicated symbols are disambiguated the way
+    anndata does it (`Myh6`, `Myh6-1`), the accession is preserved in `var[keep_as]` so the
+    mapping stays reversible, and a gene with no symbol keeps its accession rather than being
+    given a blank name.
+
+    Returns a report: what was renamed, what was disambiguated, what kept its accession.
+    """
+    import numpy as np
+    import pandas as pd
+
+    if key not in adata.var:
+        return {"applied": False, "reason": f"no var column {key!r}"}
+
+    original = [str(v) for v in adata.var_names]
+    sym = [("" if v is None else str(v)).strip() for v in adata.var[key]]
+    # A gene with no symbol keeps its accession. A blank name is not a name, and `nan` as a row
+    # label is worse than the accession it replaced.
+    no_symbol = sum(1 for s in sym if not s or s.lower() in ("nan", "none", "na"))
+    proposed = [s if (s and s.lower() not in ("nan", "none", "na")) else o
+                for s, o in zip(sym, original)]
+
+    if keep_as and keep_as not in adata.var:
+        adata.var[keep_as] = pd.Categorical(original)
+
+    counts = pd.Series(proposed).value_counts()
+    dup_names = set(counts[counts > 1].index)
+    n_dup_rows = int(sum(1 for p in proposed if p in dup_names))
+
+    adata.var_names = pd.Index(proposed, dtype=object)
+    if dup_names:
+        adata.var_names_make_unique()          # Myh6, Myh6-1 - both rows kept
+    n_changed = sum(1 for a, b in zip(original, [str(v) for v in adata.var_names]) if a != b)
+    return {
+        "applied": True, "key": key, "kept_as": keep_as,
+        "n_genes": len(original), "n_renamed": int(n_changed),
+        "n_without_symbol": int(no_symbol),
+        "n_duplicate_symbols": len(dup_names), "n_rows_sharing_a_symbol": n_dup_rows,
+        "unique": bool(pd.Index([str(v) for v in adata.var_names]).is_unique),
+    }
+
+
+def format_reindex(rep) -> list:
+    """The re-indexing as lines, saying what happened to the awkward cases rather than hiding it."""
+    if not rep.get("applied"):
+        return [f"  var_names unchanged: {rep.get('reason', 'not applied')}"]
+    L = [f"  var re-indexed by {rep['key']!r}: {rep['n_renamed']:,} of {rep['n_genes']:,} rows "
+         f"renamed, accessions kept in var[{rep['kept_as']!r}]"]
+    if rep["n_duplicate_symbols"]:
+        L.append(f"    {rep['n_duplicate_symbols']:,} symbols are shared by more than one "
+                 f"accession ({rep['n_rows_sharing_a_symbol']:,} rows). EVERY row is kept and "
+                 f"the names disambiguated")
+        L.append("    - merging them would sum two genes under one name, which nothing "
+                 "downstream could detect")
+    if rep["n_without_symbol"]:
+        L.append(f"    {rep['n_without_symbol']:,} genes have no symbol and keep their "
+                 f"accession")
+    if not rep["unique"]:
+        L.append("    WARNING var_names are still not unique")
+    return L
+
+
 # --------------------------------------------------------------------------- readiness
 #
 # These name lists are a HINT, copied from the conventions a downstream reader uses to guess
