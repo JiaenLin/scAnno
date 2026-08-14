@@ -1,6 +1,6 @@
 # Principles
 
-Four rules the code enforces. Each is here because it was got wrong first, and a principle that
+Five rules the code enforces. Each is here because it was got wrong first, and a principle that
 lives only in a document is one that gets skipped.
 
 ---
@@ -73,6 +73,40 @@ Three shapes, all found here:
   cleared by a population smaller than the floor. It is per **cluster**. The same bug then
   reappeared one layer up, in the store's own entry threshold, inside the fix for it — which is
   the argument for structural guards over careful intentions.
+
+---
+
+## 5 - scAnno annotates; it does not decide what is technical
+
+An annotation tool that also removes cells is two tools, and the second one is invisible. Its
+decisions arrive wearing the first one's name, they are made where nobody is auditing removals,
+and downstream they are indistinguishable from biology: a cell type that is absent because it was
+never there and one that is absent because the annotator withheld it produce the same table.
+
+So scAnno computes no QC metric, applies no threshold to one, and has no code that turns a flag
+into a different set of cells. `--exclude-flag` withholds **exactly** the nuclei named by the
+column it is given. The excluded set is the flag - identical at every clustering resolution,
+fingerprinted in the record so a reader can check which set actually ran.
+
+**This was got wrong first, which is why it is a principle and not a preference.** Until 0.3.0 the
+tool offered `--exclude-mode cluster`, which withheld a whole cluster once some share of it was
+flagged. Measured on the cohort it was written for, at one resolution: 2,680 nuclei withheld, of
+which **783 (29.2%) carried no flag at all** - cells upstream QC had passed, withheld for their
+neighbours - while **1,918 of the 3,815 flagged nuclei were kept**, being in clusters under the
+share. Neither a subset nor a superset of the decision it claimed to apply. And the size moved
+with the caller's granularity: 42 nuclei at resolution 0.25, 4,080 at 2.0, from one flag that
+never changed.
+
+It was not the default and it was documented as discouraged. That is the part worth keeping:
+**a capability that is merely defaulted-off is one argument away from running,** and it ran. The
+mode was removed rather than re-defaulted, `tests/test_exclude.py` section 5 asserts its symbols
+are gone, and the CLI refuses the retired options by name with the numbers above rather than with
+argparse's "unrecognized arguments" - a generic error invites the reader to look for a typo when
+the answer is that the behaviour no longer exists.
+
+The corollary is a limit, stated because it is easy to read this as a safety property: withholding
+exactly the flag is only as good as the flag. scAnno demands a `reason` with the exclusion and
+reports what it cost, and it cannot tell you whether the nuclei deserved it.
 
 ---
 

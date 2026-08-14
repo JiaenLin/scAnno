@@ -82,31 +82,26 @@ label is indistinguishable downstream from one anybody should believe.
 scanno annotate ... --exclude-flag cluster_FLAG        # an obs column of booleans
 ```
 
-The flagged nuclei are dropped from the cluster **profile** — they contribute to no mean and no
-detection rate, so they cannot influence any other nucleus's label — and each is labelled
-`EXCLUDED`, a sentinel that is not a cell type in any taxonomy. **Nothing is deleted:** every
-nucleus keeps its place in the object, and the exclusion is undone by re-running without the flag.
+**Exactly those nuclei are withheld.** They are dropped from the cluster **profile** — they
+contribute to no mean and no detection rate, so they cannot influence any other nucleus's label —
+and each is labelled `EXCLUDED`, a sentinel that is not a cell type in any taxonomy. **Nothing is
+deleted:** every nucleus keeps its place in the object, and the exclusion is undone by re-running
+without the flag.
 
-**`--exclude-mode cell` is the default, and the alternative is kept only because it existed.**
-`cluster` excludes a whole cluster once `--exclude-share` of it is flagged, which has two costs
-that the cell mode does not:
+There is one option and no mode, because **scAnno does not decide which nuclei are technical.** It
+computes no QC metric, applies no threshold, and has no code that turns the flag into a different
+set of cells. The excluded set is the column you named — identical at every clustering resolution,
+and fingerprinted in the record (a **mask digest**) so a reader can check that the set which ran
+is the set your QC handed over. A count cannot show that: two different masks of the same size
+agree on every number in a summary table.
 
-| | `cell` (default) | `cluster` |
-|---|---|---|
-| excludes | exactly the flagged nuclei | whole clusters ≥ share flagged |
-| unflagged nuclei removed | **none** | on one cohort, **525 of 2,244** — a quarter of the exclusion |
-| depends on your clustering | no | yes: the same flags gave **42** nuclei at resolution 0.25 and **4,080** at 2.0 |
-| covers the flag | fully | no — 2,154 of 3,873 flagged nuclei were *kept*, being in clusters under the share |
-
-A flag computed once, upstream, should not change meaning because something downstream chose a
-different resolution. The only cluster-level exclusion `cell` performs is a cluster whose every
-member was flagged: it has no profile at all, so it cannot be walked — arithmetic, not a
-threshold.
+The only cluster-level consequence is arithmetic rather than a threshold: a cluster whose every
+member was flagged has no profile at all, so it cannot be walked. Every cell in it was flagged
+anyway, so no unflagged nucleus is affected, and it is reported rather than silent.
 
 **What this cannot do** is tell you whether the flag was right. scAnno takes the decision as
-input, demands a reason with it, and reports which clusters were emptied and what it cost. Whether
-a flagged nucleus is damaged or is a cell type your QC does not expect is not a question this tool
-can answer.
+input, demands a reason with it, and reports what it cost. Whether a flagged nucleus is damaged or
+is a cell type your QC does not expect is not a question this tool can answer.
 
 ## What is deliberately absent
 
@@ -121,11 +116,18 @@ Each was built, measured and removed. Listed so they do not come back without ne
 | negative marker weights | 2 errors on independent data, **invisible on the self-test** |
 | node-coherence gate | its statistic depended on which other nodes existed |
 | design-differential gate | refused on a comparison where 2 libraries of 10 held 94% of the unresolved nuclei |
+| cluster-share exclusion (`--exclude-mode cluster`) | withheld **783 of 2,680** nuclei (29.2%) that upstream QC had *passed*, while keeping 1,918 of 3,815 that it flagged; the size moved 42 → 4,080 with the caller's resolution from one unchanged flag |
 
-**Five proposed additions measurably made this worse.** Hence the standing rule:
+**Five proposed additions measurably made this worse, and one shipped capability had to be removed after it did.** Hence the standing rule:
 
 > **No statistic gates an output until it has been shown to separate correct from incorrect calls
 > on held-out data, reported as an AUC beside the gate it justifies.**
+
+and, since 0.3.0, its companion:
+
+> **scAnno annotates and does not decide what is technical.** Where an exclusion is applied it is
+> exactly the per-cell flag it was given. A capability that is merely defaulted-off is one
+> argument away from running — see `docs/PRINCIPLES.md` §5.
 
 ## Install
 
@@ -159,7 +161,7 @@ yourself, the same way scQC ships a reference registry and not a genome.
 
 ## Status
 
-**0.2.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.3.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
@@ -170,7 +172,7 @@ checked against the tree rather than remembered.
 | ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. **It is nevertheless being used on single-nucleus data**, which is a limitation of that use and not a property this tool has earned. |
 | ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
 | ✅ **calibration** | `scanno calibrate` builds the store, learns bounded marker reliability and emits the reordered panels. Tested on synthetic data in `tests/test_calibrate.py`. |
-| ✅ **exclusion** | `--exclude-flag` withholds what upstream QC flagged, per nucleus by default, without deleting anything. `tests/test_exclude.py` asserts equivalence to deletion; `tests/test_exclude_cell.py` asserts the excluded set is exactly the flag at any clustering granularity. |
+| ✅ **exclusion** | `--exclude-flag` withholds **exactly** the nuclei upstream QC flagged, without deleting anything, and there is no mode or threshold with which to widen that set. `tests/test_exclude.py` asserts equivalence to deletion and — §5 — that the retired cluster-share symbols are gone; `tests/test_exclude_cell.py` asserts the excluded set is exactly the flag at any clustering granularity, by digest and not only by count. |
 | ✅ **resolution** | `scanno resolution` picks a clustering resolution from the annotation rather than from the geometry, with a derived tolerance. |
 | ✅ **kNN diagnostic** | `cluster_neighbourhood` / `label_flow` ask whether the annotation respects the manifold. It changes no call. |
 | ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |

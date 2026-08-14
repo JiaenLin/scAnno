@@ -1,23 +1,30 @@
-﻿"""scAnno 鈥?hierarchical cell-type annotation that truncates rather than guesses.
+"""scAnno - hierarchical cell-type annotation that truncates rather than guesses.
 
     from scanno import build_store, cluster_profile, standardise, classify
 
 The classifier is a pure function of (query, store-or-corpus, declared tree). It fits
 nothing at runtime, so a result is reproducible from the store digest and the tree.
+
+scAnno annotates. It does not perform quality control: it computes no QC metric, applies no
+threshold, and cannot decide that a nucleus is technical. Where upstream QC has already made that
+decision, `--exclude-flag` withholds EXACTLY the nuclei it names - see `scanno/exclude.py`.
 """
 from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_nodes,
                        node_profiles, profile_weights)
 from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertions,
                      node_weights)
-from .exclude import (CELL, CLUSTER, EXCLUDED, FLAG_SHARE, MODES, ExclusionMismatch, as_mask,
-                      cluster_flags, exclusion_record, exclusion_record_cells, unprofilable)
+from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cells,
+                      flag_digest, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
 from .query import DETECT_FLOOR, cluster_profile, standardise
 from .resolution import (derived_tolerance, format_report, pick_resolution,
                          sweep_stability)
 from .store import NORM, ProfileStore, build_store, safe_scale
 
-__version__ = "0.1.0"
+#: Kept in step with the VERSION file, which is the one a reader checks. They disagreed between
+#: 0.1.0 and 0.2.0 - the package reported a version it had not been for two releases - which is
+#: the same class of defect as a run citing a commit hash that does not exist.
+__version__ = "0.3.0"
 
 __all__ = [
     "build_store", "ProfileStore", "safe_scale", "NORM",
@@ -28,8 +35,11 @@ __all__ = [
     "GAP_PROFILE", "GAP_CORPUS",
     "sweep_stability", "pick_resolution", "derived_tolerance", "format_report",
     "cluster_neighbourhood", "label_flow",
-    "cluster_flags", "exclusion_record", "as_mask", "EXCLUDED", "FLAG_SHARE",
-    "ExclusionMismatch", "unprofilable", "exclusion_record_cells", "CELL", "CLUSTER", "MODES",
+    # Exclusion. `cluster_flags`, `exclusion_record`, `FLAG_SHARE`, `CELL`, `CLUSTER` and
+    # `MODES` were REMOVED in 0.3.0 and are deliberately not re-exported under any name: they
+    # implemented a cluster-share exclusion, which is a QC decision and not scAnno's to make.
+    # An importer of those names now fails loudly, which is the intended behaviour.
+    "as_mask", "EXCLUDED", "ExclusionMismatch", "unprofilable", "exclusion_record_cells",
+    "flag_digest",
     "__version__",
 ]
-

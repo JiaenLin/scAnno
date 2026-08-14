@@ -287,8 +287,7 @@ def _annotate(a):
     import numpy as np
     from .classify import classify
     from .corpus import load_assertions
-    from .exclude import (CELL, EXCLUDED, cluster_flags, exclusion_record,
-                          exclusion_record_cells, unprofilable)
+    from .exclude import EXCLUDED, exclusion_record_cells, unprofilable
     from .query import OOD_MIN_COVERED, cluster_profile, standardise
     from .store import build_store
     try:
@@ -330,10 +329,12 @@ def _annotate(a):
 
     # --- nuclei upstream QC flagged: excluded from the walk, never from the object ---
     #
-    # TWO MODES, and the default is `cell`. In cell mode the flagged nuclei are dropped from the
-    # PROFILE - they contribute to no cluster's mean and to no detection rate - and are labelled
-    # EXCLUDED individually. In cluster mode a whole cluster goes once it is `share` flagged,
-    # which also takes its unflagged members. See scanno/exclude.py for why cell is the default.
+    # ONE path, and it is the flag itself. The flagged nuclei are dropped from the PROFILE -
+    # they contribute to no cluster's mean and to no detection rate - and each is labelled
+    # EXCLUDED individually. scAnno does not decide which nuclei are technical and has no code
+    # that turns the flag into a different set of cells: no share, no threshold, no dependence
+    # on the clustering. A cluster-share mode existed until 0.3.0 and was REMOVED rather than
+    # defaulted off, because it excluded nuclei upstream QC had passed. See scanno/exclude.py.
     drop, excl, flag = None, None, None
     if a.exclude_flag:
         if a.exclude_flag not in A.obs:
@@ -342,37 +343,24 @@ def _annotate(a):
             return 1
         flag = A.obs[a.exclude_flag].fillna(False).astype(bool).to_numpy()
 
-    if a.exclude_flag and a.exclude_mode == CELL:
-        # Profiled over the KEPT cells only. This is the whole of the mode: a flagged nucleus
-        # cannot influence the label of the cluster it sat in, because it is not in the mean.
+    if a.exclude_flag:
+        # Profiled over the KEPT cells only. This is the whole of it: a flagged nucleus cannot
+        # influence the label of the cluster it sat in, because it is not in the mean.
         M, D, counts = cluster_profile(X[~flag], y[~flag], len(cats))
         drop = unprofilable(y, ~flag, len(cats))
         excl = exclusion_record_cells(flag, y, len(cats), reason=f"obs[{a.exclude_flag!r}]")
-        print(f"--exclude-flag {a.exclude_flag} (mode cell): excluding "
+        print(f"--exclude-flag {a.exclude_flag}: excluding "
               f"{excl['cells_excluded']:,} flagged nuclei "
-              f"({100*excl['fraction_excluded']:.1f}% of the object), 0 passengers. They keep "
-              f"their place and are labelled {EXCLUDED}; nothing is deleted.")
+              f"({100*excl['fraction_excluded']:.1f}% of the object), 0 passengers - exactly "
+              f"the flag and nothing else. They keep their place and are labelled {EXCLUDED}; "
+              f"nothing is deleted.")
+        print(f"    mask digest {excl['flag_digest']}  "
+              f"(fingerprint of the exact set that ran, for the caller's record)")
         if drop.any():
             print(f"    {int(drop.sum())} cluster(s) had every cell flagged and cannot be "
                   f"profiled: {', '.join(cats[i] for i in np.flatnonzero(drop))}")
     else:
         M, D, counts = cluster_profile(X, y, len(cats))
-        if a.exclude_flag:
-            drop = cluster_flags(y, flag, len(cats), share=a.exclude_share)
-            excl = exclusion_record(drop, counts, reason=f"obs[{a.exclude_flag!r}]",
-                                    share=a.exclude_share)
-            if not drop.any():
-                print(f"--exclude-flag {a.exclude_flag}: no cluster reaches "
-                      f"{100*a.exclude_share:.0f}% flagged cells; nothing excluded")
-            else:
-                print(f"--exclude-flag {a.exclude_flag} (mode cluster): excluding "
-                      f"{len(excl['clusters_excluded'])} of {len(cats)} clusters, "
-                      f"{excl['cells_excluded']:,} cells "
-                      f"({100*excl['fraction_excluded']:.1f}% of the object), of which "
-                      f"{int((~flag & np.isin(y, excl['clusters_excluded'])).sum()):,} carry no "
-                      f"flag. They keep their place and are labelled {EXCLUDED}.")
-                for i in excl["clusters_excluded"]:
-                    print(f"    cluster {cats[i]}   {int(counts[i]):,} cells")
 
     # The gene background. Without one there is nothing external to standardise against,
     # and a cluster's score becomes a property of what else was sequenced beside it.
@@ -493,7 +481,39 @@ def _store_info(a):
     return 0
 
 
+#: Options removed in 0.3.0, with what to do instead. They are checked BEFORE parsing so an old
+#: command line gets the reason rather than argparse's "unrecognized arguments" - a generic error
+#: invites the reader to look for a typo, and the answer here is that the behaviour is gone.
+RETIRED_OPTIONS = {
+    "--exclude-mode": (
+        "There is one exclusion path now and it is the flag itself. `--exclude-mode cluster` "
+        "widened the flag to whole clusters, which excluded nuclei upstream QC had PASSED "
+        "(measured: 783 of 2,680, 29.2%, on the cohort it was written for) and made the "
+        "excluded set depend on your resolution (42 nuclei at 0.25, 4,080 at 2.0 from one "
+        "unchanged flag). Drop the option: `--exclude-flag COLUMN` alone now does what "
+        "`--exclude-mode cell` did."),
+    "--exclude-share": (
+        "A share threshold is a QC decision, and scAnno does not make QC decisions. It existed "
+        "only for the removed `--exclude-mode cluster`. If you want a cluster-level exclusion, "
+        "compute it upstream where it can be assessed, and hand scAnno the resulting per-cell "
+        "column."),
+}
+
+
+def _refuse_retired(argv) -> int | None:
+    """Refuse a retired option by name, with the measurement that retired it."""
+    for opt, why in RETIRED_OPTIONS.items():
+        if any(t == opt or t.startswith(opt + "=") for t in (argv or [])):
+            print(f"scanno: REFUSE - {opt} was removed in 0.3.0.\n\n        {why}\n",
+                  file=sys.stderr)
+            return REFUSE
+    return None
+
+
 def main(argv=None):
+    retired = _refuse_retired(argv if argv is not None else sys.argv[1:])
+    if retired is not None:
+        return retired
     p = argparse.ArgumentParser(prog="scanno", description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -512,20 +532,12 @@ def main(argv=None):
     s.add_argument("--background-from-clusters", action="store_true",
                    help="derive the gene background from this object; reported as REVIEW")
     s.add_argument("--exclude-flag", metavar="OBS_COLUMN",
-                   help="obs column marking cells whose CLUSTER upstream QC flagged - doublet- "
-                        "or debris-dominated, say. Flagged clusters are not walked and are "
-                        "labelled EXCLUDED. Nothing is deleted: the cells keep their place, and "
-                        "for a fixed clustering every other cluster gets exactly the label it "
-                        "would have got had these cells never been there")
-    s.add_argument("--exclude-mode", choices=("cell", "cluster"), default="cell",
-                   help="'cell' (default) excludes exactly the flagged nuclei: they contribute "
-                        "to no cluster profile and are labelled EXCLUDED. 'cluster' excludes "
-                        "whole clusters that are --exclude-share flagged, which also removes "
-                        "their unflagged members and makes the excluded set depend on this "
-                        "run's clustering granularity")
-    s.add_argument("--exclude-share", type=float, default=0.5, metavar="F",
-                   help="share of a cluster's cells that must carry the flag before the CLUSTER "
-                        "counts as flagged (default 0.5, a majority)")
+                   help="obs column of per-NUCLEUS booleans marking what upstream QC flagged. "
+                        "EXACTLY those nuclei are withheld: they contribute to no cluster "
+                        "profile and each is labelled EXCLUDED. Nothing is deleted, nothing "
+                        "unflagged is touched, and the excluded set does not depend on this "
+                        "run's clustering. scAnno does not decide which nuclei are technical "
+                        "and cannot widen this set")
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)

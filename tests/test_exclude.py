@@ -1,13 +1,18 @@
-"""Excluding a flagged cluster must equal having deleted its cells. Asserted, not assumed.
+"""Withholding flagged nuclei must equal having deleted them. Asserted, not assumed.
 
-The claim `scanno/exclude.py` makes is a strong one: for a fixed clustering, not walking a
-cluster gives every OTHER cluster exactly the label it would have received had that cluster's
+The claim `scanno/exclude.py` makes is a strong one: for a fixed clustering, not walking an
+excluded cluster gives every OTHER cluster exactly the label it would have received had those
 cells never been in the object. Section 1 checks it against a physically subsetted matrix rather
 than against the argument for it.
 
 The first version of the code was wrong in one specific way - the usable-gene set is `any` over
 clusters, so an excluded cluster could still be the sole reason a gene was admitted - and section
 2 is the test that found it. It is the reason `standardise` takes the mask at all.
+
+**Section 5 tests an absence**, which is unusual and is the point: the cluster-share exclusion was
+removed in 0.3.0 because it excluded nuclei upstream QC had passed. A removal that is only a
+default comes back; a removal with a test against its return does not. If someone re-adds
+`cluster_flags`, this file fails.
 
     python tests/test_exclude.py
 """
@@ -21,8 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import scipy.sparse as sp
 
-from scanno import (EXCLUDED, ExclusionMismatch, classify, cluster_flags, cluster_profile,
-                    exclusion_record, standardise)
+import scanno
+from scanno import (EXCLUDED, ExclusionMismatch, classify, cluster_profile,
+                    exclusion_record_cells, flag_digest, standardise)
 from scanno.store import ProfileStore
 
 FAILED = []
@@ -109,14 +115,14 @@ def run(X, labels, n_clusters, exclude=None):
     return classify(Z, usable, TREE, store=None, assertions=ASR, exclude=exclude), stats, counts
 
 
-print("\n0 · the fixture produces real labels, so a change in labelling is detectable")
+print("\n0 - the fixture produces real labels, so a change in labelling is detectable")
 X, labels = toy()
 base, _, _ = run(X, labels, 4)
 check("the three unflagged clusters are labelled as designed",
       [c["path"] for c in base[:3]] == [EXPECT[i] for i in range(3)],
       f"{[c['path'] for c in base[:3]]}")
 
-print("\n1 · excluding a cluster equals deleting its cells, for a fixed clustering")
+print("\n1 - withholding a cluster equals deleting its cells, for a fixed clustering")
 kept, _, _ = run(X, labels, 4, exclude=np.array([False, False, False, True]))
 keep_cells = labels != 3
 deleted, _, _ = run(X[keep_cells], labels[keep_cells], 3)
@@ -126,7 +132,7 @@ check("the surviving clusters get identical paths",
 check("...and identical gaps, not merely similar ones",
       all(abs(a["gap"] - b["gap"]) < 1e-12 for a, b in zip(kept, deleted)))
 
-print("\n2 · the usable-gene leak is real, which is why standardise takes the mask")
+print("\n2 - the usable-gene leak is real, which is why standardise takes the mask")
 M, D, _ = cluster_profile(X, labels, 4)
 _, _, without = standardise(M, D, GENES, store())
 _, with_mask, _ = run(X, labels, 4, exclude=np.array([False, False, False, True]))
@@ -134,7 +140,7 @@ check("not passing the mask admits a gene only the excluded cluster expresses",
       without["genes_usable"] > with_mask["genes_usable"],
       f"{without['genes_usable']} usable without the mask, {with_mask['genes_usable']} with")
 
-print("\n3 · excluded clusters stay in place and carry no statistics")
+print("\n3 - excluded clusters stay in place and carry no statistics")
 calls, _, _ = run(X, labels, 4, exclude=[1])
 check("every cluster is still in the output, in order",
       [c["cluster"] for c in calls] == [0, 1, 2, 3])
@@ -147,28 +153,29 @@ check("its gap and survival are NaN, not zero",
 check("no other cluster is marked excluded",
       all(not c["excluded"] for c in calls if c["cluster"] != 1))
 
-print("\n4 · excluding nothing changes nothing")
+print("\n4 - excluding nothing changes nothing")
 a, _, _ = run(X, labels, 4)
 b, _, _ = run(X, labels, 4, exclude=np.zeros(4, dtype=bool))
 check("an empty mask is the same run", [c["path"] for c in a] == [c["path"] for c in b])
 check("the stats say so explicitly rather than omitting the field",
       run(X, labels, 4)[1]["clusters_excluded"] == 0)
 
-print("\n5 · a cluster is flagged on a SHARE of its cells, not on any or all")
-lab = np.array([0] * 10 + [1] * 10)
-flag = np.zeros(20, dtype=bool)
-flag[0] = True                       # one cell of cluster 0
-flag[10:18] = True                   # eight of cluster 1
-check("a majority flags the cluster, one cell does not",
-      list(cluster_flags(lab, flag, 2)) == [False, True])
-check("the share is honoured downward", list(cluster_flags(lab, flag, 2, share=0.05))
-      == [True, True])
-check("...and upward", list(cluster_flags(lab, flag, 2, share=0.9)) == [False, False])
+print("\n5 - the cluster-share exclusion is GONE, and cannot return by default")
+# This section tests an absence. `--exclude-mode cluster` excluded nuclei upstream QC had
+# passed - 783 of 2,680 on the cohort it was written for - and was removed in 0.3.0 rather
+# than left switched off. A capability that is merely defaulted-off is one command-line
+# argument away from returning; one whose symbols are gone fails at import.
+for name in ("cluster_flags", "exclusion_record", "FLAG_SHARE", "CELL", "CLUSTER", "MODES"):
+    check(f"scanno exports no {name!r}", not hasattr(scanno, name),
+          "a cluster-share exclusion is a QC decision and is not scAnno's to make")
+check("nothing in the exclusion module takes a `share`",
+      not any("share" in n for n in dir(scanno.exclude)),
+      str([n for n in dir(scanno.exclude) if "share" in n]))
+check("the record names its mode, so a reader can tell which code wrote it",
+      exclusion_record_cells(np.array([True, False]), np.array([0, 1]), 2,
+                             reason="t")["mode"] == "cell")
 
-print("\n6 · every way of naming the wrong clusters is refused, not absorbed")
-check("a flag of the wrong length",
-      raises(ExclusionMismatch, cluster_flags, np.zeros(10, dtype=int),
-             np.zeros(9, dtype=bool), 1, needle="same cells"))
+print("\n6 - every way of naming the wrong clusters is refused, not absorbed")
 check("a mask of the wrong length",
       raises(ExclusionMismatch, run, X, labels, 4, exclude=np.zeros(3, dtype=bool),
              needle="one entry per cluster"))
@@ -178,21 +185,40 @@ check("an index outside the clustering",
 check("excluding everything refuses rather than returning an empty annotation",
       raises(ValueError, run, X, labels, 4, exclude=np.ones(4, dtype=bool),
              needle="every cluster is excluded"))
+check("a flag covering a different number of cells than the labels",
+      raises(ExclusionMismatch, exclusion_record_cells, np.zeros(9, dtype=bool),
+             np.zeros(10, dtype=int), 1, reason="t", needle="same cells"))
+check("a flag that marks every nucleus",
+      raises(ValueError, exclusion_record_cells, np.ones(6, dtype=bool),
+             np.zeros(6, dtype=int), 1, reason="t", needle="nothing left to annotate"))
 
-print("\n7 · the record names the clusters and demands a reason")
-counts = np.array([100, 50, 30, 20])
-mask = np.array([False, True, False, True])
+print("\n7 - the record demands a reason and fingerprints the set that ran")
+lab = np.array([0] * 10 + [1] * 10)
+flag = np.zeros(20, dtype=bool)
+flag[:6] = True
 check("a blank reason is refused",
-      raises(ValueError, exclusion_record, mask, counts, reason="  ", needle="needs a `reason`"))
-r = exclusion_record(mask, counts, reason="scQC cluster_FLAG")
-check("it says WHICH, not only how many", r["clusters_excluded"] == [1, 3]
-      and r["per_cluster"] == {1: 50, 3: 20})
+      raises(ValueError, exclusion_record_cells, flag, lab, 2, reason="  ",
+             needle="needs a `reason`"))
+r = exclusion_record_cells(flag, lab, 2, reason="scQC cluster_FLAG")
 check("it reports the cost against the whole",
-      r["cells_excluded"] == 70 and r["cells_total"] == 200
-      and abs(r["fraction_excluded"] - 0.35) < 1e-12)
+      r["cells_excluded"] == 6 and r["cells_total"] == 20
+      and abs(r["fraction_excluded"] - 0.3) < 1e-12)
+check("it says WHICH cluster the nuclei came from, not only how many",
+      r["per_cluster"] == {0: 6})
+check("passengers are reported as zero rather than omitted", r["passengers"] == 0)
+# Two masks of the same SIZE must not share a digest, or the fingerprint proves nothing:
+# a summary table cannot tell them apart and that is exactly what it is there to do.
+other = np.zeros(20, dtype=bool)
+other[6:12] = True
+check("the digest distinguishes two different masks of identical size",
+      flag_digest(flag) != flag_digest(other),
+      f"{flag_digest(flag)} vs {flag_digest(other)}")
+check("...and is stable for the same mask", flag_digest(flag) == flag_digest(flag.copy()))
+check("a mask of a different length cannot collide",
+      flag_digest(np.zeros(8, dtype=bool)) != flag_digest(np.zeros(16, dtype=bool)))
 
-print("\n" + "=" * 62)
+print("\n" + "=" * 66)
 if FAILED:
     print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")
     raise SystemExit(1)
-print("cluster exclusion OK - equals deletion, keeps the cells, records what went")
+print("exclusion OK - equals deletion, keeps the cells, records what went, cannot widen")

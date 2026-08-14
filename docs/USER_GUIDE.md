@@ -98,30 +98,40 @@ level-3 nodes often rest on a handful, and nothing in the score reflects that.
 
 ```bash
 scanno annotate ... --exclude-flag cluster_FLAG          # boolean obs column
-scanno annotate ... --exclude-flag cluster_FLAG --exclude-mode cluster --exclude-share 0.5
 ```
 
 | | |
 |---|---|
-| `--exclude-flag COL` | a boolean `obs` column. Its nuclei are withheld from the walk and labelled `EXCLUDED` |
-| `--exclude-mode` | **`cell`** (default) withholds exactly those nuclei. `cluster` withholds whole clusters that are `--exclude-share` flagged |
-| `--exclude-share F` | `cluster` mode only. Ignored in `cell` mode, where there is no share to set |
+| `--exclude-flag COL` | a boolean `obs` column. **Exactly** its nuclei are withheld from the walk and labelled `EXCLUDED` |
+
+There is one option and no mode. The withheld set is the column you named: not a function of it,
+not a re-projection of it through your clustering, not a threshold applied to it. scAnno computes
+no QC metric and cannot decide that a nucleus is technical, so it has nothing with which to widen
+or narrow what you handed it.
 
 **Nothing is deleted.** Every nucleus keeps its place in the object and its counts; only its label
 changes, and re-running without the flag restores it. `EXCLUDED` is upper case and is not a cell
 type in any taxonomy, so a consumer that treats it as one is making an obvious error rather than
 a quiet one.
 
-**Why `cell` is the default.** In `cluster` mode an unflagged nucleus is withheld when the cluster
-around it is mostly flagged. On one cohort that was 525 of 2,244 withheld nuclei — a quarter of
-the exclusion was cells the upstream QC had *passed*. It also makes the withheld set depend on
-your clustering: the same flags gave 42 nuclei at resolution 0.25 and 4,080 at 2.0, and at the
-resolution in use it withheld only 1,719 of the 3,873 nuclei that were actually flagged.
+The withheld nuclei are dropped from the cluster **profile**, so they contribute to no mean and no
+detection rate and cannot influence any other nucleus's label. One cluster-level consequence
+remains and is unavoidable: a cluster whose every member was flagged has no profile at all and is
+not walked. Every cell in such a cluster was flagged anyway, so no unflagged nucleus is affected,
+and it is reported rather than silent.
 
-In `cell` mode the withheld nuclei are dropped from the cluster **profile**, so they contribute to
-no mean and no detection rate and cannot influence any other nucleus's label. One cluster-level
-consequence remains and is unavoidable: a cluster whose every member was flagged has no profile
-at all and is not walked. It is reported, not silent.
+The run prints a **mask digest** — a fingerprint of the exact set that was withheld — and
+`exclusion_record_cells` returns it. Put it in your record: a count cannot show that the set which
+ran is the set your QC handed over, because two different masks of the same size agree on every
+number in a summary table.
+
+**`--exclude-mode` and `--exclude-share` were removed in 0.3.0** and are refused by name with the
+measurement that retired them. `--exclude-mode cluster` withheld a whole cluster once a share of
+it was flagged, which meant withholding nuclei upstream QC had *passed*: 783 of 2,680 (29.2%) on
+the cohort it was written for, while *keeping* 1,918 of the 3,815 nuclei that were flagged. It
+also made the withheld set a property of your resolution — 42 nuclei at 0.25, 4,080 at 2.0, from
+one flag that never changed. If you want a cluster-level exclusion, derive it upstream where it
+can be assessed, and hand the resulting per-cell column to `--exclude-flag`.
 
 **What it cannot tell you** is whether the flag was right. scAnno takes that decision as input and
 demands a `reason` with it.
