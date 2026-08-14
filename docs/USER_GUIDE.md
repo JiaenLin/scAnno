@@ -55,8 +55,14 @@ scanno annotate --h5ad sample.h5ad --cluster-key leiden_1.0 --tree tree.json \
                 --species Human --tissue Blood \
                 --db corpus.db  |  --store calib/store.npz \
                 [--background-from-clusters] [--use-raw] [--gap-min 0.30] \
-                [--assay sc|sn] [--min-tier 4] [--out labels.tsv]
+                [--assay sc|sn] [--min-tier 4] [--out labels.tsv] \
+                [--out-h5ad annotated.h5ad] [--label-prefix scanno]
 ```
+
+**Two outputs, and they are not the same thing.** `--out` is the per-CLUSTER table, for reading
+and for a run log. `--out-h5ad` is the object with the label written onto every CELL, which is
+what anything downstream opens. Give neither and the labels exist only in the terminal; scanno
+says so rather than exiting quietly as though it had saved something.
 
 **Weights come from `--db` (corpus) or `--store` (atlas profiles).** If both are given the
 corpus wins; they are alternative sources for the same matrix, not layers. The corpus path
@@ -84,6 +90,44 @@ are starred and listed.
 
 **This bites hardest deep in a tree.** Level-1 nodes usually rest on tens of curated assertions;
 level-3 nodes often rest on a handful, and nothing in the score reflects that.
+
+### In the object (`--out-h5ad`)
+
+The same answer, per cell, under `--label-prefix` (default `scanno`):
+
+| column | is |
+|---|---|
+| `scanno_cell_type` | the label, as a categorical — the column a reader will look for |
+| `scanno_path` | the full root-to-leaf path |
+| `scanno_depth` | how deep the walk got |
+| `scanno_gap` | the gap of the **accepted** step, not the truncating one |
+| `scanno_survival` | share of the node's evidence surviving the sibling contrast |
+| `scanno_support` | curated tier ≤2 assertions, where `--db` was given |
+
+`X`, `var` and `obsm` are the input's. scAnno adds columns; it does not rebuild the object
+around its answer, so an embedding or a symbol column that went in comes out.
+
+Three things this join gets right, each asserted in `tests/test_emit.py`:
+
+- **A flagged nucleus is `EXCLUDED` whatever its cluster was called**, because the exclusion is
+  per nucleus. A cell keeping its cluster's label would quietly undo that.
+- **NaN, never 0, for a call that was not made.** A gap of `0.0` sorts first and averages into
+  every summary while looking like a marginal call.
+- **A cluster with no call raises.** `classify()` returns one row per cluster, in order; a caller
+  that filtered or reindexed it would otherwise mislabel a whole population plausibly.
+
+Numeric columns are plain floats rather than nullable pandas integers on purpose: AnnData writes
+a nullable integer as an HDF5 *group*, and readers that expect `categories`/`codes` in a group
+skip it. A float that is read beats an integer that is dropped.
+
+### The readiness report
+
+`--out-h5ad` finishes by saying what a viewer will need and scAnno cannot supply — an embedding,
+expression without negatives, gene symbols beside accession-named rows, and the optional sample
+and condition columns. `MISSING` sorts first because it is what blocks a viewer.
+
+It never refuses on these. An object with no embedding is not a bad annotation; it is an object
+somebody still has to run UMAP on, and refusing would be scAnno deciding what the object is for.
 
 ### Refusals
 

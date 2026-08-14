@@ -13,6 +13,7 @@ from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_node
                        node_profiles, profile_weights)
 from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertions,
                      node_weights)
+from .emit import annotate_obs, format_readiness, lab_readiness, per_cell
 from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cells,
                       flag_digest, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
@@ -24,7 +25,7 @@ from .store import NORM, ProfileStore, build_store, safe_scale
 #: Kept in step with the VERSION file, which is the one a reader checks. They disagreed between
 #: 0.1.0 and 0.2.0 - the package reported a version it had not been for two releases - which is
 #: the same class of defect as a run citing a commit hash that does not exist.
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "build_store", "ProfileStore", "safe_scale", "NORM",
@@ -41,5 +42,9 @@ __all__ = [
     # An importer of those names now fails loudly, which is the intended behaviour.
     "as_mask", "EXCLUDED", "ExclusionMismatch", "unprofilable", "exclusion_record_cells",
     "flag_digest",
+    # Emitting the annotation per CELL. classify() returns one row per CLUSTER, and until
+    # 0.3.1 the join back onto the object was left to every caller - so the object scAnno had
+    # just annotated still carried no annotation, and nothing downstream could open it.
+    "per_cell", "annotate_obs", "lab_readiness", "format_readiness",
     "__version__",
 ]

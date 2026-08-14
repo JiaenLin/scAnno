@@ -71,8 +71,13 @@ scanno annotate --h5ad sample.h5ad --cluster-key leiden_1.0 \
                 --tree tree.json --db corpus.db \
                 --species Human --tissue Blood \
                 --background-from-clusters \
-                --out labels.tsv
+                --out labels.tsv \
+                --out-h5ad annotated.h5ad
 ```
+
+`--out` is the per-CLUSTER table. **`--out-h5ad` is the object**, with the label written onto
+every cell — that is the file anything downstream opens. Without it the labels exist only in
+the terminal output below, and `annotate` says so rather than exiting quietly.
 
 ```
    cluster        n  label                              depth    gap
@@ -94,6 +99,23 @@ root.
 **`gap`** is how far the winning child beat its best sibling, relative to the score
 scale. It is the only statistic that gates anything here, and the only one shown to
 predict correctness. Descent stops below `0.30` on the corpus path.
+
+**In the object**, the same answer is per cell: `scanno_cell_type` (the label),
+`scanno_path`, `scanno_depth`, `scanno_gap`, `scanno_survival` and — with a corpus —
+`scanno_support`. `X`, `var` and `obsm` are untouched.
+
+`annotate` then reports what a viewer will still need and scAnno cannot supply. An embedding is
+the usual one: scAnno does not compute embeddings, so if `obsm` has none the report says
+`MISSING` and names the fix. It is a report, not a refusal — the object is written either way.
+
+## 6 · Open it
+
+The annotated `.h5ad` goes to [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab), which
+converts it to the bundle [scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio) reads.
+Nothing needs configuring: the lab guesses which column is the annotation, and
+`scanno_cell_type` is named so that guess lands on it.
+
+scAnno does **not** write that bundle. One job each, and the format belongs to the lab.
 
 ## What to fix first if it looks wrong
 

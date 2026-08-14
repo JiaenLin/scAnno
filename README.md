@@ -3,16 +3,18 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.3.0-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.3.1-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.3.0` this is a classifier, not a
-> pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested, and
-> `--exclude-flag` withholds what upstream QC marked without deleting it. There is still no
-> ingest step, no assign step, no report and no task graph. **What has been validated is human
+> **Read [Status](#status) before planning anything.** At `0.3.1` this is a classifier, not a
+> pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
+> `--exclude-flag` withholds what upstream QC marked without deleting it, and `--out-h5ad`
+> writes the annotation back into the object **per cell** — the form anything downstream can
+> actually read. There is still no ingest step, no report and no task graph.
+> **What has been validated is human
 > blood** — two PBMC datasets, 18 populations, zero errors — and nothing else: not another
 > tissue, not another species, and **not single-nucleus data**, on which it is nevertheless being
 > used. See [Status](#status) before trusting it beyond that.
@@ -70,7 +72,7 @@ The untrained path costs one exact call and one extra coarse label. It makes no 
 | 0 | **ingest** | validate the samplesheet and the declared tree; bind it to the corpus; refuse on a node nothing can represent | — | specified |
 | 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — | partial — `scanno resolution` judges a sweep somebody else computed |
 | 2 | **score** | one pass over cells, then walk the tree: at each node score only its children | proposes | **built** |
-| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | specified |
+| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | **built** — `scanno/emit.py`, reached by `--out-h5ad` |
 
 Four, not eight. scQC needs eight because each gates a deletion and deletions compound; nothing in
 annotation compounds, and a label is replaced by re-running.
@@ -89,6 +91,74 @@ annotation compounds, and a label is replaced by re-running.
   property everything else rests on — see below.
 - **Assignment is one code path.** Same reason scQC confines removal to step 7: a reader should be
   able to establish quickly that nothing else can put a label into `obs`.
+
+## What comes out
+
+```bash
+scanno annotate --h5ad clustered.h5ad --cluster-key leiden --tree tree.json \
+                --db corpus.db --species Mouse --tissue Heart --store store.npz \
+                --out-h5ad annotated.h5ad        # the object, annotated per CELL
+```
+
+`classify()` reasons about **clusters**; everything downstream consumes **cells**. Until 0.3.1
+`annotate` printed the cluster table, optionally wrote it as a TSV, and stopped — so the join
+back onto the object was left to every caller, and the object scAnno had just annotated still
+carried no annotation. Nothing could open it.
+
+`--out-h5ad` writes it. The input object with columns added, and **nothing else touched**:
+
+| column | is |
+|---|---|
+| `scanno_cell_type` | the label, as a categorical — **this is the one a reader wants** |
+| `scanno_path` | the full root-to-leaf path the walk took |
+| `scanno_depth` | how deep it got before the evidence ran out |
+| `scanno_gap` | the decision gap of the **accepted** step |
+| `scanno_survival` | how much of the node's own evidence survived the sibling contrast |
+| `scanno_support` | curated tier-1/2 assertions behind the winning node, where a corpus was given |
+
+`X`, `var` and `obsm` are the input's. scAnno does not rebuild the object around its answer, so
+an embedding or a gene-symbol column that went in comes out.
+
+Three properties, each asserted in `tests/test_emit.py` rather than described here:
+
+- **A flagged nucleus is `EXCLUDED` whatever its cluster was called.** The exclusion is per
+  nucleus; a cell keeping its cluster's label because the cluster survived would quietly undo
+  that.
+- **A statistic of a call that was not made is `NaN`, never `0`.** A gap of `0.0` sorts first
+  and averages into every summary while looking like a genuinely marginal call.
+- **A cluster with no call raises.** `classify()` returns one row per cluster in order; a caller
+  that has filtered or reindexed it would otherwise label a whole population something plausible.
+
+### It tells you what a viewer will still ask for
+
+Writing the file is not the same as the file being usable, so `--out-h5ad` ends with a
+readiness report — the annotation, an embedding, expression a viewer will accept, gene symbols
+beside accession-named rows, and the optional sample and condition columns:
+
+```
+  what a viewer will find in it
+  MISSING no 2-D embedding in obsm - a viewer needs one to draw cells. scAnno does
+          not compute embeddings; run UMAP upstream
+  ok      cell annotation: scanno_cell_type, 7 levels
+  ok      gene symbols: var['gene_symbol'] beside accession row names
+```
+
+It never refuses on these. An object with no embedding is not a bad annotation — it is an
+object somebody still has to run UMAP on, and deciding otherwise would be scAnno deciding what
+the object is for.
+
+### Where it goes next
+
+The annotated `.h5ad` is what [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab) opens.
+The lab converts it to the bundle that [scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio)
+reads, and **scAnno deliberately does not write that bundle** — one job each, and the bundle
+format is the lab's to keep current.
+
+`scanno_cell_type` is named the way it is for this: the lab has to *guess* which column holds
+the annotation, and every convention for that guess keys on the substring `cell_type`. Verified
+end to end against the lab's own converter, which picked
+`{"cluster":"scanno_cell_type","sample":"sample","condition":"condition","embedding":"X_umap"}`
+with nothing configured.
 
 ## Excluding what upstream QC flagged
 
@@ -192,7 +262,7 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 
 ## Status
 
-**0.3.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.3.1.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
@@ -208,7 +278,8 @@ checked against the tree rather than remembered.
 | ✅ **kNN diagnostic** | `cluster_neighbourhood` / `label_flow` ask whether the annotation respects the manifold. It changes no call. |
 | ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |
 | ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `resolution`, `agent`, `selftest`. Exit code 2 is a refusal. |
-| ❌ **no ingest, no assign step, no report, no task graph** | steps 0 and 3 are specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
+| ✅ **assign** | `--out-h5ad` writes the annotation into the object per CELL — label, path, depth, gap, survival and support — leaving `X`, `var` and `obsm` untouched. `tests/test_emit.py` asserts the join, the flag override, NaN-not-zero for calls that were not made, and the h5ad round trip down to the `categories`/`codes` encoding a reader looks for. |
+| ❌ **no ingest, no report, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
 
 ## Licence

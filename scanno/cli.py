@@ -452,6 +452,35 @@ def _annotate(a):
                 fh.write("\t".join([cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
                                     str(r["depth"]), f"{r['gap']:.4f}"]) + "\n")
         print(f"wrote {a.out}")
+
+    # The annotated object. Everything above is per CLUSTER; this is the only place the labels
+    # become per CELL, which is the form every consumer of an annotation actually wants.
+    if a.out_h5ad:
+        from .emit import annotate_obs, format_readiness, lab_readiness
+        written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
+                               support=support or None)
+        Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
+        A.write_h5ad(a.out_h5ad, compression="gzip")
+        print("")
+        print(f"wrote {a.out_h5ad}   {A.n_obs:,} x {A.n_vars:,}")
+        print(f"  obs columns added: {', '.join(written)}")
+        print("")
+        # X, var and obsm are the object's, untouched - the annotation is added, never a new
+        # object built around it. An embedding or a symbol column that came in comes out.
+        print("  what a viewer will find in it")
+        label_key = f"{a.label_prefix}_cell_type"
+        checks = lab_readiness(A, label_key)
+        for line in format_readiness(checks):
+            print(line)
+        if any(lvl == "missing" for lvl, _ in checks):
+            print("")
+            print("  MISSING items are things scAnno cannot supply and will not invent. The "
+                  "object\n  is written either way; add them upstream and re-run.")
+    elif not a.out:
+        print("")
+        print("scanno: nothing was written. The labels above exist only in this output.\n"
+              "        --out-h5ad PATH  writes the object with the annotation per CELL\n"
+              "        --out PATH       writes the per-CLUSTER table as TSV")
     return 0
 
 
@@ -548,7 +577,15 @@ def main(argv=None):
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
     s.add_argument("--use-raw", action="store_true")
-    s.add_argument("--out", type=Path)
+    s.add_argument("--out", type=Path, help="per-CLUSTER table, as TSV")
+    s.add_argument("--out-h5ad", type=Path, metavar="PATH",
+                   help="write the annotated object: the input with the label added per CELL, "
+                        "as <prefix>_cell_type plus the evidence behind each call. X, var and "
+                        "obsm are the input's, untouched. This is the file a viewer opens")
+    s.add_argument("--label-prefix", default="scanno", metavar="STEM",
+                   help="stem for the obs columns written by --out-h5ad (default: scanno, "
+                        "giving scanno_cell_type). The default is chosen so a reader guessing "
+                        "which column holds the annotation finds it without being told")
     s.set_defaults(fn=_annotate)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
