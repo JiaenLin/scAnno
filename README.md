@@ -3,17 +3,18 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.4.0-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.5.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.4.0` this is a classifier, not a
+> **Read [Status](#status) before planning anything.** At `0.5.0` this is a classifier, not a
 > pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
 > `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
 > downstream can actually read — `--report` writes a self-contained document beside it, and an
-> object carrying scQC's declaration arms the exclusion itself. There is still no ingest step
+> object carrying scQC's declaration arms the exclusion itself. `scanno cluster` produces the
+> partition and `scanno compare` checks it against a second route. There is still no ingest step
 > and no task graph.
 > **What has been validated is human
 > blood** — two PBMC datasets, 18 populations, zero errors — and nothing else: not another
@@ -71,7 +72,7 @@ The untrained path costs one exact call and one extra coarse label. It makes no 
 | # | step | does | assigns | state |
 |---|---|---|---|---|
 | 0 | **ingest** | validate the samplesheet and the declared tree; bind it to the corpus; refuse on a node nothing can represent | — | specified |
-| 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — | partial — `scanno resolution` judges a sweep somebody else computed |
+| 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — | **built** — `scanno cluster`, `--split-by` for per-sample |
 | 2 | **score** | one pass over cells, then walk the tree: at each node score only its children | proposes | **built** |
 | 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | **built** — `scanno/emit.py`, reached by `--out-h5ad` |
 
@@ -339,7 +340,7 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 
 ## Status
 
-**0.4.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.5.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
@@ -356,6 +357,8 @@ checked against the tree rather than remembered.
 | ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |
 | ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `resolution`, `agent`, `selftest`. Exit code 2 is a refusal. |
 | ✅ **assign** | `--out-h5ad` writes the annotation into the object per CELL — label, path, depth, gap, survival and support — leaving `X`, `var` and `obsm` untouched. `tests/test_emit.py` asserts the join, the flag override, NaN-not-zero for calls that were not made, and the h5ad round trip down to the `categories`/`codes` encoding a reader looks for. |
+| ✅ **cluster** | `scanno cluster` is step 1: normalise, variable genes over EVERY gene, PCA, neighbours, UMAP, Leiden at every resolution asked for. It selects nothing - every resolution is kept, because a sweep that discarded the evidence for its own stopping point would be unfalsifiable - and it REFUSES rather than proceeding when it cannot find raw counts to preserve. `--split-by` clusters each sample independently: no shared variable genes, no joint embedding, no batch key. |
+| ✅ **two-route check** | `scanno compare` scores two annotated objects against each other, excluding from the denominator any cell one route withheld, naming the confused PAIRS rather than only a percentage, and reporting how much of route B is one sample - because a joint clustering of an un-integrated cohort can group by library, and then disagreement indicts B. |
 | ✅ **report** | `--report` writes one self-contained HTML file plus a `report.json` carrying every number in it: composition, the labels on the embedding, reliability by tree depth, the corpus markers behind the calls, what was withheld and how unevenly, every cluster call, and provenance. Every section states what it cannot show, and the report counts a missing limit as a defect on its own front page. |
 | ✅ **upstream provenance** | an object carrying scQC's `uns["scqc"]` declaration arms the exclusion automatically, after verifying the flag against its digest. A declaration that does not check out REFUSES. An object with a flag column and no declaration gets nothing - scAnno reads declarations and never guesses from a column name. |
 | ❌ **no ingest, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |

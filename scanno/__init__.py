@@ -13,6 +13,8 @@ from .classify import (GAP_CORPUS, GAP_PROFILE, classify, gate_auc, missing_node
                        node_profiles, profile_weights)
 from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertions,
                      node_weights)
+from .cluster import cluster, parse_resolutions, res_tag
+from .compare import compare as compare_routes
 from .emit import annotate_obs, format_readiness, lab_readiness, per_cell
 from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cells,
                       flag_digest, unprofilable)
@@ -25,7 +27,7 @@ from .store import NORM, ProfileStore, build_store, safe_scale
 #: Kept in step with the VERSION file, which is the one a reader checks. They disagreed between
 #: 0.1.0 and 0.2.0 - the package reported a version it had not been for two releases - which is
 #: the same class of defect as a run citing a commit hash that does not exist.
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "build_store", "ProfileStore", "safe_scale", "NORM",
@@ -46,5 +48,8 @@ __all__ = [
     # 0.3.1 the join back onto the object was left to every caller - so the object scAnno had
     # just annotated still carried no annotation, and nothing downstream could open it.
     "per_cell", "annotate_obs", "lab_readiness", "format_readiness",
+    # Step 1, and the two-route check. Neither selects anything: `cluster` keeps every
+    # resolution it computes and `compare_routes` changes no call.
+    "cluster", "parse_resolutions", "res_tag", "compare_routes",
     "__version__",
 ]

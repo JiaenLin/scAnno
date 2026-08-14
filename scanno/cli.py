@@ -519,6 +519,114 @@ def _annotate(a):
     return 0
 
 
+def _cluster(a):
+    """Step 1: cluster, and select nothing."""
+    try:
+        import anndata as ad
+        import scanpy  # noqa: F401
+    except ImportError:
+        print("scanno: cluster needs anndata + scanpy.  pip install -e '.[run]'",
+              file=sys.stderr)
+        return 1
+    from .cluster import cluster, parse_resolutions, split
+
+    try:
+        res = parse_resolutions(a.resolutions)
+    except ValueError as e:
+        print(f"scanno: {e}", file=sys.stderr)
+        return 1
+    if not res:
+        print("scanno: REFUSE - no resolutions to compute.", file=sys.stderr)
+        return REFUSE
+
+    A = ad.read_h5ad(a.h5ad)
+    print(f"{a.h5ad}: {A.n_obs:,} x {A.n_vars:,}")
+    print(f"resolutions: {', '.join(str(r) for r in res)}   seed {a.seed}")
+    print("every resolution is KEPT and none is chosen; no gene class is excluded from "
+          "selection")
+
+    pieces = []
+    if a.split_by:
+        if a.split_by not in A.obs:
+            print(f"scanno: {a.h5ad} has no obs column {a.split_by!r}. Available: "
+                  f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
+            return 1
+        pieces = list(split(A, a.split_by))
+        print(f"--split-by {a.split_by}: {len(pieces)} groups, each clustered INDEPENDENTLY - "
+              f"no shared variable genes, no joint embedding, no batch key")
+        if "scqc" in A.uns:
+            print("    the upstream declaration is dropped from each piece: it describes the "
+                  "cohort,\n    so carrying it onto a subset would fail verification "
+                  "downstream and read as\n    tampering. The flag column travels with the "
+                  "cells - name it with --exclude-flag.")
+    else:
+        pieces = [(None, A)]
+
+    out_dir = Path(a.out_dir) if a.out_dir else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, piece in pieces:
+        if name is not None:
+            print(f"\n{name}: {piece.n_obs:,} nuclei")
+        try:
+            info = cluster(piece, resolutions=res, n_top_genes=a.n_top_genes, n_pcs=a.n_pcs,
+                           n_neighbors=a.n_neighbors, seed=a.seed)
+        except (ValueError, AssertionError) as e:
+            print(f"scanno: REFUSE - {e}", file=sys.stderr)
+            return REFUSE
+        print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
+              f"raw counts kept in layers['counts']")
+        if name is not None:
+            p = (out_dir or Path(".")) / f"{name}_clustered.h5ad"
+        else:
+            p = Path(a.out)
+            p.parent.mkdir(parents=True, exist_ok=True)
+        piece.write_h5ad(p)
+        written.append(p)
+        print(f"    wrote {p}")
+
+    print(f"\n{len(written)} object(s) written. Next: `scanno annotate --cluster-key "
+          f"leiden_{ _RES_TAG(res[len(res)//2]) }` (or any of the others), then "
+          f"`scanno resolution` to choose one on the LABEL rather than the partition.")
+    return 0
+
+
+def _RES_TAG(r):
+    from .cluster import res_tag
+    return res_tag(r)
+
+
+def _compare(a):
+    """Two routes to the same labels, and how far they agree."""
+    try:
+        import anndata as ad
+    except ImportError:
+        print("scanno: compare needs anndata.  pip install -e '.[run]'", file=sys.stderr)
+        return 1
+    import json as _json
+
+    from .compare import compare, format_report
+
+    A = ad.read_h5ad(a.a, backed="r")
+    B = ad.read_h5ad(a.b, backed="r")
+    for obj, path in ((A, a.a), (B, a.b)):
+        if a.path_key not in obj.obs:
+            print(f"scanno: {path} has no obs column {a.path_key!r}. Annotate it first with "
+                  f"`scanno annotate --out-h5ad`.", file=sys.stderr)
+            return 1
+    res = compare(A.obs, B.obs, path_key=a.path_key, sample_key=a.sample_key,
+                  cluster_key=a.cluster_key)
+    print("")
+    for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem):
+        print(line)
+    if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out).write_text(_json.dumps(res, indent=1, default=str), encoding="utf-8")
+        print(f"\nwrote {a.out}")
+    return 0
+
+
 def _panel(a):
     """Show the corpus panel for one context — what the untrained path would score on."""
     from .corpus import load_assertions
@@ -590,6 +698,25 @@ def main(argv=None):
     s = sub.add_parser("selftest", help="run the adversarial suite")
     s.set_defaults(fn=_selftest)
 
+    s = sub.add_parser("cluster", help="step 1: cluster at every resolution, and select nothing")
+    s.add_argument("--h5ad", required=True, type=Path)
+    s.add_argument("--out", type=Path, help="output object (single-object mode)")
+    s.add_argument("--split-by", metavar="OBS_COLUMN",
+                   help="cluster each level of this column INDEPENDENTLY - no shared variable "
+                        "genes, no joint embedding, no batch key. Whether a cluster present in "
+                        "one sample and absent from another is real is a question about "
+                        "identity, and a pooled clustering has already decided it")
+    s.add_argument("--out-dir", type=Path, help="where the per-group objects go (--split-by)")
+    s.add_argument("--resolutions", metavar="SPEC", default=None,
+                   help="`0.25,0.5,1.0` or `start:stop:step`. Default 0.25:2.0:0.25. EVERY one "
+                        "is kept: a sweep that discarded the evidence for its own stopping "
+                        "point would be unfalsifiable")
+    s.add_argument("--n-top-genes", type=int, default=None, help="variable genes (default 2000)")
+    s.add_argument("--n-pcs", type=int, default=None, help="principal components (default 50)")
+    s.add_argument("--n-neighbors", type=int, default=None, help="graph neighbours (default 15)")
+    s.add_argument("--seed", type=int, default=0)
+    s.set_defaults(fn=_cluster)
+
     s = sub.add_parser("annotate", help="label the clusters of one object")
     s.add_argument("--h5ad", required=True, type=Path)
     s.add_argument("--cluster-key", required=True)
@@ -638,6 +765,20 @@ def main(argv=None):
                         "giving scanno_cell_type). The default is chosen so a reader guessing "
                         "which column holds the annotation finds it without being told")
     s.set_defaults(fn=_annotate)
+
+    s = sub.add_parser("compare",
+                       help="two annotated objects: how far the labels agree, and whether the "
+                            "second route is strong enough to be worth comparing against")
+    s.add_argument("--a", required=True, type=Path, help="annotated object, route A")
+    s.add_argument("--b", required=True, type=Path, help="annotated object, route B")
+    s.add_argument("--path-key", default="scanno_path")
+    s.add_argument("--sample-key", metavar="OBS_COLUMN",
+                   help="with --cluster-key, measures how much of each route-B cluster is one "
+                        "sample. A joint clustering of an un-integrated cohort can group cells "
+                        "by library rather than by cell type, and then disagreement indicts B")
+    s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
+    s.add_argument("--out", type=Path, help="write the comparison as JSON")
+    s.set_defaults(fn=_compare)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
     s.add_argument("--db", required=True, type=Path)
