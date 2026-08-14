@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scanno"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Hierarchical cell-type annotation that truncates rather than guesses"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,3 +26,9 @@ scanno = "scanno.cli:main"
 
 [tool.setuptools]
 packages = ["scanno"]
+
+# Read from the VERSION file rather than restated here. It was restated, and drifted:
+# pyproject said 0.1.0 while VERSION, CITATION.cff and __version__ said 0.3.0.
+# tests/test_version.py now asserts all four agree.
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
