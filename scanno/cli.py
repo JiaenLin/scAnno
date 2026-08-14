@@ -539,52 +539,79 @@ def _cluster(a):
         print("scanno: REFUSE - no resolutions to compute.", file=sys.stderr)
         return REFUSE
 
-    A = ad.read_h5ad(a.h5ad)
-    print(f"{a.h5ad}: {A.n_obs:,} x {A.n_vars:,}")
+    inputs = list(a.h5ad)
+    if len(inputs) > 1 and a.out:
+        print("scanno: REFUSE - --out names ONE file and you gave "
+              f"{len(inputs)} inputs. Use --out-dir; each object is written as "
+              "<stem>_clustered.h5ad, so the pieces cannot silently overwrite each other.",
+              file=sys.stderr)
+        return REFUSE
+    if len(inputs) > 1 and a.split_by:
+        print("scanno: REFUSE - --split-by splits ONE object into groups; with several inputs "
+              "they are already separate. Pass the files, or pass one object and --split-by.",
+              file=sys.stderr)
+        return REFUSE
+    if len(inputs) == 1 and not a.split_by and not a.out:
+        print("scanno: REFUSE - one object and no --split-by needs --out.", file=sys.stderr)
+        return REFUSE
+
     print(f"resolutions: {', '.join(str(r) for r in res)}   seed {a.seed}")
     print("every resolution is KEPT and none is chosen; no gene class is excluded from "
           "selection")
-
-    pieces = []
-    if a.split_by:
-        if a.split_by not in A.obs:
-            print(f"scanno: {a.h5ad} has no obs column {a.split_by!r}. Available: "
-                  f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
-            return 1
-        pieces = list(split(A, a.split_by))
-        print(f"--split-by {a.split_by}: {len(pieces)} groups, each clustered INDEPENDENTLY - "
-              f"no shared variable genes, no joint embedding, no batch key")
-        if "scqc" in A.uns:
-            print("    the upstream declaration is dropped from each piece: it describes the "
-                  "cohort,\n    so carrying it onto a subset would fail verification "
-                  "downstream and read as\n    tampering. The flag column travels with the "
-                  "cells - name it with --exclude-flag.")
-    else:
-        pieces = [(None, A)]
+    if len(inputs) > 1:
+        # Several objects is the ordinary shape here: upstream QC delivers one file per library
+        # and clustering them separately is the point, not a convenience. Taking them all in one
+        # invocation is what keeps a whole cohort a single command rather than a shell loop.
+        print(f"{len(inputs)} objects, each clustered INDEPENDENTLY - no shared variable genes, "
+              f"no joint embedding, no batch key")
 
     out_dir = Path(a.out_dir) if a.out_dir else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
+
     written = []
-    for name, piece in pieces:
-        if name is not None:
-            print(f"\n{name}: {piece.n_obs:,} nuclei")
-        try:
-            info = cluster(piece, resolutions=res, n_top_genes=a.n_top_genes, n_pcs=a.n_pcs,
-                           n_neighbors=a.n_neighbors, seed=a.seed)
-        except (ValueError, AssertionError) as e:
-            print(f"scanno: REFUSE - {e}", file=sys.stderr)
-            return REFUSE
-        print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
-              f"raw counts kept in layers['counts']")
-        if name is not None:
-            p = (out_dir or Path(".")) / f"{name}_clustered.h5ad"
+    for src in inputs:
+        A = ad.read_h5ad(src)
+        pieces = [(None, A)]
+        if a.split_by:
+            if a.split_by not in A.obs:
+                print(f"scanno: {src} has no obs column {a.split_by!r}. Available: "
+                      f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
+                return 1
+            pieces = list(split(A, a.split_by))
+            print(f"--split-by {a.split_by}: {len(pieces)} groups, each clustered "
+                  f"INDEPENDENTLY - no shared variable genes, no joint embedding, no batch key")
+            if "scqc" in A.uns:
+                print("    the upstream declaration is dropped from each piece: it describes "
+                      "the cohort,\n    so carrying it onto a subset would fail verification "
+                      "downstream and read as\n    tampering. The flag column travels with the "
+                      "cells - name it with --exclude-flag.")
         else:
-            p = Path(a.out)
-            p.parent.mkdir(parents=True, exist_ok=True)
-        piece.write_h5ad(p)
-        written.append(p)
-        print(f"    wrote {p}")
+            print(f"\n{Path(src).name}: {A.n_obs:,} x {A.n_vars:,}")
+
+        for name, piece in pieces:
+            if name is not None:
+                print(f"\n{name}: {piece.n_obs:,} nuclei")
+            try:
+                info = cluster(piece, resolutions=res, n_top_genes=a.n_top_genes,
+                               n_pcs=a.n_pcs, n_neighbors=a.n_neighbors, seed=a.seed)
+            except (ValueError, AssertionError) as e:
+                print(f"scanno: REFUSE - {e}", file=sys.stderr)
+                return REFUSE
+            print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
+                  f"raw counts kept in layers['counts']")
+            if name is not None:
+                p = (out_dir or Path(".")) / f"{name}_clustered.h5ad"
+            elif out_dir:
+                # Named from the INPUT's stem, so ten libraries land in ten files rather than
+                # taking turns overwriting one.
+                p = out_dir / f"{Path(src).stem}_clustered.h5ad"
+            else:
+                p = Path(a.out)
+                p.parent.mkdir(parents=True, exist_ok=True)
+            piece.write_h5ad(p)
+            written.append(p)
+            print(f"    wrote {p}")
 
     print(f"\n{len(written)} object(s) written. Next: `scanno annotate --cluster-key "
           f"leiden_{ _RES_TAG(res[len(res)//2]) }` (or any of the others), then "
@@ -699,8 +726,11 @@ def main(argv=None):
     s.set_defaults(fn=_selftest)
 
     s = sub.add_parser("cluster", help="step 1: cluster at every resolution, and select nothing")
-    s.add_argument("--h5ad", required=True, type=Path)
-    s.add_argument("--out", type=Path, help="output object (single-object mode)")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
+                   help="one object, or every library of a cohort. Several inputs are each "
+                        "clustered INDEPENDENTLY and written to --out-dir named from their own "
+                        "stems, so a whole cohort is one command rather than a shell loop")
+    s.add_argument("--out", type=Path, help="output object (one input, no --split-by)")
     s.add_argument("--split-by", metavar="OBS_COLUMN",
                    help="cluster each level of this column INDEPENDENTLY - no shared variable "
                         "genes, no joint embedding, no batch key. Whether a cluster present in "
