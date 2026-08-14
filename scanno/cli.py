@@ -1,8 +1,14 @@
 """The `scanno` command.
 
-Deliberately small. At 0.1.0 there is no driver and no report, so the CLI exposes what
-actually exists rather than pretending to a pipeline: build a corpus panel, inspect a
-store, run the adversarial suite.
+Deliberately small. There is no driver, no report and no task graph, so the CLI exposes what
+actually exists rather than pretending to a pipeline: `annotate`, `calibrate`, `panel`,
+`store-info`, `resolution`, `agent`, `selftest`.
+
+No version is stated here, deliberately. This docstring used to open by naming one, kept naming
+the first release for three of them, and the list of subcommands beneath it went stale in the
+same breath - a version restated in prose is a version that drifts, and the remedy that worked
+for `pyproject.toml` was to remove the declaration rather than to keep checking it.
+`tests/test_version.py` §6 guards against reintroducing one here.
 
 Exit codes follow scQC: 0 pass or review, 1 error, 2 refusal.
 """

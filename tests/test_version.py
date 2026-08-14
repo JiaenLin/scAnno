@@ -1,18 +1,23 @@
-"""The four places this package states its version must agree. Asserted, because they drifted.
+"""Every place this package states its version must agree. Asserted, because they drifted.
 
 A tool that misreports its own version does damage quietly: a run log records `0.1.0`, someone
 looks up what `0.1.0` did, and reads the documentation for code that is three releases behind.
 That is the same class of defect as a run citing a commit hash that does not exist, which this
 project has also had.
 
-It has now happened twice:
+It has now happened three times:
 
     0.2.0 released   VERSION said 0.2.0, scanno/__init__.py said "0.1.0"
     0.3.0 released   VERSION, CITATION.cff and __init__ said 0.3.0, pyproject.toml said "0.1.0"
+    after that fix   all four agreed on 0.3.0 - and README.md's badge AND lede still said 0.2.0,
+                     while scanno/cli.py's docstring had opened "At 0.1.0" since the first release
 
-The second one survived a release in which the first was explicitly noticed and fixed - the fix
-updated three of the four declarations and the fourth was not looked for. So the remedy is not
-more care at release time; it is this file.
+The second survived a release in which the first was explicitly noticed and fixed: the fix
+updated three of the four declarations and the fourth was not looked for. The third survived the
+file you are reading, because it checked the four PACKAGING declarations and the two that a human
+actually reads are prose. So the remedy is not more care at release time; it is this file, and
+the lesson each round is the same one - **the declaration nobody thought to enumerate is the one
+that drifts.** Section 6 exists because sections 1-5 were written and the drift moved next door.
 
 `pyproject.toml` no longer states a version at all: it reads the VERSION file, the pattern scQC
 uses, which removes one of the four sources rather than checking it. The check below still covers
@@ -104,6 +109,41 @@ if lit is not None:
 print("\n5 - the version is not accidentally the placeholder it drifted to twice")
 check("not the stale 0.1.0", VERSION != "0.1.0",
       "0.1.0 was the value both drifts got stuck on")
+
+print("\n6 - the prose declarations agree too, because they drifted next")
+# The four declarations above were fixed and the README went on saying 0.2.0 anyway - badge and
+# lede both - while scanno/cli.py's docstring opened "At 0.1.0" for three releases. Neither is a
+# packaging metadata field, so nothing above could see them, and the README is the first thing a
+# reader meets. Two mechanical sites are checked; free prose is not, because a rule broad enough
+# to catch every sentence would fire on the deliberately historical ones in this very file.
+readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+badge = re.search(r"img\.shields\.io/badge/status-([0-9][^-]*)-", readme)
+check("README has a status badge", badge is not None)
+if badge:
+    check("README badge == VERSION", badge.group(1) == VERSION,
+          f"{badge.group(1)!r} vs {VERSION!r}")
+
+# The Status section opens with the version in bold: "**0.3.0.** Precise, because ..."
+status = re.search(r"^##\s+Status\s*$\n+\*\*([0-9][0-9.]*)\.?\*\*", readme, re.M)
+check("README Status section names a version", status is not None)
+if status:
+    check("README Status == VERSION", status.group(1).rstrip(".") == VERSION,
+          f"{status.group(1)!r} vs {VERSION!r}")
+
+# A module docstring that opens "At X.Y.Z ..." is describing what the CURRENT release does, so it
+# has to be the current release. Historical mentions live in comments and are not matched.
+for py in sorted((ROOT / "scanno").glob("*.py")):
+    head = py.read_text(encoding="utf-8")[:1200]
+    doc = re.match(r'\s*"""(.*?)"""', head, re.S)
+    if not doc:
+        continue
+    stated = re.search(r"\bAt (\d+\.\d+\.\d+)\b", doc.group(1))
+    if stated:
+        check(f"scanno/{py.name} docstring states the current version",
+              stated.group(1) == VERSION,
+              f"{stated.group(1)!r} vs {VERSION!r} - prefer removing the literal, as "
+              f"pyproject.toml and cli.py did")
 
 print("\n" + "=" * 64)
 if fails:
