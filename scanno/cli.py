@@ -869,12 +869,6 @@ def main(argv=None):
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
     s.add_argument("--assay", default="sc", choices=["sc", "sn"])
-    s.add_argument("--out-gene-key", metavar="VAR_COLUMN", default="gene_symbol",
-                   help="var column to key the WRITTEN object by (default gene_symbol). "
-                        "Accessions are the right index to compute on because symbols are not "
-                        "unique, but a reader looks a gene up by symbol. Duplicated symbols keep "
-                        "every row and are disambiguated; the accession is preserved in "
-                        "var['gene_id']. Pass an empty string to leave var_names alone")
     s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
                    help="var column holding the gene names, defaulting to var['gene_symbol'] "
                         "when present. Must match what `annotate` uses or the background "
@@ -906,6 +900,12 @@ def main(argv=None):
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
+    s.add_argument("--out-gene-key", metavar="VAR_COLUMN", default="gene_symbol",
+                   help="var column to key the WRITTEN object by (default gene_symbol). "
+                        "Accessions are the right index to compute on because symbols are not "
+                        "unique, but a reader looks a gene up by symbol. Duplicated symbols keep "
+                        "every row and are disambiguated; the accession is preserved in "
+                        "var['gene_id']. Pass an empty string to leave var_names alone")
     s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
                    help="var column holding the names the CORPUS is keyed on, usually symbols. "
                         "Defaults to var['gene_symbol'] when present, else var_names - because "
