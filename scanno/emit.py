@@ -99,15 +99,21 @@ def support_per_cell(cell_type, support):
     return np.array([float(support.get(str(v), np.nan)) for v in cell_type], dtype=np.float32)
 
 
-def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None):
-    """Write the per-cell annotation into `adata.obs`. Returns the column names written."""
+def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, suffix=""):
+    """Write the per-cell annotation into `adata.obs`. Returns the column names written.
+
+    `suffix` goes on the END of each column name, which is where a sweep needs it:
+    `scanno resolution` reads a family of columns sharing a prefix and differing by the
+    resolution, so annotating the same object at eight resolutions wants
+    `scanno_path_r0p25 … scanno_path_r2p0` rather than the resolution buried in the middle.
+    """
     import pandas as pd
 
     cols = per_cell(res, y, flag=flag)
     written = []
 
     def put(name, values, categorical=False):
-        key = f"{prefix}_{name}"
+        key = f"{prefix}_{name}{suffix}"
         adata.obs[key] = (pd.Categorical([str(v) for v in values]) if categorical
                           else values)
         written.append(key)

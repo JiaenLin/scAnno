@@ -465,7 +465,7 @@ def _annotate(a):
     if a.out_h5ad:
         from .emit import annotate_obs, format_readiness, lab_readiness
         written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
-                               support=support or None)
+                               support=support or None, suffix=a.label_suffix)
         Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
         A.write_h5ad(a.out_h5ad, compression="gzip")
         print("")
@@ -475,7 +475,7 @@ def _annotate(a):
         # X, var and obsm are the object's, untouched - the annotation is added, never a new
         # object built around it. An embedding or a symbol column that came in comes out.
         print("  what a viewer will find in it")
-        label_key = f"{a.label_prefix}_cell_type"
+        label_key = f"{a.label_prefix}_cell_type{a.label_suffix}"
         checks = lab_readiness(A, label_key)
         for line in format_readiness(checks):
             print(line)
@@ -490,9 +490,10 @@ def _annotate(a):
     if a.report:
         from . import report as rp
         from . import __version__
-        label_key = f"{a.label_prefix}_cell_type"
+        label_key = f"{a.label_prefix}_cell_type{a.label_suffix}"
         if label_key not in A.obs:
-            annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix, support=support or None)
+            annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
+                         support=support or None, suffix=a.label_suffix)
         doc = rp.collect(
             A, res, cats, y, label_key=label_key, decision=decision, support=support or None,
             store_digest=getattr(store, "digest", ""), tree_path=a.tree, db_path=a.db or "",
@@ -624,6 +625,70 @@ def _RES_TAG(r):
     return res_tag(r)
 
 
+def _background(a):
+    """Build ONE gene background from a cohort's own clusters, and save it.
+
+    `--background-from-clusters` derives a background from the object in front of it, which makes
+    a cluster's score depend on that object's composition. Across a cohort that is exactly wrong:
+    composition is often the thing being compared, and a per-sample background couples the labels
+    to the design. `scanno calibrate` builds a shareable store but wants annotated ATLASES, which
+    is a different input from the study's own libraries.
+
+    So: pool every library, build the background once, write it, and let `annotate --store` use
+    the same numbers for all of them. What this does NOT do is make the background independent of
+    the study - it is still this cohort's. It makes it independent of WHICH LIBRARY a nucleus
+    sits in, which is the comparison the design rests on, and the run says so.
+    """
+    try:
+        import anndata as ad
+        import numpy as np
+    except ImportError:
+        print("scanno: background needs anndata.  pip install -e '.[run]'", file=sys.stderr)
+        return 1
+    from .store import build_store
+
+    parts, n_total = [], 0
+    for src in a.h5ad:
+        A = ad.read_h5ad(src)
+        if a.cluster_key not in A.obs:
+            print(f"scanno: {src} has no obs column {a.cluster_key!r}. Available: "
+                  f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
+            return 1
+        genes = np.array([str(v).upper() for v in
+                          (A.var["gene_symbol"] if a.use_symbols and "gene_symbol" in A.var
+                           else A.var_names)])
+        # Qualified by object, so cluster 0 of one library is not pooled with cluster 0 of
+        # another. They are different populations and averaging them is not a background, it is
+        # a blur.
+        tag = Path(src).stem
+        lab = np.char.add(tag + ":", A.obs[a.cluster_key].astype(str).values)
+        parts.append((tag, genes, A.X, lab))
+        n_total += int(A.n_obs)
+        print(f"  {tag:<28} {A.n_obs:>8,} cells  {len(set(lab)):>4} clusters")
+    if not parts:
+        print("scanno: REFUSE - no objects given.", file=sys.stderr)
+        return REFUSE
+
+    store = build_store(parts, {"species": a.species, "tissue": a.tissue, "assay": a.assay})
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    # The same keys `calibrate.load_store` reads, written the same way. Not shared with
+    # `calibrate.save` because that writes a whole calibration directory - reliability, panels,
+    # the promotion ladder - none of which exists here: this is a background, not a calibration,
+    # and emitting empty tables beside it would suggest otherwise.
+    np.savez_compressed(
+        a.out, context=json.dumps(store.context), genes=store.genes,
+        celltypes=np.array(store.celltypes, dtype=object), mean=store.mean,
+        detect=store.detect, n_cells=store.n_cells, n_present=store.n_present,
+        n_sources=store.n_sources, n_clean=store.n_clean, between_sd=store.between_sd,
+        gene_mu=store.gene_mu, gene_sd=store.gene_sd, digest=store.digest)
+    print(f"\nwrote {a.out}   digest {store.digest}")
+    print(f"  {n_total:,} cells from {len(parts)} object(s), {len(store.genes):,} genes")
+    print("  Pass it to every `scanno annotate` in this cohort with --store, so a cluster's")
+    print("  score does not depend on which library it happened to sit in.")
+    print("  It is still THIS cohort's background: independent of the library, not of the study.")
+    return 0
+
+
 def _compare(a):
     """Two routes to the same labels, and how far they agree."""
     try:
@@ -747,6 +812,22 @@ def main(argv=None):
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(fn=_cluster)
 
+    s = sub.add_parser("background",
+                       help="build ONE gene background from a cohort's own clusters, and save it")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
+                   help="every library of the cohort. Pooled, so a cluster's score does not "
+                        "depend on which library it sat in")
+    s.add_argument("--cluster-key", required=True,
+                   help="the clustering to profile, e.g. leiden_1p0")
+    s.add_argument("--out", required=True, type=Path, help="store.npz")
+    s.add_argument("--species", required=True)
+    s.add_argument("--tissue", required=True)
+    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    s.add_argument("--use-symbols", action="store_true",
+                   help="read var['gene_symbol'] rather than var_names, for accession-indexed "
+                        "objects")
+    s.set_defaults(fn=_background)
+
     s = sub.add_parser("annotate", help="label the clusters of one object")
     s.add_argument("--h5ad", required=True, type=Path)
     s.add_argument("--cluster-key", required=True)
@@ -790,6 +871,10 @@ def main(argv=None):
     s.add_argument("--condition-key", metavar="OBS_COLUMN",
                    help="obs column naming the experimental group. Optional: with it the report "
                         "reports the exclusion rate per arm and the widest ratio between arms")
+    s.add_argument("--label-suffix", default="", metavar="SUFFIX",
+                   help="appended to every obs column written by --out-h5ad. Annotating one "
+                        "object at several resolutions wants `--label-suffix _r1p0`, giving "
+                        "`scanno_path_r1p0` - which is the family `scanno resolution` reads")
     s.add_argument("--label-prefix", default="scanno", metavar="STEM",
                    help="stem for the obs columns written by --out-h5ad (default: scanno, "
                         "giving scanno_cell_type). The default is chosen so a reader guessing "
