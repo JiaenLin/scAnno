@@ -311,7 +311,24 @@ def _annotate(a):
               f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
         return 1
     src = A.raw if (a.use_raw and A.raw is not None) else A
-    X, genes = src.X, np.array([str(v).upper() for v in src.var_names])
+    # WHICH NAMES THE CORPUS WILL BE MATCHED ON. A corpus is keyed by SYMBOL, and an object is
+    # very often keyed by accession with the symbols beside it in `var` - which is the correct
+    # way round for the object, since symbols are not unique. Reading `var_names` regardless
+    # produced 0 overlapping genes and 100% UNRESOLVED, silently: every marker panel came out
+    # empty, every node was dropped, and the run exited 0 with a full table of UNRESOLVED.
+    # `scanno agent` had used the symbol column since it was written; this path had not.
+    gene_key = a.gene_key
+    if gene_key is None and "gene_symbol" in src.var:
+        gene_key = "gene_symbol"
+    if gene_key and gene_key not in src.var:
+        print(f"scanno: {a.h5ad} has no var column {gene_key!r}. Columns: "
+              f"{', '.join(map(str, src.var.columns))}", file=sys.stderr)
+        return 1
+    X = src.X
+    genes = np.array([str(v).upper() for v in
+                      (src.var[gene_key] if gene_key else src.var_names)])
+    print(f"gene names from {'var[' + repr(gene_key) + ']' if gene_key else 'var_names'}"
+          f"   e.g. {', '.join(genes[:3])}")
 
     # Counts or already normalised? Measured, not assumed - feeding scaled or raw values
     # to a scorer expecting log1p returns a number for the wrong quantity.
@@ -413,6 +430,16 @@ def _annotate(a):
             print(f"scanno: REFUSE - the corpus has nothing for {a.species}/{a.tissue} "
                   f"at tier<={a.min_tier}.", file=sys.stderr)
             return REFUSE
+        # The guard that exists for exactly this and was never called here. Without it an
+        # accession-keyed object against a symbol-keyed corpus returns UNRESOLVED for every
+        # cluster and exits 0 - which reads as a finding about the data rather than a naming
+        # mismatch, and is the single most expensive way for this tool to be wrong.
+        from .corpus import GeneSpaceMismatch, check_gene_space
+        try:
+            check_gene_space(asr, genes)
+        except GeneSpaceMismatch as e:
+            print(str(e), file=sys.stderr)      # it already says "scanno: REFUSE - ..."
+            return REFUSE
     tree["genes"] = store.genes
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
                    gap_min=a.gap_min, exclude=drop)
@@ -462,8 +489,13 @@ def _annotate(a):
 
     # The annotated object. Everything above is per CLUSTER; this is the only place the labels
     # become per CELL, which is the form every consumer of an annotation actually wants.
+    # Imported here, not inside `if a.out_h5ad`, because --report uses it too: a run with
+    # --report and no --out-h5ad raised UnboundLocalError after every library had been
+    # annotated. An import scoped to one branch and used in another is invisible until the
+    # branch that does not import it runs.
+    from .emit import annotate_obs, format_readiness, lab_readiness
+
     if a.out_h5ad:
-        from .emit import annotate_obs, format_readiness, lab_readiness
         written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
                                support=support or None, suffix=a.label_suffix)
         Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
@@ -654,9 +686,14 @@ def _background(a):
             print(f"scanno: {src} has no obs column {a.cluster_key!r}. Available: "
                   f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
             return 1
+        # Same default as `annotate`: the store and the annotation must be built on the same
+        # naming or `standardise` matches nothing, and the two commands disagreeing about which
+        # column holds the gene names is a silent way to get an empty background.
+        gk = a.gene_key
+        if gk is None and "gene_symbol" in A.var:
+            gk = "gene_symbol"
         genes = np.array([str(v).upper() for v in
-                          (A.var["gene_symbol"] if a.use_symbols and "gene_symbol" in A.var
-                           else A.var_names)])
+                          (A.var[gk] if gk and gk in A.var else A.var_names)])
         # Qualified by object, so cluster 0 of one library is not pooled with cluster 0 of
         # another. They are different populations and averaging them is not a background, it is
         # a blur.
@@ -823,9 +860,10 @@ def main(argv=None):
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
     s.add_argument("--assay", default="sc", choices=["sc", "sn"])
-    s.add_argument("--use-symbols", action="store_true",
-                   help="read var['gene_symbol'] rather than var_names, for accession-indexed "
-                        "objects")
+    s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
+                   help="var column holding the gene names, defaulting to var['gene_symbol'] "
+                        "when present. Must match what `annotate` uses or the background "
+                        "matches nothing")
     s.set_defaults(fn=_background)
 
     s = sub.add_parser("annotate", help="label the clusters of one object")
@@ -853,6 +891,12 @@ def main(argv=None):
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
+    s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
+                   help="var column holding the names the CORPUS is keyed on, usually symbols. "
+                        "Defaults to var['gene_symbol'] when present, else var_names - because "
+                        "an object is often keyed by accession with symbols beside it, and "
+                        "matching a symbol corpus against accessions silently returns "
+                        "UNRESOLVED for everything")
     s.add_argument("--use-raw", action="store_true")
     s.add_argument("--out", type=Path, help="per-CLUSTER table, as TSV")
     s.add_argument("--out-h5ad", type=Path, metavar="PATH",
