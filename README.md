@@ -3,17 +3,19 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.2.0-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.3.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.2.0` this is a validated
-> prototype, not a pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are
-> tested, and `--exclude-flag` withholds what upstream QC marked without deleting it. There is
-> still no ingest step, no assign step, no report and no task graph, and the validation remains
-> human blood — see [Status](#status) before trusting it on anything else.
+> **Read [Status](#status) before planning anything.** At `0.3.0` this is a classifier, not a
+> pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested, and
+> `--exclude-flag` withholds what upstream QC marked without deleting it. There is still no
+> ingest step, no assign step, no report and no task graph. **What has been validated is human
+> blood** — two PBMC datasets, 18 populations, zero errors — and nothing else: not another
+> tissue, not another species, and **not single-nucleus data**, on which it is nevertheless being
+> used. See [Status](#status) before trusting it beyond that.
 
 ---
 
@@ -63,15 +65,30 @@ The untrained path costs one exact call and one extra coarse label. It makes no 
 
 ## The four steps
 
-| # | step | does | assigns |
-|---|---|---|---|
-| 0 | **ingest** | validate the samplesheet and the declared tree; bind it to the corpus; refuse on a node nothing can represent | — |
-| 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — |
-| 2 | **score** | one pass over cells, then walk the tree: at each node score only its children | proposes |
-| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** |
+| # | step | does | assigns | state |
+|---|---|---|---|---|
+| 0 | **ingest** | validate the samplesheet and the declared tree; bind it to the corpus; refuse on a node nothing can represent | — | specified |
+| 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — | partial — `scanno resolution` judges a sweep somebody else computed |
+| 2 | **score** | one pass over cells, then walk the tree: at each node score only its children | proposes | **built** |
+| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | specified |
 
 Four, not eight. scQC needs eight because each gates a deletion and deletions compound; nothing in
 annotation compounds, and a label is replaced by re-running.
+
+**Why the shape is this, and not the usual one:**
+
+- **The tree is rooted, and that is the whole design.** A forest of leaves has nowhere to truncate
+  *to*, so its only failure action is `UNRESOLVED` and everything marginal gets thrown away. A
+  root is what lets `Lymphoid` be an answer.
+- **Only siblings are ever compared.** At each node the score is over that node's children alone,
+  so a call never depends on how many distant cell types happen to be in the taxonomy.
+- **One pass over cells, then milliseconds.** `cluster_profile` is a single sparse matmul against
+  a one-hot cluster indicator. That construction is also what makes non-destructive exclusion
+  exact: a cluster's profile depends on its own cells and nothing else.
+- **Scores are standardised against a stored background, not against the run.** This is the
+  property everything else rests on — see below.
+- **Assignment is one code path.** Same reason scQC confines removal to step 7: a reader should be
+  able to establish quickly that nothing else can put a label into `obs`.
 
 ## Excluding what upstream QC flagged
 
@@ -118,7 +135,9 @@ Each was built, measured and removed. Listed so they do not come back without ne
 | design-differential gate | refused on a comparison where 2 libraries of 10 held 94% of the unresolved nuclei |
 | cluster-share exclusion (`--exclude-mode cluster`) | withheld **783 of 2,680** nuclei (29.2%) that upstream QC had *passed*, while keeping 1,918 of 3,815 that it flagged; the size moved 42 → 4,080 with the caller's resolution from one unchanged flag |
 
-**Five proposed additions measurably made this worse, and one shipped capability had to be removed after it did.** Hence the standing rule:
+**Eight capabilities were built here, measured, and deleted** — some of them only after they had
+already shipped, and one of them (negative marker weights) causing errors that were invisible on
+the self-test. Hence the standing rule:
 
 > **No statistic gates an output until it has been shown to separate correct from incorrect calls
 > on held-out data, reported as an AUC beside the gate it justifies.**
@@ -132,20 +151,32 @@ and, since 0.3.0, its companion:
 ## Install
 
 ```bash
-git clone <this repo> && cd scAnno
-pip install -e .
+git clone https://github.com/JiaenLin/scAnno.git && cd scAnno
+pip install -e '.[run]'               # '.[run]' adds anndata + scanpy, for reading .h5ad
+scanno selftest                       # or run it from the clone: python bin/scanno selftest
 python tests/test_calibrate.py        # synthetic; no data needed
 python tests/test_adversarial.py      # needs scanpy + the PBMC datasets
 ```
 
+The decision layer is **numpy + scipy only**, deliberately: a tool that is hard to install is a
+tool that gets skipped.
+
 To learn marker reliability from atlases you already have:
 
 ```bash
-scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \n                 --species Human --tissue Blood --out calib/
+scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \
+                 --species Human --tissue Blood --out calib/
 ```
 
-The marker corpus is **not** distributed — `scanno build-markers` ingests a release you fetch
-yourself, the same way scQC ships a reference registry and not a genome.
+The marker corpus is **not** distributed, the same way scQC ships a reference registry and not a
+genome. Download a CellMarker release and build the SQLite database with your own ingest, or
+point `--db` at any database with an `assertion` table carrying `species`, `tissue_class`,
+`cell_name`, `symbol_norm`, `evidence_tier` and `n_pmids`. Check what the corpus knows about your
+tissue before anything else — if `scanno panel` refuses, no amount of tuning will help:
+
+```bash
+scanno panel --db corpus.db --species Human --tissue Blood --top 10
+```
 
 ## Documentation
 
@@ -167,7 +198,7 @@ checked against the tree rather than remembered.
 | | |
 |---|---|
 | ✅ **built and tested** | the classifier: store, gene background, corpus weights, rooted walk with truncation. `tests/test_adversarial.py` re-runs every attack that found a defect. |
-| ✅ **validated** | PBMC, two datasets, 18 populations, zero errors on both paths. One of the two is independent with FACS labels. |
+| ✅ **validated — on human blood, and only there** | PBMC, two datasets, 18 populations, zero errors on both paths. One of the two is independent with FACS labels. The scope is part of the claim: read the next two rows before quoting this one. |
 | ⚠️ **one tissue, one species** | human blood. Every number is an existence proof, not a range. |
 | ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. **It is nevertheless being used on single-nucleus data**, which is a limitation of that use and not a property this tool has earned. |
 | ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
