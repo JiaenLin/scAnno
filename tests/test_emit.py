@@ -55,6 +55,18 @@ def calls(*labels):
             for i, lab in enumerate(labels)]
 
 
+print("\n0 - the digest contract with scQC")
+# scQC stamps uns["scqc"]["flag_digest"] onto every object it delivers, and scAnno verifies the
+# flag against it before acting on it. The two implementations are deliberately NOT shared code -
+# neither repo depends on the other - so they are held together by this vector, asserted in both
+# suites. If it fails here, THIS implementation changed: scQC's tests/test_declaration.py pins
+# the same five bits to the same value.
+from scanno.exclude import flag_digest  # noqa: E402
+
+check("the CONTRACT vector still hashes to the agreed value",
+      flag_digest([True, False, True, True, False]) == "3ba679de109f5333",
+      f"got {flag_digest([True, False, True, True, False])}, agreed 3ba679de109f5333")
+
 print("\n1 - the join is by cluster index, not by row order")
 res = calls("Myeloid", "Lymphoid", "Stromal")
 # Deliberately out of order and unbalanced: cell 0 is in cluster 2.

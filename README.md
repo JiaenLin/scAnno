@@ -3,17 +3,18 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.3.1-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.4.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.3.1` this is a classifier, not a
+> **Read [Status](#status) before planning anything.** At `0.4.0` this is a classifier, not a
 > pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
-> `--exclude-flag` withholds what upstream QC marked without deleting it, and `--out-h5ad`
-> writes the annotation back into the object **per cell** — the form anything downstream can
-> actually read. There is still no ingest step, no report and no task graph.
+> `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
+> downstream can actually read — `--report` writes a self-contained document beside it, and an
+> object carrying scQC's declaration arms the exclusion itself. There is still no ingest step
+> and no task graph.
 > **What has been validated is human
 > blood** — two PBMC datasets, 18 populations, zero errors — and nothing else: not another
 > tissue, not another species, and **not single-nucleus data**, on which it is nevertheless being
@@ -160,14 +161,90 @@ end to end against the lab's own converter, which picked
 `{"cluster":"scanno_cell_type","sample":"sample","condition":"condition","embedding":"X_umap"}`
 with nothing configured.
 
+## The report
+
+```bash
+scanno annotate ... --report reports/annotation.html \
+                    --sample-key sample --condition-key condition
+```
+
+One self-contained HTML file and a `report.json` carrying every number in it. No CDN, no fonts to
+fetch — openable from a filesystem in five years, which is longer than any link survives.
+
+| section | is |
+|---|---|
+| composition | level 1 and level 2, per sample where the object says which sample a cell came from |
+| the labels on the embedding | the picture, because a composition table cannot show *where* a population sits |
+| reliability | median decision gap by tree depth, against the share of cells whose node rests on fewer than 10 curated assertions |
+| the markers behind the calls | the corpus panels the classifier actually scored on, against the object they were applied to |
+| what was withheld | how many, on whose authority, where they sit, and how unevenly they fall across samples and design arms |
+| every cluster call | the full table, with gap and support |
+| provenance | the store digest, the taxonomy, the corpus, the gap threshold, the columns used |
+
+Two properties it is built to hold, both asserted in `tests/test_report.py`:
+
+- **Every section states what it cannot show**, in the same place as its numbers — and the report
+  audits itself, counting a missing limit as a defect on its own front page. A section with no
+  limit reads as a section with nothing to qualify, which is the more confident claim and the
+  wrong one.
+- **A figure that cannot be drawn is a NAMED absence** saying what would produce it. A blank space
+  reads as "there was nothing to show".
+
+It degrades rather than refusing. No sample column means no per-sample panel and a line saying so;
+no embedding means `A3` is an absence naming UMAP as the fix; no matplotlib means every figure is
+an absence and the document still writes.
+
+`pip install 'scanno[report]'` adds matplotlib.
+
 ## Excluding what upstream QC flagged
 
 Upstream QC often marks nuclei it considers technical. Annotating them produces a label, and a
 label is indistinguishable downstream from one anybody should believe.
 
 ```bash
-scanno annotate ... --exclude-flag cluster_FLAG        # an obs column of booleans
+scanno annotate ...                                    # armed by the object's own declaration
+scanno annotate ... --exclude-flag cluster_FLAG        # or name the column yourself
+scanno annotate ... --no-exclude                       # or annotate everything
 ```
+
+### It arms itself when the object declares one — and never guesses
+
+An object from [scQC](https://github.com/JiaenLin/scQC) carries `uns["scqc"]`: which column holds
+the flag, what it means, how many nuclei carry it, and a digest of the exact set. scAnno reads
+that and arms the exclusion, printing what it found before it walks anything:
+
+```
+scQC declaration found -> exclusion ARMED on 'cluster_FLAG'
+    18 of 300 nuclei (6.00%) are withheld and labelled EXCLUDED
+    digest c80a7099e4f46799 verified against the column in this file
+    run f82f60bf56ef  commit 2de8c34
+    scAnno did not choose these nuclei and cannot widen the set.
+```
+
+**This does not weaken the rule that scAnno never decides what is technical.** The distinction is
+the whole design and is easy to get backwards:
+
+- **Sniffing** — *"there is a column called `cluster_FLAG`, I will exclude on it"* — is scAnno
+  guessing what a column means. That would break the rule, and scAnno does not do it: an object
+  with the column and **no declaration gets nothing**, with a line saying so.
+- **Reading a declaration** — *"scQC says it wrote this column, here is what it means, here is a
+  digest"* — is upstream deciding, in its own record, and scAnno obeying.
+
+A declaration that does not check out is a **refusal**, not a warning: a flag rewritten since
+upstream wrote it is not upstream's decision any more, and acting on it while citing that
+provenance would attribute a choice to a pipeline that did not make it. Same for an object that
+has been subset since, and for a schema this version does not understand.
+
+Precedence is `--no-exclude` > `--exclude-flag` > the declaration. The person at the keyboard
+outranks the file; the file outranks the default.
+
+**Why armed is the default, when 0.3.0 concluded the opposite for a different capability.** The
+one removed then *widened* a flag — it withheld nuclei upstream QC had passed, 783 of 2,680 on the
+cohort it was written for. This one narrows to exactly what QC rejected, and the digest proves it.
+The asymmetry is in which error is silent: annotating a flagged nucleus mints a label for a cell
+QC refused, and that label is indistinguishable downstream from a good one, while withholding it
+produces a visible `EXCLUDED` that `--no-exclude` undoes in full. The louder error is the
+recoverable one.
 
 **Exactly those nuclei are withheld.** They are dropped from the cluster **profile** — they
 contribute to no mean and no detection rate, so they cannot influence any other nucleus's label —
@@ -262,7 +339,7 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 
 ## Status
 
-**0.3.1.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.4.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
@@ -279,7 +356,9 @@ checked against the tree rather than remembered.
 | ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |
 | ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `resolution`, `agent`, `selftest`. Exit code 2 is a refusal. |
 | ✅ **assign** | `--out-h5ad` writes the annotation into the object per CELL — label, path, depth, gap, survival and support — leaving `X`, `var` and `obsm` untouched. `tests/test_emit.py` asserts the join, the flag override, NaN-not-zero for calls that were not made, and the h5ad round trip down to the `categories`/`codes` encoding a reader looks for. |
-| ❌ **no ingest, no report, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
+| ✅ **report** | `--report` writes one self-contained HTML file plus a `report.json` carrying every number in it: composition, the labels on the embedding, reliability by tree depth, the corpus markers behind the calls, what was withheld and how unevenly, every cluster call, and provenance. Every section states what it cannot show, and the report counts a missing limit as a defect on its own front page. |
+| ✅ **upstream provenance** | an object carrying scQC's `uns["scqc"]` declaration arms the exclusion automatically, after verifying the flag against its digest. A declaration that does not check out REFUSES. An object with a flag column and no declaration gets nothing - scAnno reads declarations and never guesses from a column name. |
+| ❌ **no ingest, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
 
 ## Licence

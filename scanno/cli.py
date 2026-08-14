@@ -341,22 +341,29 @@ def _annotate(a):
     # that turns the flag into a different set of cells: no share, no threshold, no dependence
     # on the clustering. A cluster-share mode existed until 0.3.0 and was REMOVED rather than
     # defaulted off, because it excluded nuclei upstream QC had passed. See scanno/exclude.py.
-    drop, excl, flag = None, None, None
-    if a.exclude_flag:
-        if a.exclude_flag not in A.obs:
-            print(f"scanno: {a.h5ad} has no obs column {a.exclude_flag!r}. Boolean columns "
-                  f"available: {[c for c in A.obs if A.obs[c].dtype == bool]}", file=sys.stderr)
-            return 1
-        flag = A.obs[a.exclude_flag].fillna(False).astype(bool).to_numpy()
+    # Where the withheld set comes from: `--no-exclude`, then `--exclude-flag`, then the object's
+    # own upstream declaration. Detection keys on a DECLARATION and never on a column name - an
+    # object carrying `cluster_FLAG` and no declaration gets nothing, because scAnno does not
+    # know what that column is and guessing is the failure mode. See scanno/upstream.py.
+    from . import upstream as up
 
-    if a.exclude_flag:
+    decision = up.decide(A, explicit=a.exclude_flag, disabled=a.no_exclude)
+    if decision.refuse:
+        print(f"scanno: REFUSE - {decision.refuse}", file=sys.stderr)
+        return REFUSE
+    for line in decision.lines:
+        print(line)
+    flag = decision.mask
+    drop, excl = None, None
+
+    if flag is not None:
         # Profiled over the KEPT cells only. This is the whole of it: a flagged nucleus cannot
         # influence the label of the cluster it sat in, because it is not in the mean.
         M, D, counts = cluster_profile(X[~flag], y[~flag], len(cats))
         drop = unprofilable(y, ~flag, len(cats))
-        excl = exclusion_record_cells(flag, y, len(cats), reason=f"obs[{a.exclude_flag!r}]")
-        print(f"--exclude-flag {a.exclude_flag}: excluding "
-              f"{excl['cells_excluded']:,} flagged nuclei "
+        excl = exclusion_record_cells(flag, y, len(cats),
+                                      reason=f"{decision.source}:{decision.column}")
+        print(f"    withholding {excl['cells_excluded']:,} nuclei "
               f"({100*excl['fraction_excluded']:.1f}% of the object), 0 passengers - exactly "
               f"the flag and nothing else. They keep their place and are labelled {EXCLUDED}; "
               f"nothing is deleted.")
@@ -476,6 +483,34 @@ def _annotate(a):
             print("")
             print("  MISSING items are things scAnno cannot supply and will not invent. The "
                   "object\n  is written either way; add them upstream and re-run.")
+
+    # The report. Assembled from the run that produced the annotation rather than recomputed:
+    # a report that derives its own numbers can disagree with the run it describes, and nothing
+    # on the page would say which was right.
+    if a.report:
+        from . import report as rp
+        from . import __version__
+        label_key = f"{a.label_prefix}_cell_type"
+        if label_key not in A.obs:
+            annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix, support=support or None)
+        doc = rp.collect(
+            A, res, cats, y, label_key=label_key, decision=decision, support=support or None,
+            store_digest=getattr(store, "digest", ""), tree_path=a.tree, db_path=a.db or "",
+            species=a.species, tissue=a.tissue, cluster_key=a.cluster_key,
+            sample_key=a.sample_key, condition_key=a.condition_key,
+            gap_min=a.gap_min, weights=src_txt, background=bg, stats=st, version=__version__)
+        # The panels the classifier actually scored on, and the SAME normalised matrix it read -
+        # not A.X, which may be raw counts. A dotplot drawn from a different matrix than the one
+        # behind the call is a picture of something else.
+        panels = rp.marker_panels(asr, tree.get("patterns", {}),
+                                  [e["label"] for e in doc["composition_l1"]]) if asr else None
+        figs = rp.draw(doc, A, label_key, X=X, genes=genes, markers=panels)
+        html, js = rp.write(a.report, doc, figs)
+        print("")
+        print(f"wrote {html}")
+        print(f"      {js}   every number in the document, machine-readable")
+        if doc.get("defects"):
+            print(f"  {len(doc['defects'])} defect(s) counted on the report's own front page")
     elif not a.out:
         print("")
         print("scanno: nothing was written. The labels above exist only in this output.\n"
@@ -572,7 +607,11 @@ def main(argv=None):
                         "profile and each is labelled EXCLUDED. Nothing is deleted, nothing "
                         "unflagged is touched, and the excluded set does not depend on this "
                         "run's clustering. scAnno does not decide which nuclei are technical "
-                        "and cannot widen this set")
+                        "and cannot widen this set. Overrides an upstream declaration")
+    s.add_argument("--no-exclude", action="store_true",
+                   help="annotate everything, including what upstream QC flagged. Turns off an "
+                        "exclusion this object's own declaration would otherwise arm; the "
+                        "resulting labels include labels for nuclei upstream QC rejected")
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
@@ -582,6 +621,18 @@ def main(argv=None):
                    help="write the annotated object: the input with the label added per CELL, "
                         "as <prefix>_cell_type plus the evidence behind each call. X, var and "
                         "obsm are the input's, untouched. This is the file a viewer opens")
+    s.add_argument("--report", type=Path, metavar="PATH",
+                   help="write the annotation report: one self-contained HTML file plus a "
+                        "report.json carrying every number in it. Composition, the labels on "
+                        "the embedding, reliability by tree depth, what was withheld and how "
+                        "unevenly, every cluster call, and what none of it can show")
+    s.add_argument("--sample-key", metavar="OBS_COLUMN",
+                   help="obs column naming the sample/animal each cell came from. Optional: "
+                        "with it the report shows composition and exclusion PER SAMPLE, which "
+                        "is where unevenness is visible and a cohort bar hides it")
+    s.add_argument("--condition-key", metavar="OBS_COLUMN",
+                   help="obs column naming the experimental group. Optional: with it the report "
+                        "reports the exclusion rate per arm and the widest ratio between arms")
     s.add_argument("--label-prefix", default="scanno", metavar="STEM",
                    help="stem for the obs columns written by --out-h5ad (default: scanno, "
                         "giving scanno_cell_type). The default is chosen so a reader guessing "

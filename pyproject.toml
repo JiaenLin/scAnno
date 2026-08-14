@@ -19,7 +19,11 @@ dependencies = ["numpy>=1.24", "scipy>=1.10"]
 [project.optional-dependencies]
 # Only the store builder and the adversarial suite need the analysis stack.
 run = ["anndata>=0.10", "scanpy>=1.10"]
-test = ["anndata>=0.10", "scanpy>=1.10"]
+# The report builds WITHOUT matplotlib: every figure becomes a named absence and the document is
+# still written. So this is an extra rather than a dependency - a missing plotting library should
+# cost you the pictures, not the run.
+report = ["matplotlib>=3.6"]
+test = ["anndata>=0.10", "scanpy>=1.10", "matplotlib>=3.6"]
 
 [project.scripts]
 scanno = "scanno.cli:main"
