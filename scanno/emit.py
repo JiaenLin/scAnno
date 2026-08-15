@@ -530,12 +530,27 @@ def audit_file(path):
 
         vcols = list(f.get("var", {}) or {})
         sym = [c for c in vcols if c.lower() in SYMBOL_COLUMNS]
+        # Only a concern when the ROW NAMES are accessions. An object already indexed by symbol
+        # needs no symbol column, and warning about one anyway is a gate firing on correct
+        # behaviour - which is how a gate comes to be ignored on the occasion it is right.
+        vkind, vname = _index_encoding(f, "var")
+        names = []
+        if vkind == "dataset":
+            try:
+                names = [n.decode() if isinstance(n, bytes) else str(n)
+                         for n in f["var"][vname][:200]]
+            except Exception:                                             # noqa: BLE001
+                names = []
+        accessions = bool(names) and _looks_like_accession(names)
         if sym:
             out.append(("ok", "gene-symbols", f"var has {sym[0]!r}"))
-        else:
+        elif accessions:
             out.append(("warn", "gene-symbols-absent",
-                        "no gene-symbol column in var; gene sets written as symbols will not "
-                        f"match. Conventional names: {', '.join(SYMBOL_COLUMNS[:4])}"))
+                        "var_names look like accessions and no gene-symbol column is present; "
+                        "gene sets written as symbols will not match. Conventional names: "
+                        f"{', '.join(SYMBOL_COLUMNS[:4])}"))
+        else:
+            out.append(("ok", "gene-symbols", "var_names are already symbols"))
     return out
 
 
