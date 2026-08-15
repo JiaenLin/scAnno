@@ -346,93 +346,112 @@ def quartile_boxes(ax, *, data, tick_labels, showfliers, facecolors="#cfe3f2", w
 
 # ------------------------------------------------------------------------------ dotplots
 
-#: scanpy's DotPlot defaults, pinned as names rather than inherited. Area is proportional to
-#: fraction**1.5 and the largest dot is the largest fraction ACTUALLY PRESENT - so the size
-#: scale is data-dependent and two dotplots are not comparable to each other by dot size.
+#: Dot AREA at a fraction of 1.0. Area is linear in the fraction and ABSOLUTE - a dot of a given
+#: size means the same detection rate in every dotplot this tool draws. scanpy's default scales
+#: to the largest fraction actually present, which makes the panel fill the space nicely and
+#: makes two dotplots incomparable by size, with nothing on either one saying so.
 LARGEST_DOT = 200.0
-SIZE_EXPONENT = 1.5
+
+#: The reference fractions in the size key.
+SIZE_TICKS = (0.2, 0.4, 0.6, 0.8, 1.0)
+
+
+def dot_area(frac):
+    """Fraction detecting -> marker area in points squared. Absolute, linear, comparable."""
+    return LARGEST_DOT * np.clip(np.asarray(frac, dtype=float), 0.0, 1.0)
 
 
 def dotplot(ax, *, rows, cols, frac, mean_scaled, cmap="Reds", cmap_range=(0.0, 1.0),
-            size_scale=None, size_exponent=SIZE_EXPONENT, row_fontsize=8,
-            col_fontsize=6.5, col_rotation=90, col_group_spans=None, span_colours=None):
-    """Dot size = fraction detecting, colour = mean scaled per gene.
+            row_fontsize=9, col_fontsize=7.5, col_rotation=90, col_group_spans=None,
+            bracket_fontsize=9, dot_edgecolor="black", dot_linewidth=0.4):
+    """Dot size = fraction of cells detecting; colour = mean expression, scaled per column.
 
     `mean_scaled` must already be min-max scaled per COLUMN by the caller - the equivalent of
     scanpy's `standard_scale="var"`. This primitive scales nothing, so two dotplots cannot end
     up scaled two different ways.
+
+    `col_group_spans` is [(first_col, last_col, name), ...] and is drawn as a BRACKET above the
+    grid with the group's name above it. A bracket says "these columns are the panel of that
+    node" unambiguously; a coloured rule under the axis, which is what this drew before, has to
+    be matched to a legend entry by eye and is invisible once the colours get pale.
     """
     p = plt()
     cm = p.get_cmap(cmap)
     lo, hi = cmap_range
     frac = np.asarray(frac, dtype=float)
-    fmax = float(np.nanmax(frac)) if frac.size else 1.0
-    fmax = fmax if fmax > 0 else 1.0
     for i in range(len(rows)):
         for j in range(len(cols)):
             f = frac[i, j]
             if not np.isfinite(f):
                 continue
-            if size_scale is None:
-                s = LARGEST_DOT * (max(f, 0.0) / fmax) ** size_exponent
-            else:
-                s = size_scale[0] + size_scale[1] * max(f, 0.0)
             m = mean_scaled[i, j]
-            ax.scatter(j, len(rows) - 1 - i, s=s,
+            ax.scatter(j, len(rows) - 1 - i, s=float(dot_area(f)),
                        c=[cm(lo + (hi - lo) * float(np.nan_to_num(m)))],
-                       edgecolor="black", linewidths=.5)
+                       edgecolor=dot_edgecolor, linewidths=dot_linewidth, zorder=3)
     ax.set_xticks(range(len(cols)))
     ax.set_xticklabels(cols, rotation=col_rotation, fontsize=col_fontsize)
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels(list(rows)[::-1], fontsize=row_fontsize)
-    ax.set_xlim(-.7, len(cols) - .3)
-    ax.set_ylim(-.7, len(rows) - .3)
+    ax.set_xlim(-.6, len(cols) - .4)
+    ax.set_ylim(-.6, len(rows) - .4)
     ax.tick_params(length=0)
+    # The BOX stays: it is what makes the grid read as one panel rather than as scattered dots,
+    # and it is the frame the brackets sit on.
     for sp in ax.spines.values():
-        sp.set_visible(False)
+        sp.set_visible(True)
+        sp.set_edgecolor(INK)
+        sp.set_linewidth(0.8)
+
     if col_group_spans:
-        for (start, end, name) in col_group_spans:
-            c = (span_colours or {}).get(name, MUT)
-            ax.plot([start - .35, end + .35], [-.75, -.75], lw=2.6, color=c,
-                    solid_capstyle="butt", clip_on=False)
-    return {"cmap": cm, "cmap_range": cmap_range, "fmax": fmax,
-            "size_scale": size_scale, "size_exponent": size_exponent}
+        from matplotlib.transforms import blended_transform_factory
+        tr = blended_transform_factory(ax.transData, ax.transAxes)
+        y0, tick = 1.012, 0.016
+        for (a, b, name) in col_group_spans:
+            ax.plot([a - .35, a - .35, b + .35, b + .35],
+                    [y0, y0 + tick, y0 + tick, y0],
+                    transform=tr, color=INK, lw=0.9, clip_on=False, solid_joinstyle="miter")
+            ax.text((a + b) / 2, y0 + tick + 0.012, str(name), transform=tr,
+                    rotation=90, ha="center", va="bottom", fontsize=bracket_fontsize)
+    return {"cmap": cm, "cmap_range": cmap_range}
 
 
-def dotplot_key(fig, ax, spec, *, size_label="fraction detecting",
-                colour_label="mean expression,\nscaled per column"):
-    """The key without which a dotplot is undecodable.
+def dotplot_key(fig, ax, spec, *, size_label="Fraction of cells\nin group (%)",
+                colour_label="Mean expression\nin group"):
+    """The two keys without which a dotplot is undecodable, laid out beside the panel.
 
-    Both channels are explained: three reference dots for size, and a colour bar. The size
-    legend states the LARGEST fraction actually present, because the dots are normalised to it -
-    so a reader knows the scale is data-dependent and two dotplots are not comparable by size.
+    Both channels get one. The size key is drawn as real markers at the real sizes on its own
+    axis, so a reader measures against it rather than estimating; the colour key is a bar with
+    its endpoints labelled, because the colour is a SCALED value and 0 and 1 are the only two
+    numbers on it that mean anything absolute.
     """
-    import matplotlib.lines as mlines
+    p = plt()
+    # --- size key: real markers, at the sizes the panel actually uses -----------------
+    sax = ax.inset_axes([1.02, 0.58, 0.26, 0.16])
+    xs = np.arange(len(SIZE_TICKS))
+    sax.scatter(xs, np.zeros(len(xs)), s=dot_area(SIZE_TICKS), c="#808080",
+                edgecolor="none")
+    sax.set_xlim(-0.7, len(xs) - 0.3)
+    sax.set_ylim(-1, 1)
+    sax.set_yticks([])
+    sax.set_xticks(xs)
+    sax.set_xticklabels([f"{int(100 * t)}" for t in SIZE_TICKS], fontsize=8)
+    sax.tick_params(length=2, pad=1)
+    for k, sp in sax.spines.items():
+        sp.set_visible(k == "bottom")
+    sax.set_title(size_label, fontsize=9, loc="left", pad=6)
+
+    # --- colour key -------------------------------------------------------------------
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
-
-    fmax = spec["fmax"]
-    fracs = [0.25 * fmax, 0.5 * fmax, fmax]
-    handles = []
-    for f in fracs:
-        s = (LARGEST_DOT * (f / fmax) ** spec["size_exponent"] if spec["size_scale"] is None
-             else spec["size_scale"][0] + spec["size_scale"][1] * f)
-        handles.append(mlines.Line2D([], [], marker="o", linestyle="", markerfacecolor="#bbb",
-                                     markeredgecolor="black", markeredgewidth=.5,
-                                     markersize=(s ** 0.5), label=f"{100 * f:.0f}%"))
-    lg = ax.legend(handles=handles, title=f"{size_label}\n(largest = {100 * fmax:.0f}%, the "
-                                          f"largest present)",
-                   loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False,
-                   fontsize=7.5, title_fontsize=7.5, labelspacing=1.1, borderpad=.6,
-                   handletextpad=1.0)
-    lg._legend_box.align = "left"
     lo, hi = spec["cmap_range"]
-    sm = ScalarMappable(norm=Normalize(0, 1), cmap=spec["cmap"])
-    cax = ax.inset_axes([1.02, 0.06, 0.02, 0.30])
-    cb = fig.colorbar(sm, cax=cax)
-    cb.set_label(colour_label, fontsize=7.5)
-    cb.ax.tick_params(labelsize=7)
-    return lg
+    cax = ax.inset_axes([1.02, 0.10, 0.26, 0.035])
+    cb = fig.colorbar(ScalarMappable(norm=Normalize(0, 1), cmap=spec["cmap"]),
+                      cax=cax, orientation="horizontal")
+    cb.set_ticks([0.0, 0.5, 1.0])
+    cb.ax.tick_params(labelsize=8, length=2, pad=1)
+    cb.outline.set_linewidth(0.6)
+    cax.set_title(colour_label, fontsize=9, loc="left", pad=6)
+    return sax
 
 
 def scale_per_column(M):

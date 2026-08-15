@@ -464,9 +464,12 @@ def _panel_columns(ctx, depth):
     panels = ctx.panels(depth)
     if not panels:
         raise NotDrawable(f"no marker panel for level {depth} — pass --panels")
-    rows = [l for l in ctx.label_order(depth) if l not in SENTINELS]
+    # Sentinel rows are KEPT. What the withheld nuclei express against the same panel is a
+    # finding about the exclusion - here it is what shows EXCLUDED carrying the cardiomyocyte
+    # markers - and a row dropped for tidiness is that finding removed.
+    rows = list(ctx.label_order(depth))
     genes, owner, spans = [], [], []
-    for l in rows:
+    for l in [x for x in rows if x not in SENTINELS]:
         start = len(genes)
         for g in (panels.get(l) or []):
             gu = str(g).upper()
@@ -483,14 +486,22 @@ def _panel_columns(ctx, depth):
 def _dotplot_figure(ctx, depth, title):
     rows, genes, _owner, spans = _panel_columns(ctx, depth)
     frac, mean = ctx.expression_by_label(genes, depth, rows)
-    height = max(0.30, 0.55 - 0.13 * (depth - 1)) * len(rows) + 2.0 + 0.4 * (depth - 1)
-    fig, ax = plt().subplots(figsize=(max(9.0 + depth, 0.30 * len(genes) + 4.0) + 2.6, height))
+    # Room ABOVE for the brackets and their vertical labels, and to the RIGHT for the two keys.
+    longest = max((len(str(n)) for _a, _b, n in spans), default=8)
+    top_pad = 0.10 * longest + 0.8
+    height = max(0.34, 0.55 - 0.10 * (depth - 1)) * len(rows) + top_pad + 1.6
+    width = max(9.0, 0.26 * len(genes) + 3.2) + 3.4
+    fig, ax = plt().subplots(figsize=(width, height))
     spec = dotplot(ax, rows=rows, cols=genes, frac=frac, mean_scaled=scale_per_column(mean),
-                   col_group_spans=spans, span_colours={l: ctx.colour(l) for l in rows},
-                   row_fontsize=8.5)
-    ax.set_yticklabels(unique_ticks(rows)[::-1], fontsize=8.5)
+                   col_group_spans=spans)
+    ax.set_yticklabels(unique_ticks(rows)[::-1], fontsize=9)
     dotplot_key(fig, ax, spec)
-    ax.set_title(title, fontsize=10, loc="left")
+    _ = title            # the caption carries it; see below
+    fig.subplots_adjust(left=0.16, right=0.72, top=1 - (top_pad / height), bottom=0.22)
+    fig.scanno_no_tight = True
+    # NO title on the panel. The brackets already occupy the space above the grid, and a title
+    # there lands on top of their labels; the explanation belongs in the caption, where it can
+    # be as long as it needs to be. Returned so the caller can use it.
     return fig, None
 
 
@@ -506,9 +517,9 @@ def F130(ctx):
     """
     return _dotplot_figure(
         ctx, 1,
-        "Corpus markers against the level-1 label. Dot size = fraction detecting (largest dot = "
-        "the largest fraction present, so two dotplots are NOT comparable by size);\ncolour = "
-        "mean expression scaled per gene. Read EXCLUSIVITY, not intensity.")
+        "Corpus markers against the level-1 label, each block bracketed with the node whose "
+        "panel it is.\nDot size is the fraction of cells detecting the gene, on an ABSOLUTE "
+        "scale; colour is mean expression scaled per column. Read EXCLUSIVITY, not intensity.")
 
 
 def F135(ctx, depth=2):
@@ -663,10 +674,12 @@ def F152(ctx, top=12):
         raise NotDrawable(f"fewer than two samples clear the {MIN_FLAGGED_PER_ANIMAL}-nucleus "
                           f"floor for a per-sample comparison")
     genes, cols, F, M = out
-    fig, ax = plt().subplots(figsize=(0.46 * len(cols) + 4.0, 0.34 * len(genes) + 3.0))
+    fig, ax = plt().subplots(figsize=(0.46 * len(cols) + 6.5, 0.34 * len(genes) + 3.4))
     spec = dotplot(ax, rows=genes, cols=[f"{a}\n{w}" for a, w in cols], frac=F, mean_scaled=M,
-                   cmap_range=(0.15, 1.0), size_scale=(8.0, 210.0), col_fontsize=6.5)
-    dotplot_key(fig, ax, spec, colour_label="mean expression,\nscaled per gene")
+                   cmap_range=(0.15, 1.0), col_fontsize=7, row_fontsize=8.5)
+    dotplot_key(fig, ax, spec, colour_label="Mean expression\nscaled per gene")
+    fig.subplots_adjust(left=0.22, right=0.74, bottom=0.30, top=0.86)
+    fig.scanno_no_tight = True
     n_an = len({a for a, _ in cols})
     ax.set_title(f"Top signature genes, per sample ({n_an} of {len(ctx.samples)} clear the "
                  f"{MIN_FLAGGED_PER_ANIMAL}-nucleus floor).\nDot size = detection rate, colour "
