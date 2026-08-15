@@ -442,3 +442,123 @@ def format_readiness(checks):
     mark = {"ok": "  ok     ", "warn": "  REVIEW ", "missing": "  MISSING"}
     order = {"missing": 0, "warn": 1, "ok": 2}
     return [f"{mark[lvl]} {msg}" for lvl, msg in sorted(checks, key=lambda c: order[c[0]])]
+
+
+# ===================================================================== the viewer audit
+
+#: `uns` keys a viewer has no use for and that a writer left behind. Scratch entries from a
+#: clustering sweep are the common case: they are invisible in Python, they multiply the file's
+#: metadata, and a viewer that walks `uns` shows them to the user as if they were results.
+SCRATCH_UNS_PREFIXES = ("_tmp", "_scratch", "_temp")
+
+
+def _index_encoding(h5, group):
+    """How this group's index is stored on disk: 'dataset' (classic) or 'group' (nullable)."""
+    g = h5[group]
+    name = g.attrs.get("_index", "_index")
+    name = name.decode() if isinstance(name, bytes) else str(name)
+    if name not in g:
+        return "absent", name
+    obj = g[name]
+    import h5py
+    return ("group" if isinstance(obj, h5py.Group) else "dataset"), name
+
+
+def audit_file(path):
+    """Everything a browser-based viewer needs from an .h5ad ON DISK, checked on disk.
+
+    WHY ON DISK AND NOT THROUGH ANNDATA
+
+    The failure this exists to catch is invisible in Python. `anndata` reads a nullable-string
+    index and a classic one into the same pandas object, so an object that a viewer cannot open
+    is indistinguishable in a notebook from one it can. The error the user sees is
+    `Cannot read properties of undefined (reading 'map')`, which names nothing.
+
+    The cause is a default that changed underneath us: with pandas 3 a string column round-trips
+    as `str` dtype, and anndata then writes it as a `nullable-string-array` GROUP rather than a
+    variable-length string DATASET. Viewers written against the older layout read the group as
+    undefined. Re-backing the column as `object` does not help - pandas coerces it straight back.
+    The only fix is to ask anndata for the classic encoding at write time.
+
+    Returns [(level, code, message), ...] with level in "ok" | "warn" | "missing".
+    """
+    import h5py
+    out = []
+    with h5py.File(str(path), "r") as f:
+        for grp in ("obs", "var"):
+            if grp not in f:
+                out.append(("missing", f"{grp}-absent", f"no /{grp} group"))
+                continue
+            kind, name = _index_encoding(f, grp)
+            if kind == "group":
+                out.append(("missing", f"{grp}-index-nullable",
+                            f"/{grp}/{name} is a nullable-string GROUP. Browser viewers read it "
+                            f"as undefined and fail with 'Cannot read properties of undefined'. "
+                            f"Rewrite with scanno lab --fix"))
+            elif kind == "dataset":
+                out.append(("ok", f"{grp}-index", f"/{grp}/{name} is a classic string dataset"))
+            else:
+                out.append(("warn", f"{grp}-index-absent", f"/{grp} has no index dataset"))
+            nullable = [k for k in f[grp]
+                        if isinstance(f[grp][k], h5py.Group)
+                        and str(f[grp][k].attrs.get("encoding-type", "")) == "nullable-string-array"]
+            if nullable:
+                out.append(("warn", f"{grp}-nullable-columns",
+                            f"{len(nullable)} {grp} column(s) use the nullable-string encoding: "
+                            f"{', '.join(nullable[:5])}"))
+
+        emb = [k for k in f.get("obsm", {}) or {}]
+        drawable = [k for k in emb if any(h in k.lower() for h in EMBED_HINTS)]
+        if drawable:
+            out.append(("ok", "embedding", f"obsm has {', '.join(drawable)}"))
+        elif emb:
+            out.append(("warn", "embedding-unnamed",
+                        f"obsm has {', '.join(emb)} but nothing named like a UMAP or t-SNE; "
+                        f"a viewer may not recognise it"))
+        else:
+            out.append(("missing", "embedding-absent",
+                        "no embedding in obsm - a viewer needs one to draw cells"))
+
+        junk = [k for k in (f.get("uns", {}) or {})
+                if str(k).startswith(SCRATCH_UNS_PREFIXES)]
+        if junk:
+            out.append(("warn", "uns-scratch",
+                        f"{len(junk)} scratch key(s) left in uns ({', '.join(sorted(junk)[:4])}"
+                        f"...). A viewer that walks uns shows them as results"))
+        else:
+            out.append(("ok", "uns-clean", "no scratch keys in uns"))
+
+        vcols = list(f.get("var", {}) or {})
+        sym = [c for c in vcols if c.lower() in SYMBOL_COLUMNS]
+        if sym:
+            out.append(("ok", "gene-symbols", f"var has {sym[0]!r}"))
+        else:
+            out.append(("warn", "gene-symbols-absent",
+                        "no gene-symbol column in var; gene sets written as symbols will not "
+                        f"match. Conventional names: {', '.join(SYMBOL_COLUMNS[:4])}"))
+    return out
+
+
+def rewrite_for_viewer(src, dst, *, drop_scratch_uns=True, label_key=None):
+    """Rewrite an object so a browser viewer can open it. Nothing is removed from the DATA.
+
+    Two changes, both to how bytes are laid out rather than to what they mean:
+
+      - every string column and both indices are written in the CLASSIC variable-length
+        encoding, which is what viewers read;
+      - scratch `uns` keys left behind by an upstream sweep are dropped.
+
+    The second is a removal, so it is reported by name and by count rather than done quietly,
+    and it is confined to keys matching a scratch prefix. No cell, gene or annotation is touched.
+    """
+    import anndata as ad
+    A = ad.read_h5ad(str(src))
+    dropped = []
+    if drop_scratch_uns:
+        for k in [k for k in list(A.uns) if str(k).startswith(SCRATCH_UNS_PREFIXES)]:
+            dropped.append(k)
+            del A.uns[k]
+    plain_string_labels(A)
+    with classic_string_encoding():
+        A.write_h5ad(str(dst))
+    return A, dropped

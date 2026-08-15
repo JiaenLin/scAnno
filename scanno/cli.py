@@ -770,14 +770,16 @@ def _compare(a):
 
 
 def _report(a):
-    """The COHORT report: every annotated object at once, from obs alone.
+    """The delivery: one cohort document, and one comprehensive page per sample.
 
-    `annotate --report` describes one object. The questions that matter most in a study are the
-    ones a single library cannot answer - how composition varies between animals, whether an
-    exclusion fell evenly across the design, whether two routes agree - and those need every
-    object together. Reading `obs` only keeps a cohort report cheap: composition, reliability,
-    per-animal spread and the exclusion are all obs quantities, and opening ten matrices to
-    compute them would make the report cost what the annotation cost.
+    The cohort is the document. The questions that matter most in a study are the ones a single
+    library cannot answer - how composition varies between samples, whether the calls are
+    supported, whether an exclusion fell evenly across the design - and those need every object
+    together. A per-sample page exists for when a cohort number looks wrong, and then it carries
+    everything about that one sample rather than one aspect of all of them.
+
+    Matrices are opened only for the figures that need expression. Composition, reliability,
+    per-sample spread and the exclusion rates are all obs quantities.
     """
     try:
         import anndata as ad
@@ -785,18 +787,21 @@ def _report(a):
         print("scanno: report needs anndata.  pip install -e '.[run]'", file=sys.stderr)
         return 1
     from . import __version__
-    from . import report as rp
+    from .context import Context
+    from .document import write_all
+    from .palette import Palette
 
+    path_key = a.path_key or a.label_key.replace("_cell_type", "_path")
     objs, missing = [], []
     for src in a.h5ad:
-        A = ad.read_h5ad(src, backed="r")
-        if a.label_key not in A.obs:
+        A = ad.read_h5ad(src)
+        if a.label_key not in A.obs and path_key not in A.obs:
             missing.append(str(src))
             continue
-        objs.append((Path(src).stem, A.obs))
+        objs.append((Path(src).stem.replace("_annotated", ""), A))
     if missing:
-        print(f"scanno: REFUSE - {len(missing)} object(s) carry no obs column "
-              f"{a.label_key!r}: {', '.join(missing[:4])}\n"
+        print(f"scanno: REFUSE - {len(missing)} object(s) carry neither {a.label_key!r} nor "
+              f"{path_key!r}: {', '.join(missing[:4])}\n"
               f"        Annotate them first, or name the column with --label-key.",
               file=sys.stderr)
         return REFUSE
@@ -804,30 +809,198 @@ def _report(a):
         print("scanno: REFUSE - no objects given.", file=sys.stderr)
         return REFUSE
 
-    comparisons = []
-    for c in (a.compare or []):
-        try:
-            d = json.loads(Path(c).read_text(encoding="utf-8"))
-            d["object"] = Path(c).stem.replace("compare_", "")
-            comparisons.append(d)
-        except Exception as e:                                            # noqa: BLE001
-            print(f"  could not read {c}: {type(e).__name__}")
-    print(f"{len(objs)} object(s), {sum(len(o) for _, o in objs):,} nuclei")
+    # The flag is DISCOVERED, not assumed: an object carrying an upstream provenance declaration
+    # names its own withheld nuclei, and a report that guessed the column would describe a
+    # different set of cells than the annotation withheld.
+    flag = a.flag_key
+    declaration = {}
+    if flag is None:
+        from .upstream import declaration as read_declaration
+        for _n, A in objs:
+            d = read_declaration(A)
+            if d:
+                declaration = d
+                flag = d.get("flag_column") or d.get("column")
+                break
+    if flag is None:
+        for cand in ("cluster_FLAG", "scqc_flag", "FLAG"):
+            if any(cand in A.obs for _n, A in objs):
+                flag = cand
+                break
 
-    doc = rp.collect_cohort(objs, label_key=a.label_key, path_key=a.path_key,
-                            sample_key=a.sample_key, condition_key=a.condition_key,
-                            compare=comparisons, version=__version__,
-                            tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue)
-    figs = rp.draw_cohort(doc)
-    html, payload = rp.build_cohort(doc, figs)
-    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(a.out).write_text(html, encoding="utf-8")
-    j = Path(a.out).with_suffix(".json")
-    j.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
-    print(f"wrote {a.out}")
-    print(f"      {j}   every number in the document, machine-readable")
-    if payload.get("defects"):
-        print(f"  {len(payload['defects'])} defect(s) on the report's own front page")
+    joint = ad.read_h5ad(a.joint) if a.joint else None
+
+    panels, panel_missing = None, {}
+    if a.panels and str(a.panels) != "auto":
+        panels = json.loads(Path(a.panels).read_text(encoding="utf-8"))
+        if panels and all(str(k).isdigit() for k in panels):
+            panels = {int(k): v for k, v in panels.items()}
+    elif str(a.panels or "") == "auto" or (a.db and a.tree):
+        # Built from the SAME corpus the classifier scored on, per node, at every level the
+        # taxonomy has. A hand-picked panel would show whether the labels match the genes
+        # someone chose to plot, which is a question about that person.
+        from .corpus import load_assertions
+        from .report import panels_by_depth
+        if not (a.db and a.tree):
+            print("scanno: REFUSE - --panels auto needs --db and --tree.", file=sys.stderr)
+            return REFUSE
+        asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
+        tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
+        # SYMBOLS, not accessions. Matching a symbol corpus against Ensembl var_names finds
+        # nothing and reports every corpus gene as absent from the object - which is what
+        # happened, with exit status zero and an empty marker section.
+        _vk = a.gene_key
+        if _vk is None:
+            for _c in ("gene_symbol", "gene_symbols", "symbol", "feature_name", "gene_name"):
+                if _c in objs[0][1].var:
+                    _vk = _c
+                    break
+        have = {str(v).upper() for v in
+                (objs[0][1].var[_vk] if _vk else objs[0][1].var_names)}
+        print(f"  gene space: {'var[' + repr(_vk) + ']' if _vk else 'var_names'}, "
+              f"{len(have):,} unique names")
+        seen = {}
+        for _n, A in objs:
+            col = a.path_key or a.label_key.replace("_cell_type", "_path")
+            if col in A.obs:
+                for v in A.obs[col].astype(str):
+                    if v in ("UNRESOLVED", "EXCLUDED"):
+                        continue
+                    parts = v.split("/")
+                    for i in range(len(parts)):
+                        seen.setdefault(i + 1, set()).add("/".join(parts[:i + 1]))
+        panels, panel_missing = panels_by_depth(asr, tree, {k: sorted(v)
+                                                            for k, v in seen.items()},
+                                                have=have)
+        n_tot = sum(len(v) for d in panels.values() for v in d.values())
+        print(f"  marker panels built from the corpus: {n_tot} genes over "
+              + ", ".join(f"{len(panels[d])} node(s) at level {d}" for d in sorted(panels)))
+        for d, nodes in sorted(panel_missing.items()):
+            for node, gone in list(nodes.items())[:4]:
+                print(f"    level {d} {node}: in the corpus, NOT in this object - "
+                      f"{', '.join(gone)}")
+    sweep = tol = pick = reason = None
+    if a.sweep and str(a.sweep).endswith(".csv"):
+        # The table form. One row per (depth, resolution); the chosen value and tolerance come
+        # from the .json beside it when there is one.
+        import csv as _csv
+        rows = list(_csv.DictReader(Path(a.sweep).open(encoding="utf-8")))
+        sweep = {}
+        for r in rows:
+            d = int(float(r.get("depth", 1)))
+            rec = {"resolution": r.get("resolution")}
+            for k in ("modal", "neighbour", "complete", "truncated", "unresolved",
+                      "smallest", "n_units", "n_labels", "min_groups"):
+                v = r.get(k)
+                rec[k] = None if v in (None, "", "None") else float(v)
+            sweep.setdefault(d, []).append(rec)
+        sweep = sweep or None
+        js = Path(str(a.sweep)[:-4] + ".json")
+        if js.exists():
+            sw = json.loads(js.read_text(encoding="utf-8"))
+            tol = sw.get("tolerance", sw.get("tolerance_points"))
+            pick, reason = sw.get("pick"), sw.get("reason")
+        print(f"  resolution sweep read from {a.sweep}: "
+              + ", ".join(f"{len(v)} candidate(s) at depth {k}" for k, v in sorted(sweep.items()))
+              if sweep else f"  {a.sweep} carried no rows")
+    elif a.sweep:
+        sw = json.loads(Path(a.sweep).read_text(encoding="utf-8"))
+        # Tolerant of the two shapes this file has been written in. A sweep silently parsed as
+        # empty removes the whole section, and the page then looks like a run that had nothing
+        # to say about resolution rather than one that was handed the wrong file.
+        # Only a MAPPING of depth -> rows. `depths` in one of these files is the list of
+        # depths that were swept, not the rows; accepting it produced a sweep of integers and a
+        # section that rendered from nothing.
+        raw = sw.get("per_depth") or sw.get("by_depth") or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        sweep = {int(k): v for k, v in raw.items() if isinstance(v, list)} or None
+        if sweep is None and str(a.sweep).endswith(".csv"):
+            sweep = None
+        tol = sw.get("tolerance", sw.get("tolerance_points"))
+        pick, reason = sw.get("pick"), sw.get("reason")
+        if not sweep:
+            print(f"scanno: {a.sweep} carries no per-depth rows "
+                  f"(keys: {', '.join(sorted(sw)[:8])}). The resolution section will say so.",
+                  file=sys.stderr)
+
+    print(f"{len(objs)} object(s), {sum(A.n_obs for _n, A in objs):,} nuclei")
+    if flag:
+        print(f"  withheld nuclei read from obs[{flag!r}]"
+              + ("  (declared upstream)" if declaration else "  (detected)"))
+
+    ctx = Context(objs, label_key=a.label_key, path_key=a.path_key,
+                  sample_key=a.sample_key, group_key=a.condition_key, joint=joint,
+                  panels=panels, chosen_resolution=a.resolution, sweep=sweep, tolerance=tol,
+                  sweep_pick=pick, sweep_reason=reason, flag_column=flag,
+                  declaration=declaration, version=__version__,
+                  tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue,
+                  factors=a.factor, pinned_colours=Palette.load(a.palette),
+                  gene_key=a.gene_key, joint_key=a.joint_key)
+    print(f"  taxonomy depth {ctx.depth}; "
+          f"{', '.join(f'{len(ctx.label_order(d))} labels at level {d}' for d in ctx.levels)}")
+    if ctx.auto_factors:
+        print(f"  design factors AUTO-DETECTED (declare them with --factor): "
+              f"{', '.join(ctx.auto_factors)}")
+
+    out = Path(a.out)
+    cohort, payload = write_all(ctx, out, title=a.title, version=__version__,
+                                per_sample=not a.no_per_sample)
+    print("")
+    print(f"wrote {cohort}")
+    if not a.no_per_sample:
+        print(f"      {out}/reports/samples/   {len(ctx.samples)} per-sample page(s)")
+    print(f"      {out}/report.json   every number the pages show, machine-readable")
+    n_absent = len(payload["figures_not_drawn"])
+    if n_absent:
+        print(f"  {n_absent} figure(s) could not be drawn; each is NAMED on the page with the "
+              f"input it needed:")
+        for r in payload["figures_not_drawn"][:6]:
+            print(f"    {r['name']}: {r['reason']}")
+    return 0
+
+
+def _lab(a):
+    """Audit .h5ad files for a browser viewer, and optionally rewrite them so they open.
+
+    The failure this exists for is INVISIBLE IN PYTHON: anndata reads a nullable-string index
+    and a classic one into the same pandas object, so a file a viewer cannot open looks
+    identical in a notebook to one it can. The user sees `Cannot read properties of undefined
+    (reading 'map')`, which names nothing and points nowhere.
+    """
+    from .emit import audit_file, rewrite_for_viewer
+
+    mark = {"ok": "  ok  ", " warn": " warn ", "warn": " warn ", "missing": "MISSING"}
+    worst = 0
+    for src in a.h5ad:
+        print(f"{src}")
+        try:
+            rows = audit_file(src)
+        except Exception as e:                                            # noqa: BLE001
+            print(f"  cannot read: {type(e).__name__}: {e}")
+            worst = max(worst, 2)
+            continue
+        for level, _code, msg in rows:
+            print(f"  [{mark.get(level, level)}] {msg}")
+            worst = max(worst, {"ok": 0, "warn": 1, "missing": 2}.get(level, 0))
+        if a.fix:
+            out = Path(a.fix)
+            out.mkdir(parents=True, exist_ok=True)
+            dst = out / Path(src).name
+            A, dropped = rewrite_for_viewer(src, dst)
+            print(f"  rewrote -> {dst}")
+            print(f"           classic string encoding on both indices and every string column")
+            if dropped:
+                print(f"           dropped {len(dropped)} scratch uns key(s): "
+                      f"{', '.join(sorted(dropped)[:6])}"
+                      + (" ..." if len(dropped) > 6 else ""))
+            after = [r for r in audit_file(dst) if r[0] != "ok"]
+            print(f"           re-audit: {len(after)} remaining issue(s)"
+                  + ("" if not after else ": " + "; ".join(r[2][:60] for r in after)))
+        print("")
+    if worst == 2 and not a.fix:
+        print("Some objects will NOT open in a browser viewer. Rewrite them:")
+        print("  scanno lab --h5ad <files> --fix <output-directory>")
     return 0
 
 
@@ -1025,10 +1198,57 @@ def main(argv=None):
     s.set_defaults(fn=_compare)
 
     s = sub.add_parser("report",
-                       help="the COHORT report: every annotated object at once")
+                       help="the report: one cohort document, plus one page per sample")
     s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
                    help="every annotated object of the cohort")
-    s.add_argument("--out", required=True, type=Path, help="report.html; the JSON goes beside it")
+    s.add_argument("--out", required=True, type=Path, metavar="DIR",
+                   help="output DIRECTORY. Written under it: reports/cohort.html (the "
+                        "document), reports/samples/<name>.html (one comprehensive page per "
+                        "sample), figures/, tables/, and report.json carrying every number the "
+                        "pages show")
+    s.add_argument("--joint", type=Path, metavar="H5AD",
+                   help="a joint clustering of the whole cohort, annotated the same way. With "
+                        "it the report adds the two-route agreement, the label-against-library "
+                        "figure and the feature plots, which need one embedding for the cohort")
+    s.add_argument("--joint-key", default=None, metavar="OBS_COLUMN",
+                   help="the JOINT route's own label column. Required for the two-route "
+                        "agreement: a joint object assembled from the per-sample annotations "
+                        "carries those columns too, so the default key would compare the "
+                        "per-sample labels with themselves and report ~100%")
+    s.add_argument("--panels", metavar="JSON|auto",
+                   help="marker panels, {node: [genes]} or {depth: {node: [genes]}}. Pass "
+                        "'auto' with --db and --tree to build them from the SAME corpus the "
+                        "classifier scored on, per node, at every level the taxonomy has. "
+                        "Without either, the marker section is a NAMED ABSENCE rather than a "
+                        "silently missing one")
+    s.add_argument("--db", type=Path, metavar="SQLITE",
+                   help="the marker corpus, for --panels auto")
+    s.add_argument("--gene-key", default=None, metavar="VAR_COLUMN",
+                   help="the var column holding gene SYMBOLS. Detected from gene_symbol, "
+                        "symbol, feature_name or gene_name; name it here when the object uses "
+                        "something else. A symbol panel matched against Ensembl var_names "
+                        "finds nothing and reports every gene as absent")
+    s.add_argument("--min-tier", type=int, default=4,
+                   help="corpus tier ceiling for --panels auto (default 4)")
+    s.add_argument("--palette", type=Path, metavar="JSON",
+                   help="pin colours: {\"label or path\": \"#RRGGBB\"}. Anything unpinned is "
+                        "assigned automatically - descendants keep their ancestor's hue at a "
+                        "different lightness, at whatever depth the taxonomy has")
+    s.add_argument("--flag-key", default=None, metavar="OBS_COLUMN",
+                   help="the upstream flag naming nuclei withheld before annotation. Read from "
+                        "the scQC declaration when the object carries one")
+    s.add_argument("--factor", action="append", default=None, metavar="OBS_COLUMN",
+                   help="a design factor, repeatable. Rule one's Q3 is computed per factor. "
+                        "Without any, low-cardinality obs columns are auto-detected and "
+                        "LABELLED as auto-detected wherever they are used")
+    s.add_argument("--resolution", default=None, metavar="R",
+                   help="the chosen clustering resolution, named on the pages")
+    s.add_argument("--sweep", type=Path, metavar="JSON",
+                   help="`scanno resolution --out` result; adds the resolution section")
+    s.add_argument("--no-per-sample", action="store_true",
+                   help="write only the cohort document. The per-sample pages are the detail "
+                        "behind its rows and are cheap; this is for a cohort of hundreds")
+    s.add_argument("--title", default="Annotation", metavar="TEXT")
     s.add_argument("--label-key", default="scanno_cell_type")
     s.add_argument("--path-key", default=None,
                    help="defaults to the label key with _cell_type replaced by _path")
@@ -1045,6 +1265,16 @@ def main(argv=None):
     s.add_argument("--species", default="")
     s.add_argument("--tissue", default="")
     s.set_defaults(fn=_report)
+
+    s = sub.add_parser("lab",
+                       help="audit .h5ad files for a browser viewer, and rewrite them to open")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD")
+    s.add_argument("--fix", type=Path, metavar="DIR",
+                   help="write a corrected copy of each object into DIR: classic string "
+                        "encoding on both indices and every string column, and scratch uns "
+                        "keys dropped. Nothing in the DATA is changed, and what was dropped "
+                        "is named")
+    s.set_defaults(fn=_lab)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
     s.add_argument("--db", required=True, type=Path)

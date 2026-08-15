@@ -54,8 +54,6 @@ UNRESOLVED = "UNRESOLVED"
 
 # A colour-blind-safe qualitative set. Sentinels are grey on purpose: EXCLUDED and UNRESOLVED are
 # not cell types and should not look like one more population in the legend.
-PALETTE = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B3", "#937860",
-           "#DA8BC3", "#8C8C8C", "#CCB974", "#64B5CD"]
 SENTINEL_COLOUR = {EXCLUDED: "#3f3f3f", UNRESOLVED: "#b0b0b0"}
 
 
@@ -67,17 +65,16 @@ def _fig_to_uri(fig) -> str:
 
 
 def _colour_for(labels):
-    out, i = {}, 0
-    for lab in labels:
-        if lab in SENTINEL_COLOUR:
-            out[lab] = SENTINEL_COLOUR[lab]
-        else:
-            out[lab] = PALETTE[i % len(PALETTE)]
-            i += 1
-    return out
+    """Colours for a label list. Delegates to `palette.Palette` - the ONE colour authority.
 
-
-# ------------------------------------------------------------------------------- collection
+    This module used to carry its own hue list and its own shading rule, which made a third
+    colour scheme in one project: the same population came out one colour in this report and
+    another in the cohort figures, so a reader comparing them was comparing the code rather
+    than the data. One rule, one module, used by everything that draws.
+    """
+    from .palette import Palette
+    labels = list(labels)
+    return Palette(labels).map(labels)
 
 def collect(adata, res, cats, y, *, label_key, decision=None, support=None, store_digest="",
             tree_path="", db_path="", species="", tissue="", cluster_key="", sample_key=None,
@@ -204,6 +201,64 @@ def collect(adata, res, cats, y, *, label_key, decision=None, support=None, stor
 
 
 # ---------------------------------------------------------------------------------- figures
+
+def panels_by_depth(assertions, tree, nodes_by_depth, *, per_node=None, have=None):
+    """Marker panels for EVERY level of a taxonomy: {depth: {node path: [genes]}}.
+
+    WHY EACH NODE GETS ITS OWN PANEL RATHER THAN ITS PARENT'S
+
+    A subtype checked against its parent's markers is checked against the evidence it SHARES
+    with its siblings, which cannot distinguish it from them. Each node is therefore looked up
+    by its own synonyms, and that is a much thinner corpus the deeper you go - which is worth
+    seeing, and is why a node with no usable panel is reported rather than filled in from above.
+
+    The lookup is by FULL PATH first and by leaf name second. A leaf-only lookup collides the
+    moment two parents share a child name, which is likely as soon as a tree is deeper than two.
+
+    Markers per node decay with depth (5, 3, 2, 2 ...): the deeper panels are thinner in the
+    corpus anyway, and a level-4 dotplot of five genes per node is unreadable.
+
+    NOTHING IS EXCLUDED FOR BEING BROADLY EXPRESSED. Two corpus-side promiscuity filters were
+    built for that and both were wrong - a corpus's own specificity score cannot tell genuine
+    promiscuity from several corpus names for one lineage, and counting lineages through a
+    taxonomy misses the offending gene while excluding every canonical one. Breadth is a
+    property of the DATA, measured downstream and reported, never acted on here.
+    """
+    patterns = (tree or {}).get("patterns", {}) or {}
+    out, missing = {}, {}
+    for depth, nodes in sorted(nodes_by_depth.items()):
+        n = per_node if per_node else max(2, round(5 * 0.6 ** (depth - 1)))
+        got = {}
+        for node in nodes:
+            pats = [p.lower() for p in (patterns.get(node)
+                                        or patterns.get(str(node).rsplit("/", 1)[-1]) or [])]
+            if not pats:
+                continue
+            pool = {}
+            for cell_name, genes in (assertions or {}).items():
+                if any(p in str(cell_name).lower() for p in pats):
+                    for g, w in genes.items():
+                        pool[g] = max(pool.get(g, 0.0), float(w))
+            keep, gone = [], []
+            for g, _w in sorted(pool.items(), key=lambda kv: -kv[1]):
+                if have is not None and str(g).upper() not in have:
+                    # Reported, not dropped quietly: a panel that silently shrank is one
+                    # nobody can audit.
+                    if len(gone) < 5:
+                        gone.append(g)
+                    continue
+                if len(keep) < n:
+                    keep.append(g)
+                if len(keep) >= n:
+                    break
+            if keep:
+                got[node] = keep
+            if gone:
+                missing.setdefault(depth, {})[node] = gone
+        if got:
+            out[depth] = got
+    return out, missing
+
 
 def marker_panels(assertions, patterns, nodes, top=5) -> dict:
     """The corpus markers behind each called node, best-cited first.
