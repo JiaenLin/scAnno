@@ -516,7 +516,8 @@ def _annotate(a):
         # X, var and obsm are the object's, untouched - the annotation is added, never a new
         # object built around it. An embedding or a symbol column that came in comes out.
         print("  what a viewer will find in it")
-        label_key = f"{a.label_prefix}_cell_type{a.label_suffix}"
+        label_key = (f"{a.label_prefix}_cell_type" if not a.label_suffix
+                     else f"{a.label_prefix}_label{a.label_suffix}")
         checks = lab_readiness(A, label_key)
         for line in format_readiness(checks):
             print(line)
@@ -531,7 +532,8 @@ def _annotate(a):
     if a.report:
         from . import report as rp
         from . import __version__
-        label_key = f"{a.label_prefix}_cell_type{a.label_suffix}"
+        label_key = (f"{a.label_prefix}_cell_type" if not a.label_suffix
+                     else f"{a.label_prefix}_label{a.label_suffix}")
         if label_key not in A.obs:
             annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
                          support=support or None, suffix=a.label_suffix)
@@ -997,7 +999,11 @@ def main(argv=None):
     s.add_argument("--label-suffix", default="", metavar="SUFFIX",
                    help="appended to every obs column written by --out-h5ad. Annotating one "
                         "object at several resolutions wants `--label-suffix _r1p0`, giving "
-                        "`scanno_path_r1p0` - which is the family `scanno resolution` reads")
+                        "`scanno_path_r1p0` - the family `scanno resolution` reads. A SUFFIXED "
+                        "run names its label column `<prefix>_label<suffix>`, not `cell_type`: "
+                        "only the unsuffixed run - the chosen answer - carries the name a viewer "
+                        "guesses by, or a sweep gives it eight candidates and it picks the "
+                        "finest")
     s.add_argument("--label-prefix", default="scanno", metavar="STEM",
                    help="stem for the obs columns written by --out-h5ad (default: scanno, "
                         "giving scanno_cell_type). The default is chosen so a reader guessing "

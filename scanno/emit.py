@@ -118,7 +118,15 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
                           else values)
         written.append(key)
 
-    put("cell_type", cols["cell_type"], categorical=True)
+    # THE LABEL COLUMN IS ONLY CALLED `cell_type` WHEN IT IS THE ANSWER.
+    #
+    # A viewer has to GUESS which column holds the annotation, and every convention for that
+    # guess keys on the substring `cell_type`. A sweep writes one label column per resolution, so
+    # naming them all `cell_type` gives the guesser eight equally good candidates and it picks by
+    # tie-break - on a real cohort it chose the finest resolution, not the one the study chose.
+    # Suffixed runs are a sweep; the unsuffixed run is the answer, and only it gets the name a
+    # reader looks for.
+    put("cell_type" if not suffix else "label", cols["cell_type"], categorical=True)
     put("path", cols["path"], categorical=True)
     put("depth", cols["depth"])
     put("gap", cols["gap"])
