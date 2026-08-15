@@ -270,6 +270,45 @@ rep2 = reindex_by_symbol(E, key="not_a_column")
 check("a missing column changes nothing", not rep2["applied"]
       and list(map(str, E.var_names)) == before, str(rep2))
 
+print("\n13 - labels are written as plain strings, or most readers cannot open the file")
+# pandas backs string labels with StringDtype by default. anndata writes that as a NULLABLE
+# string - an HDF5 group of values+mask, not a dataset - which round-trips through anndata
+# perfectly and is unreadable by anything expecting obs/_index to be a dataset. The symptom in a
+# viewer is "cannot read properties of undefined (reading 'map')", which points nowhere near the
+# cause. Older anndata refuses to write StringDtype at all, so the same object is unwritable on
+# one version and unreadable-by-others on the next.
+from scanno.emit import format_plain_labels, plain_string_labels  # noqa: E402
+import h5py  # noqa: E402
+
+S = toy(n=8, g=4)
+S.obs.index = pd.Index(pd.array([f"c{i}" for i in range(8)], dtype="string"))
+S.var.index = pd.Index(pd.array([f"g{i}" for i in range(4)], dtype="string"))
+S.var["gene_id"] = pd.array(["a", "b", "c", "d"], dtype="string")
+ch = plain_string_labels(S)
+check("the obs index is converted", ch["obs_index"])
+check("the var index too", ch["var_index"])
+check("and string COLUMNS as well", ch["var_columns"] == ["gene_id"], str(ch))
+check("the values survive", list(map(str, S.obs_names)) == [f"c{i}" for i in range(8)])
+check("it is reported, not done silently",
+      any("nullable string" in ln for ln in format_plain_labels(ch)))
+
+with tempfile.TemporaryDirectory() as tmp:
+    q = Path(tmp) / "plain.h5ad"
+    S.write_h5ad(q)
+    with h5py.File(q, "r") as f:
+        for k in ("obs/_index", "var/_index", "var/gene_id"):
+            check(f"{k} is a DATASET a reader can read",
+                  not isinstance(f[k], h5py.Group),
+                  "it is a group (values/mask)" if isinstance(f[k], h5py.Group) else "")
+
+P = toy(n=6, g=3)
+before = list(map(str, P.obs_names))
+ch2 = plain_string_labels(P)
+check("an already-plain object is left alone",
+      not ch2["obs_index"] and not ch2["var_index"] and list(map(str, P.obs_names)) == before,
+      str(ch2))
+check("and reports nothing", format_plain_labels(ch2) == [])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"emit: {len(fails)} FAILED - " + ", ".join(fails))

@@ -493,8 +493,8 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
-    from .emit import (annotate_obs, format_readiness, format_reindex, lab_readiness,
-                       reindex_by_symbol)
+    from .emit import (annotate_obs, format_plain_labels, format_readiness, format_reindex,
+                       lab_readiness, plain_string_labels, reindex_by_symbol)
 
     if a.out_h5ad:
         written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
@@ -507,6 +507,8 @@ def _annotate(a):
             rep = reindex_by_symbol(A, key=a.out_gene_key)
             for line in format_reindex(rep):
                 print(line)
+        for line in format_plain_labels(plain_string_labels(A)):
+            print(line)
         Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
         A.write_h5ad(a.out_h5ad, compression="gzip")
         print("")
@@ -651,6 +653,9 @@ def _cluster(a):
             else:
                 p = Path(a.out)
                 p.parent.mkdir(parents=True, exist_ok=True)
+            from .emit import format_plain_labels, plain_string_labels
+            for line in format_plain_labels(plain_string_labels(piece)):
+                print(line)
             piece.write_h5ad(p)
             written.append(p)
             print(f"    wrote {p}")
@@ -762,6 +767,68 @@ def _compare(a):
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(_json.dumps(res, indent=1, default=str), encoding="utf-8")
         print(f"\nwrote {a.out}")
+    return 0
+
+
+def _report(a):
+    """The COHORT report: every annotated object at once, from obs alone.
+
+    `annotate --report` describes one object. The questions that matter most in a study are the
+    ones a single library cannot answer - how composition varies between animals, whether an
+    exclusion fell evenly across the design, whether two routes agree - and those need every
+    object together. Reading `obs` only keeps a cohort report cheap: composition, reliability,
+    per-animal spread and the exclusion are all obs quantities, and opening ten matrices to
+    compute them would make the report cost what the annotation cost.
+    """
+    try:
+        import anndata as ad
+    except ImportError:
+        print("scanno: report needs anndata.  pip install -e '.[run]'", file=sys.stderr)
+        return 1
+    from . import __version__
+    from . import report as rp
+
+    objs, missing = [], []
+    for src in a.h5ad:
+        A = ad.read_h5ad(src, backed="r")
+        if a.label_key not in A.obs:
+            missing.append(str(src))
+            continue
+        objs.append((Path(src).stem, A.obs))
+    if missing:
+        print(f"scanno: REFUSE - {len(missing)} object(s) carry no obs column "
+              f"{a.label_key!r}: {', '.join(missing[:4])}\n"
+              f"        Annotate them first, or name the column with --label-key.",
+              file=sys.stderr)
+        return REFUSE
+    if not objs:
+        print("scanno: REFUSE - no objects given.", file=sys.stderr)
+        return REFUSE
+
+    comparisons = []
+    for c in (a.compare or []):
+        try:
+            d = json.loads(Path(c).read_text(encoding="utf-8"))
+            d["object"] = Path(c).stem.replace("compare_", "")
+            comparisons.append(d)
+        except Exception as e:                                            # noqa: BLE001
+            print(f"  could not read {c}: {type(e).__name__}")
+    print(f"{len(objs)} object(s), {sum(len(o) for _, o in objs):,} nuclei")
+
+    doc = rp.collect_cohort(objs, label_key=a.label_key, path_key=a.path_key,
+                            sample_key=a.sample_key, condition_key=a.condition_key,
+                            compare=comparisons, version=__version__,
+                            tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue)
+    figs = rp.draw_cohort(doc)
+    html, payload = rp.build_cohort(doc, figs)
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(a.out).write_text(html, encoding="utf-8")
+    j = Path(a.out).with_suffix(".json")
+    j.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
+    print(f"wrote {a.out}")
+    print(f"      {j}   every number in the document, machine-readable")
+    if payload.get("defects"):
+        print(f"  {len(payload['defects'])} defect(s) on the report's own front page")
     return 0
 
 
@@ -953,6 +1020,28 @@ def main(argv=None):
     s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
     s.add_argument("--out", type=Path, help="write the comparison as JSON")
     s.set_defaults(fn=_compare)
+
+    s = sub.add_parser("report",
+                       help="the COHORT report: every annotated object at once")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
+                   help="every annotated object of the cohort")
+    s.add_argument("--out", required=True, type=Path, help="report.html; the JSON goes beside it")
+    s.add_argument("--label-key", default="scanno_cell_type")
+    s.add_argument("--path-key", default=None,
+                   help="defaults to the label key with _cell_type replaced by _path")
+    s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN",
+                   help="the biological unit. Without it every object counts as one sample")
+    s.add_argument("--condition-key", default=None, metavar="OBS_COLUMN",
+                   help="the experimental group. With it the report shows one point per sample "
+                        "grouped by arm, and the within-group spread against the between-group "
+                        "range - the comparison that decides whether a compositional claim is "
+                        "available at all")
+    s.add_argument("--compare", nargs="*", type=Path, metavar="JSON",
+                   help="`scanno compare --out` results, summarised into the report")
+    s.add_argument("--tree", type=Path)
+    s.add_argument("--species", default="")
+    s.add_argument("--tissue", default="")
+    s.set_defaults(fn=_report)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
     s.add_argument("--db", required=True, type=Path)

@@ -634,3 +634,358 @@ def write(path, doc, figs) -> tuple[str, str]:
     j = p.with_suffix(".json")
     j.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
     return str(p), str(j)
+
+
+# ------------------------------------------------------------------------------ the cohort
+#
+# `annotate --report` describes ONE object. A study is a cohort, and the questions that matter
+# most are the ones a single library cannot answer: how composition varies BETWEEN animals,
+# whether an exclusion fell evenly across the design, whether the two routes agree. Those need
+# every object at once, which is why this is a separate command rather than a flag.
+#
+# It reads `obs` only. Composition, reliability, per-animal spread and the exclusion are all obs
+# quantities, and reading ten matrices to compute them would make a cohort report cost what the
+# annotation cost.
+
+def collect_cohort(objects, *, label_key, path_key=None, sample_key=None, condition_key=None,
+                   compare=None, version="", tree_path="", species="", tissue="") -> dict:
+    """Pool the annotated objects and describe the cohort. `objects` is [(name, obs_df), ...]."""
+    import numpy as np
+    import pandas as pd
+
+    path_key = path_key or label_key.replace("_cell_type", "_path")
+    frames, names = [], []
+    for name, obs in objects:
+        d = pd.DataFrame(index=obs.index)
+        d["_object"] = name
+        d["label"] = obs[label_key].astype(str) if label_key in obs else "UNRESOLVED"
+        d["path"] = obs[path_key].astype(str) if path_key in obs else d["label"]
+        d["sample"] = (obs[sample_key].astype(str) if sample_key and sample_key in obs
+                       else name)
+        if condition_key and condition_key in obs:
+            d["condition"] = obs[condition_key].astype(str)
+        for stat in ("depth", "gap", "support"):
+            k = label_key.replace("_cell_type", f"_{stat}")
+            if k in obs:
+                d[stat] = np.asarray(obs[k], dtype=float)
+        frames.append(d)
+        names.append(name)
+    P = pd.concat(frames)
+    n = len(P)
+
+    def lvl(depth):
+        return P["path"].map(lambda s: s if s in (EXCLUDED, UNRESOLVED)
+                             else "/".join(str(s).split("/")[:depth]))
+
+    def table(series):
+        c = series.value_counts()
+        return [{"label": str(k), "n": int(v), "pct": round(100 * v / n, 2)}
+                for k, v in c.items()]
+
+    l1, l2 = table(lvl(1)), table(lvl(2))
+    real = [e for e in l1 if e["label"] not in (EXCLUDED, UNRESOLVED)]
+
+    # per SAMPLE, which is where a cohort bar hides everything interesting
+    per_sample, samples = [], sorted(set(P["sample"]))
+    for s in samples:
+        m = P["sample"] == s
+        row = {"sample": s, "n": int(m.sum())}
+        if "condition" in P:
+            row["condition"] = str(P.loc[m, "condition"].iloc[0]) if m.any() else ""
+        for e in real[:10]:
+            row[e["label"]] = round(100 * float((P.loc[m, "path"].map(
+                lambda x: str(x).split("/")[0]) == e["label"]).mean()), 2)
+        row[EXCLUDED] = round(100 * float((P.loc[m, "label"] == EXCLUDED).mean()), 2)
+        per_sample.append(row)
+
+    # the spread WITHIN a group against the range BETWEEN groups - the comparison that decides
+    # whether a compositional claim is available at all
+    spread = []
+    if "condition" in P:
+        for e in real[:10]:
+            per = {}
+            for s in samples:
+                m = P["sample"] == s
+                cond = str(P.loc[m, "condition"].iloc[0])
+                pct = 100 * float((P.loc[m, "path"].map(
+                    lambda x: str(x).split("/")[0]) == e["label"]).mean())
+                per.setdefault(cond, []).append(pct)
+            within = max((max(v) - min(v)) for v in per.values() if v)
+            means = [sum(v) / len(v) for v in per.values() if v]
+            spread.append({"label": e["label"],
+                           "within_group_pp": round(within, 1),
+                           "between_group_pp": round(max(means) - min(means), 1),
+                           "verdict": ("within exceeds between"
+                                       if within > (max(means) - min(means)) else "")})
+
+    reliability = []
+    if "depth" in P:
+        for dv in sorted(set(int(x) for x in P["depth"].dropna())):
+            m = (P["depth"] == dv) & (P["label"] != EXCLUDED)
+            if not m.any():
+                continue
+            thin = None
+            if "support" in P and not P.loc[m, "support"].isna().all():
+                thin = round(100 * float((P.loc[m, "support"] < 10).mean()), 1)
+            reliability.append({
+                "depth": int(dv), "n_cells": int(m.sum()),
+                "pct_cells": round(100 * m.sum() / n, 2),
+                "median_gap": (None if P.loc[m, "gap"].isna().all()
+                               else round(float(P.loc[m, "gap"].median()), 3)),
+                "pct_under_10_assertions": thin})
+
+    excl = None
+    if (P["label"] == EXCLUDED).any():
+        em = P["label"] == EXCLUDED
+        excl = {"n": int(em.sum()), "pct": round(100 * float(em.mean()), 3),
+                "per_sample": [{"sample": s, "n": int((em & (P["sample"] == s)).sum()),
+                                "pct": round(100 * float(em[P["sample"] == s].mean()), 2)}
+                               for s in samples]}
+        if "condition" in P:
+            rates = {c: round(100 * float(em[P["condition"] == c].mean()), 3)
+                     for c in sorted(set(P["condition"]))}
+            nz = [v for v in rates.values() if v > 0]
+            excl["per_condition"] = rates
+            excl["condition_ratio"] = (round(max(rates.values()) / min(nz), 2)
+                                       if nz and min(nz) > 0 else None)
+    return {
+        "schema": SCHEMA, "kind": "cohort",
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "scanno_version": version,
+        "run": {"label_key": label_key, "n_objects": len(names), "objects": names,
+                "n_cells": n, "n_genes": 0, "n_clusters": 0,
+                "species": species, "tissue": tissue, "cluster_key": "",
+                "sample_key": sample_key or "", "condition_key": condition_key or "",
+                "tree": str(tree_path), "corpus": "", "gap_min": None,
+                "weights": "", "background": "", "store_digest": ""},
+        "headline": {
+            "n_cells": n, "n_clusters": 0, "n_labels": len(real),
+            "pct_placed": round(100 * float((~P["label"].isin([EXCLUDED, UNRESOLVED])).mean()), 1),
+            "pct_unresolved": round(100 * float((P["label"] == UNRESOLVED).mean()), 2),
+            "pct_excluded": round(100 * float((P["label"] == EXCLUDED).mean()), 2)},
+        "composition_l1": l1, "composition_l2": l2,
+        "per_sample": per_sample, "spread": spread,
+        "reliability": reliability, "exclusion": excl,
+        "compare": compare or [], "cluster_calls": [], "genes": {},
+    }
+
+
+def draw_cohort(doc) -> dict:
+    """Cohort figures, from obs alone. Named absences where a figure cannot be drawn."""
+    out = {}
+
+    def absent(fid, why):
+        out[fid] = {"uri": None, "absent": why}
+
+    if not HAVE_MPL:
+        for fid in ("C1", "C2", "C3", "C4"):
+            absent(fid, "matplotlib is not installed - `pip install 'scanno[report]'` draws it")
+        return out
+
+    import numpy as np
+
+    order = [e["label"] for e in doc["composition_l1"]]
+    colour = _colour_for(order)
+    rows = doc["per_sample"]
+
+    # ---- C1 composition per sample, stacked ------------------------------------------------
+    if rows:
+        fig, ax = plt.subplots(figsize=(max(6.5, 0.55 * len(rows) + 2.5), 3.8))
+        names = [r["sample"] for r in rows]
+        bottom = np.zeros(len(rows))
+        for e in doc["composition_l1"]:
+            vals = np.array([r.get(e["label"], 0.0) for r in rows], dtype=float)
+            if vals.sum() == 0:
+                continue
+            ax.bar(names, vals, bottom=bottom, color=colour[e["label"]], label=e["label"],
+                   width=0.74)
+            bottom += vals
+        ax.set_ylabel("% of nuclei"); ax.set_ylim(0, 100)
+        ax.tick_params(axis="x", rotation=60)
+        ax.set_title("Composition per sample, level 1")
+        ax.legend(fontsize=6, frameon=False, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+        out["C1"] = {"uri": _fig_to_uri(fig), "absent": None}
+    else:
+        absent("C1", "no per-sample breakdown; the objects carry no sample column")
+
+    # ---- C2 one point per sample, grouped by condition -------------------------------------
+    #
+    # The figure a cohort bar chart cannot replace. A group mean says nothing about whether the
+    # animals inside it agree, and a claim about composition across a design is only as good as
+    # that spread.
+    conds = sorted({r.get("condition", "") for r in rows}) if rows else []
+    if rows and any(conds):
+        labs = [e["label"] for e in doc["composition_l1"]
+                if e["label"] not in SENTINEL_COLOUR][:6]
+        fig, ax = plt.subplots(figsize=(max(6.5, 1.5 * len(labs) + 2), 3.8))
+        rng = np.random.default_rng(0)
+        for xi, lab in enumerate(labs):
+            for ci, c in enumerate(conds):
+                vals = [r.get(lab, 0.0) for r in rows if r.get("condition") == c]
+                if not vals:
+                    continue
+                x = xi + (ci - (len(conds) - 1) / 2) * 0.22
+                ax.scatter(np.full(len(vals), x) + rng.normal(0, 0.02, len(vals)), vals,
+                           s=26, color=PALETTE[ci % len(PALETTE)], zorder=3,
+                           label=c if xi == 0 else None)
+                ax.plot([x - 0.08, x + 0.08], [np.mean(vals)] * 2, color="#333", lw=1.6,
+                        zorder=4)
+        ax.set_xticks(range(len(labs)))
+        ax.set_xticklabels(labs, rotation=30, ha="right", fontsize=8)
+        ax.set_ylabel("% of that sample")
+        ax.set_title("One point per sample, bar is the group mean")
+        ax.legend(fontsize=7, frameon=False)
+        out["C2"] = {"uri": _fig_to_uri(fig), "absent": None}
+    else:
+        absent("C2", "no condition column, so samples cannot be grouped")
+
+    # ---- C3 reliability by depth -----------------------------------------------------------
+    rel = doc["reliability"]
+    if rel:
+        fig, ax = plt.subplots(figsize=(6.0, 3.2))
+        d = [str(r["depth"]) for r in rel]
+        ax.bar(d, [r["median_gap"] if r["median_gap"] is not None else np.nan for r in rel],
+               color="#4C72B0", width=0.6)
+        ax.set_xlabel("tree depth of the call"); ax.set_ylabel("median decision gap")
+        ax2 = ax.twinx()
+        ax2.plot(d, [r["pct_under_10_assertions"] if r["pct_under_10_assertions"] is not None
+                     else np.nan for r in rel], "o-", color="#C44E52", lw=1.5, ms=5)
+        ax2.set_ylabel("% on <10 curated assertions", color="#C44E52"); ax2.set_ylim(0, 100)
+        ax.set_title("Deeper calls look no less confident and rest on less evidence")
+        out["C3"] = {"uri": _fig_to_uri(fig), "absent": None}
+    else:
+        absent("C3", "no depth column on the objects")
+
+    # ---- C4 what was withheld, per sample --------------------------------------------------
+    ex = doc.get("exclusion")
+    if ex and ex.get("per_sample"):
+        fig, ax = plt.subplots(figsize=(max(6.0, 0.5 * len(ex["per_sample"]) + 2), 3.2))
+        ax.bar([r["sample"] for r in ex["per_sample"]],
+               [r["pct"] for r in ex["per_sample"]], color="#C44E52", width=0.7)
+        ax.set_ylabel("% of that sample withheld")
+        ax.tick_params(axis="x", rotation=60)
+        ax.set_title("What was withheld, and how unevenly")
+        out["C4"] = {"uri": _fig_to_uri(fig), "absent": None}
+    else:
+        absent("C4", "nothing was withheld, or no sample column to break it down by")
+    return out
+
+
+def build_cohort(doc, figs=None) -> tuple[str, dict]:
+    """The cohort document."""
+    figs = figs or {}
+    run, head = doc["run"], doc["headline"]
+    defects = [f"figure {k} is neither drawn nor explained"
+               for k, v in figs.items() if not v.get("uri") and not v.get("absent")]
+
+    tiles = [("objects", f"{run['n_objects']}"), ("nuclei", f"{head['n_cells']:,}"),
+             ("level-1 labels", f"{head['n_labels']}"), ("placed", f"{head['pct_placed']}%"),
+             ("UNRESOLVED", f"{head['pct_unresolved']}%"),
+             ("EXCLUDED", f"{head['pct_excluded']}%")]
+    for c in doc.get("compare", []):
+        if c.get("levels"):
+            tiles.append(("two routes, L1", f"{c['levels'][0]['agreement_pct']}%"))
+            break
+    tile_html = "".join(f'<div class="tile"><b>{_esc(v)}</b><span>{_esc(k)}</span></div>'
+                        for k, v in tiles)
+
+    P = [f"""<div class="wrap">
+<h1>Annotation report &mdash; cohort</h1>
+<div class="sub">{_esc(run['species'])} / {_esc(run['tissue'])} &middot;
+{run['n_objects']} objects &middot; labels in <code>{_esc(run['label_key'])}</code> &middot;
+generated {_esc(doc['generated'])}</div>
+<div class="tiles">{tile_html}</div>"""]
+    if defects:
+        P.append('<div class="cannot"><b>Defects in this report:</b> '
+                 + _esc("; ".join(defects)) + "</div>")
+
+    P.append("<h2>Composition</h2>")
+    P.append(_figure(figs, "C1", "Level-1 composition per sample. Sentinels are grey."))
+    P.append(_table(["label", "n", "pct"], doc["composition_l1"], numeric=("n", "pct")))
+    if doc["composition_l2"]:
+        P.append("<h2>Composition &mdash; level 2</h2>")
+        P.append(_table(["label", "n", "pct"], doc["composition_l2"], numeric=("n", "pct")))
+    P.append(f'<div class="cannot"><b>What this cannot show.</b> {_esc(CANNOT["composition"])}'
+             f"</div>")
+
+    P.append("<h2>Between animals</h2>")
+    P.append("<p>A group mean says nothing about whether the animals inside it agree. Where the "
+             "spread WITHIN a group exceeds the range BETWEEN groups, the cohort cannot support "
+             "a claim about that population &mdash; and that is arithmetic, not a limitation of "
+             "the annotation.</p>")
+    P.append(_figure(figs, "C2", "One point per sample; the bar is the group mean."))
+    if doc.get("spread"):
+        P.append(_table(["label", "within_group_pp", "between_group_pp", "verdict"],
+                        doc["spread"], numeric=("within_group_pp", "between_group_pp")))
+    if doc.get("per_sample"):
+        cols = ["sample"] + (["condition"] if "condition" in doc["per_sample"][0] else []) + \
+               ["n"] + [e["label"] for e in doc["composition_l1"][:6]]
+        P.append(_table(cols, doc["per_sample"], numeric=tuple(cols[2:])))
+
+    P.append("<h2>Reliability</h2>")
+    P.append(_figure(figs, "C3", "Median decision gap by depth, against the share of cells "
+                                 "resting on fewer than 10 curated assertions."))
+    P.append(_table(["depth", "n_cells", "pct_cells", "median_gap",
+                     "pct_under_10_assertions"], doc["reliability"],
+                    numeric=("depth", "n_cells", "pct_cells", "median_gap",
+                             "pct_under_10_assertions")))
+    P.append(f'<div class="cannot"><b>What this cannot show.</b> {_esc(CANNOT["reliability"])}'
+             f"</div>")
+
+    P.append("<h2>What was withheld</h2>")
+    ex = doc.get("exclusion")
+    if not ex:
+        P.append("<p>Nothing was withheld: every nucleus was annotated.</p>")
+    else:
+        P.append(f"<p><b>{ex['n']:,} nuclei ({ex['pct']}%)</b> across the cohort.</p>")
+        P.append(_figure(figs, "C4", "Withheld per sample."))
+        P.append(_table(["sample", "n", "pct"], ex["per_sample"], numeric=("n", "pct")))
+        if ex.get("per_condition"):
+            P.append(_table(["condition", "pct withheld"],
+                            [{"condition": k, "pct withheld": v}
+                             for k, v in ex["per_condition"].items()],
+                            numeric=("pct withheld",)))
+            if ex.get("condition_ratio"):
+                P.append(f"<p>Widest ratio between conditions: "
+                         f"<b>{ex['condition_ratio']}&times;</b>. An exclusion that falls harder "
+                         f"on one arm has moved a technical decision into the comparison.</p>")
+    P.append(f'<div class="cannot"><b>What this cannot show.</b> {_esc(CANNOT["exclusion"])}'
+             f"</div>")
+
+    if doc.get("compare"):
+        P.append("<h2>Two routes</h2>")
+        rows = [{"object": c.get("object", ""), "scored": c.get("n_scored"),
+                 "level 1": c["levels"][0]["agreement_pct"] if c.get("levels") else None,
+                 "level 2": c["levels"][1]["agreement_pct"] if c.get("levels") else None,
+                 "B clusters >80% one sample":
+                     f"{c['b_dominance']['n_dominated']} of {c['b_dominance']['n_clusters']}"
+                     if c.get("b_dominance") else ""}
+                for c in doc["compare"]]
+        P.append(_table(["object", "scored", "level 1", "level 2",
+                         "B clusters >80% one sample"], rows,
+                        numeric=("scored", "level 1", "level 2")))
+        P.append('<div class="cannot"><b>What this cannot show.</b> Agreement means the labels '
+                 'do not depend on the clustering scheme, which is the strongest statement '
+                 'available without a truth set. It does NOT mean they are correct: both routes '
+                 'share the tree, the corpus and the classifier, so a corpus wrong about this '
+                 'tissue is wrong identically in both.</div>')
+
+    P.append("<h2>Provenance</h2>")
+    P.append(_table(["field", "value"], [{"field": k, "value": v} for k, v in [
+        ("scanno version", doc.get("scanno_version") or "unrecorded"),
+        ("objects", ", ".join(run["objects"])), ("nuclei", f"{run['n_cells']:,}"),
+        ("label key", run["label_key"]), ("sample column", run["sample_key"] or "none"),
+        ("condition column", run["condition_key"] or "none"),
+        ("taxonomy", run["tree"] or "-")]]))
+    P.append("<h2>What this report cannot show</h2>")
+    P.append(f'<div class="cannot"><b>Labels are not validated here.</b> '
+             f'{_esc(CANNOT["labels"])}</div>')
+    P.append("</div>")
+
+    doc = dict(doc)
+    doc["defects"] = defects
+    doc["figures"] = sorted(figs)
+    html = (f"<!doctype html><meta charset=utf-8><title>scAnno &mdash; cohort report</title>"
+            f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<style>{_CSS}</style>{''.join(P)}")
+    return html, doc

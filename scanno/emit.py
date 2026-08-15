@@ -131,6 +131,66 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     return written
 
 
+def plain_string_labels(adata):
+    """Re-back every label and string column with plain object arrays before writing.
+
+    pandas gives string labels a `StringDtype` backing by default, and anndata writes that as a
+    NULLABLE STRING - an HDF5 group of `values` + `mask` rather than a dataset of strings. The
+    file is valid AnnData and round-trips through anndata perfectly. It is also unreadable by
+    anything that expects `obs/_index` to be a dataset, which is most readers, and the failure is
+    not a nice one: the index comes back undefined and the first `.map` over it throws. A viewer
+    reports "that file did not open" and names a property access, which points nowhere near the
+    cause.
+
+    Older anndata refuses to write StringDtype at all, so the same object is unwritable on one
+    version and unreadable-by-others on the next. Neither is a good place to leave a deliverable.
+
+    Object-backed is lossless - the same `str` objects, a different array behind them - and is
+    preferred over `anndata.settings.allow_write_nullable_strings`, which is global: flipping it
+    changes how every object written anywhere in the process is stored.
+
+    Returns what it converted, so a run can say so rather than doing it invisibly.
+    """
+    import numpy as np
+    import pandas as pd
+
+    changed = {"obs_index": False, "var_index": False, "obs_columns": [], "var_columns": []}
+
+    for axis, frame in (("obs", adata.obs), ("var", adata.var)):
+        idx = frame.index
+        if str(idx.dtype) != "object":
+            new = pd.Index(np.array([str(v) for v in idx], dtype=object), name=idx.name)
+            if axis == "obs":
+                adata.obs.index = new
+                changed["obs_index"] = True
+            else:
+                adata.var.index = new
+                changed["var_index"] = True
+        for col in list(frame.columns):
+            if str(frame[col].dtype) in ("string", "str"):
+                frame[col] = np.array([None if pd.isna(v) else str(v) for v in frame[col]],
+                                      dtype=object)
+                changed[f"{axis}_columns"].append(str(col))
+    return changed
+
+
+def format_plain_labels(changed) -> list:
+    """One line, and only when something was converted."""
+    bits = []
+    if changed["obs_index"] or changed["var_index"]:
+        which = " and ".join(x for x, on in (("obs", changed["obs_index"]),
+                                             ("var", changed["var_index"])) if on)
+        bits.append(f"{which} index")
+    for axis in ("obs", "var"):
+        if changed[f"{axis}_columns"]:
+            bits.append(f"{len(changed[f'{axis}_columns'])} {axis} column(s)")
+    if not bits:
+        return []
+    return [f"  re-backed as plain strings before writing: {', '.join(bits)}",
+            "    pandas' StringDtype is written as a nullable string - a group, not a dataset - "
+            "and most readers cannot read it"]
+
+
 def reindex_by_symbol(adata, key="gene_symbol", keep_as="gene_id"):
     """Re-index `var` by the symbol column, without ever merging two genes into one.
 
