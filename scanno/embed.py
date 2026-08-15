@@ -80,7 +80,10 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
         if col and col in B.var:
             B.var_names = [str(v) for v in B.var[col]]
         B.var_names_make_unique()
-        B.layers.clear()
+        # keep_x: .X is the matrix we just set from counts; clearing layers must not
+        # take it with them.
+        for _k in list(B.layers):
+            del B.layers[_k]
         B.obsm.clear()
         parts.append(B)
         log(f"  read {name}: {B.n_obs:,} cells x {B.n_vars:,} genes")
@@ -104,8 +107,12 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
             log(f"    {len(hits)} {cls}: {', '.join(hits[:6])}"
                 + (" ..." if len(hits) > 6 else ""))
 
-    sc.pp.pca(J, n_comps=min(n_pcs, min(J.n_obs, len(hv)) - 1), use_highly_variable=True,
-              svd_solver="arpack", random_state=seed)
+    try:
+        sc.pp.pca(J, n_comps=min(n_pcs, min(J.n_obs, len(hv)) - 1),
+                  mask_var="highly_variable", svd_solver="arpack", random_state=seed)
+    except TypeError:                       # scanpy < 1.10 spells it differently
+        sc.pp.pca(J, n_comps=min(n_pcs, min(J.n_obs, len(hv)) - 1),
+                  use_highly_variable=True, svd_solver="arpack", random_state=seed)
     log(f"  PCA: {J.obsm['X_pca'].shape[1]} components")
     sc.pp.neighbors(J, n_neighbors=n_neighbors, n_pcs=J.obsm["X_pca"].shape[1],
                     random_state=seed)
