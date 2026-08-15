@@ -54,7 +54,7 @@ class Context:
                  sweep_pick=None, sweep_reason=None, flag_column=None, declaration=None,
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
-                 joint_key=None):
+                 joint_key=None, group_order=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -75,6 +75,7 @@ class Context:
         self.tree = tree or {}
         self.gene_key, self.gene_column = gene_key, None
         self.joint_key = joint_key
+        self._group_order = [str(g) for g in (group_order or [])]
 
         frames = []
         for name, A in self.objects:
@@ -234,7 +235,23 @@ class Context:
         return rows
 
     def _levels(self, key):
-        return sorted(set(self.P[key])) if key in self.P else []
+        """The levels of a column, in the order they should be READ.
+
+        For the experimental group that is the order the caller declared - a 2x2 is read
+        young/aged x chow/HFD, and alphabetical order interleaves the two factors so that
+        neighbouring rows differ in both at once, which is the one arrangement in which no
+        pair of adjacent rows is a comparison. A level the caller did not name is APPENDED
+        and reported, never dropped: silently omitting an arm turns a missing declaration
+        into a missing population.
+        """
+        if key not in self.P:
+            return []
+        have = set(str(v) for v in self.P[key])
+        if key == "group" and self._group_order:
+            named = [g for g in self._group_order if g in have]
+            self.group_order_unnamed = sorted(have - set(named))
+            return named + self.group_order_unnamed
+        return sorted(have)
 
     def _detect_factors(self):
         """Low-cardinality obs columns that could be a design factor. Reported as auto-detected
@@ -478,6 +495,54 @@ class Context:
         return sorted(out, key=lambda r: (-r["labels_over_25"], -r["overall"]))
 
     # ------------------------------------------------------------------ the joint route
+    def embedding_is_stitched(self, tol=1e-3):
+        """Is the joint embedding actually the per-sample embeddings, moved apart?
+
+        A cohort object assembled by concatenating per-sample objects inherits their `X_umap`
+        unchanged, and some assemblers translate each sample's block so the clouds do not
+        overlap. The result LOOKS like a joint embedding and is not one: every sample occupies
+        its own territory because it was PUT there, so any figure asking whether structure
+        follows libraries answers yes by construction. That is the exact reading F132 exists
+        to support, and on a stitched embedding it is a tautology dressed as a finding.
+
+        The test is decisive rather than statistical: take each sample's rows out of the joint
+        object by BARCODE and subtract that sample's own coordinates. If every sample's
+        difference is constant - a rigid translation - the coordinates were never recomputed.
+        A genuine joint embedding of the same cells differs everywhere.
+
+        Returns None when it cannot be tested, else a dict naming what was found.
+        """
+        if self.joint is None or self.joint_embedding() is None:
+            return None
+        import numpy as np
+        xy = self.joint_embedding()
+        jb = np.asarray(self.joint.obs_names.astype(str))
+        js = (np.asarray(self.joint.obs[self.sample_key].astype(str))
+              if self.sample_key in self.joint.obs else None)
+        if js is None:
+            return None
+        rigid, tested = [], []
+        for name, A in self.objects:
+            own = self.embedding(name)
+            if own is None:
+                continue
+            idx = {b: i for i, b in enumerate(np.asarray(A.obs_names.astype(str)))}
+            m = js == str(name)
+            if m.sum() < 10:
+                continue
+            bs = jb[m]
+            keep = np.array([b in idx for b in bs])
+            if keep.sum() < 10:
+                continue
+            take = np.array([idx[b] for b in bs[keep]])
+            d = xy[m][keep] - own[take]
+            tested.append(name)
+            rigid.append(bool(max(float(d[:, 0].std()), float(d[:, 1].std())) < tol))
+        if not tested:
+            return None
+        return {"stitched": all(rigid) and len(rigid) > 1,
+                "samples_tested": tested, "samples_rigid": int(sum(rigid))}
+
     def joint_embedding(self):
         if self.joint is None:
             return None

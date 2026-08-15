@@ -407,6 +407,32 @@ def F160(ctx):
 
 # ======================================================================= the joint route
 
+def _require_joint_embedding(ctx, what):
+    """The joint embedding, or a refusal naming why it cannot carry `what`.
+
+    A STITCHED embedding is refused rather than drawn. It is the per-sample embeddings moved
+    apart, so every sample sits in its own territory because it was put there - and a figure
+    asking whether the structure follows libraries then answers yes by construction. Drawing it
+    anyway would publish a tautology in the shape of a finding, which is worse than drawing
+    nothing, because nothing is obviously nothing.
+    """
+    xy = ctx.joint_embedding()
+    if xy is None:
+        raise NotDrawable(f"no joint object - {what} needs ONE embedding computed over all "
+                          f"samples together. Build one with `scanno embed`.")
+    st = ctx.embedding_is_stitched()
+    if st and st["stitched"]:
+        raise NotDrawable(
+            f"the joint object's embedding is STITCHED, not joint: each sample's coordinates "
+            f"are its own per-sample embedding shifted by a constant "
+            f"({st['samples_rigid']}/{len(st['samples_tested'])} samples match exactly). Every "
+            f"sample occupies its own territory because it was placed there, so {what} would "
+            f"show that separation as a finding when it is an artefact of the assembly. Compute "
+            f"a real joint embedding with `scanno embed` and pass it as --joint.")
+    return xy
+
+
+
 def F132(ctx, depth=1):
     """The same embedding coloured by label and by library, side by side.
 
@@ -414,9 +440,7 @@ def F132(ctx, depth=1):
     the structure is libraries, not cell types — and on an un-integrated cohort that is a live
     possibility rather than a formality.
     """
-    xy = ctx.joint_embedding()
-    if xy is None:
-        raise NotDrawable("no joint object — pass one with --joint to compare the two routes")
+    xy = _require_joint_embedding(ctx, "the label-against-library comparison")
     fig, axes = panel_grid(2, ncols=2, panel_size=(6.7, 6.2))
     lab = ctx.joint_labels(depth)
     umap_scatter(axes[0], xy=xy, labels=lab, colours=ctx.colours(depth),
@@ -508,9 +532,7 @@ def _featureplot(ctx, depth, per_node):
     panels = ctx.panels(depth)
     if not panels:
         raise NotDrawable(f"no marker panel for level {depth}")
-    xy = ctx.joint_embedding()
-    if xy is None:
-        raise NotDrawable("no joint object — feature plots need one embedding for the cohort")
+    xy = _require_joint_embedding(ctx, "feature plots")
     picks, missing = [], []
     for l in ctx.label_order(depth):
         got = [str(g).upper() for g in (panels.get(l) or []) if ctx.has_gene(str(g).upper())]
@@ -699,7 +721,11 @@ def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
     else:
         fig, axs = p.subplots(1, 1, figsize=(8.0, 5.0), squeeze=False)
     ax = axs.ravel()[0]
-    arms = sorted({r["arm"] for r in per})
+    # The DECLARED order, so a 2x2 reads young/aged x chow/HFD rather than alphabetically,
+    # which interleaves the two factors and leaves no pair of adjacent bars comparable.
+    order = ctx._levels("group")
+    have = {r["arm"] for r in per}
+    arms = [a for a in order if a in have] + sorted(have - set(order))
     # One bar per ARM, points over it. The arms are the x categories, not parallel series:
     # modelling them as series gives one bar per arm spanning the whole axis, which reads as a
     # rate that applies everywhere.

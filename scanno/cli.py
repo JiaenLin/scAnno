@@ -936,7 +936,8 @@ def _report(a):
                   declaration=declaration, version=__version__,
                   tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue,
                   factors=a.factor, pinned_colours=Palette.load(a.palette),
-                  gene_key=a.gene_key, joint_key=a.joint_key)
+                  gene_key=a.gene_key, joint_key=a.joint_key,
+                  group_order=a.group_order)
     print(f"  taxonomy depth {ctx.depth}; "
           f"{', '.join(f'{len(ctx.label_order(d))} labels at level {d}' for d in ctx.levels)}")
     if ctx.auto_factors:
@@ -957,6 +958,34 @@ def _report(a):
               f"input it needed:")
         for r in payload["figures_not_drawn"][:6]:
             print(f"    {r['name']}: {r['reason']}")
+    return 0
+
+
+
+def _embed(a):
+    """ONE embedding over every sample together. Not integration - see scanno/embed.py."""
+    try:
+        import anndata as ad
+    except ImportError:
+        print("scanno: embed needs anndata and scanpy.  pip install -e '.[run]'",
+              file=sys.stderr)
+        return 1
+    from .embed import build
+    from .emit import classic_string_encoding, plain_string_labels
+
+    objs = [(Path(src).stem.replace("_annotated", ""), ad.read_h5ad(src)) for src in a.h5ad]
+    print(f"{len(objs)} object(s)")
+    J = build(objs, sample_key=a.sample_key, n_hvg=a.n_hvg, n_pcs=a.n_pcs,
+              n_neighbors=a.n_neighbors, min_dist=a.min_dist, seed=a.seed,
+              gene_key=a.gene_key)
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    plain_string_labels(J)
+    with classic_string_encoding():
+        J.write_h5ad(a.out)
+    print("")
+    print(f"wrote {a.out}   {J.n_obs:,} cells x {J.n_vars:,} genes")
+    print("      NOT integrated: computed over the pooled cells with no batch correction.")
+    print("      Whether integration is needed is a separate decision with its own evidence.")
     return 0
 
 
@@ -1210,6 +1239,12 @@ def main(argv=None):
                    help="a joint clustering of the whole cohort, annotated the same way. With "
                         "it the report adds the two-route agreement, the label-against-library "
                         "figure and the feature plots, which need one embedding for the cohort")
+    s.add_argument("--group-order", nargs="+", default=None, metavar="GROUP",
+                   help="the order the experimental groups should be READ in, e.g. "
+                        "young_chow young_HFD aged_chow aged_HFD. Alphabetical order "
+                        "interleaves the factors of a 2x2 so that no two adjacent rows are a "
+                        "comparison. A group not named here is appended and reported, never "
+                        "dropped")
     s.add_argument("--joint-key", default=None, metavar="OBS_COLUMN",
                    help="the JOINT route's own label column. Required for the two-route "
                         "agreement: a joint object assembled from the per-sample annotations "
@@ -1265,6 +1300,27 @@ def main(argv=None):
     s.add_argument("--species", default="")
     s.add_argument("--tissue", default="")
     s.set_defaults(fn=_report)
+
+    s = sub.add_parser("embed",
+                       help="compute ONE embedding over every sample together")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
+                   help="every object of the cohort. Raw counts are taken from "
+                        "layers['counts'] where present, else from .X")
+    s.add_argument("--out", required=True, type=Path, metavar="H5AD",
+                   help="the joint object, for `scanno report --joint`")
+    s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN")
+    s.add_argument("--gene-key", default=None, metavar="VAR_COLUMN",
+                   help="the var column holding gene symbols, used as the shared gene axis. "
+                        "Two objects indexed differently concatenate to whatever they happen "
+                        "to share, silently")
+    s.add_argument("--n-hvg", type=int, default=2000,
+                   help="highly-variable genes, selected over ALL genes (default 2000). No "
+                        "gene class is excluded; notable ones are counted and reported")
+    s.add_argument("--n-pcs", type=int, default=50)
+    s.add_argument("--n-neighbors", type=int, default=15)
+    s.add_argument("--min-dist", type=float, default=0.5)
+    s.add_argument("--seed", type=int, default=0)
+    s.set_defaults(fn=_embed)
 
     s = sub.add_parser("lab",
                        help="audit .h5ad files for a browser viewer, and rewrite them to open")
