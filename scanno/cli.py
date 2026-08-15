@@ -1016,13 +1016,26 @@ def _lab(a):
             out = Path(a.fix)
             out.mkdir(parents=True, exist_ok=True)
             dst = out / Path(src).name
-            A, dropped = rewrite_for_viewer(src, dst)
+            A, rep = rewrite_for_viewer(src, dst, path_key=a.path_key,
+                                        level_prefix=a.level_prefix, slim=a.slim,
+                                        keep=a.keep_obs or ())
             print(f"  rewrote -> {dst}")
-            print(f"           classic string encoding on both indices and every string column")
-            if dropped:
-                print(f"           dropped {len(dropped)} scratch uns key(s): "
-                      f"{', '.join(sorted(dropped)[:6])}"
-                      + (" ..." if len(dropped) > 6 else ""))
+            print("           classic string encoding on both indices and every string column")
+            if rep["levels"]:
+                print(f"           +{len(rep['levels'])} level column(s): "
+                      f"{', '.join(rep['levels'])}   (taxonomy depth {rep['depth']})")
+            if rep["uns_dropped"]:
+                print(f"           dropped {len(rep['uns_dropped'])} scratch uns key(s): "
+                      f"{', '.join(sorted(rep['uns_dropped'])[:6])}"
+                      + (" ..." if len(rep["uns_dropped"]) > 6 else ""))
+            if rep["obs_dropped"]:
+                print(f"           obs {rep['obs_before']} -> {rep['obs_after']} columns "
+                      f"(dropped {len(rep['obs_dropped'])}, added "
+                      f"{len(rep['levels'])}), ALL drops named here:")
+                for i in range(0, len(rep["obs_dropped"]), 6):
+                    print("             " + ", ".join(rep["obs_dropped"][i:i + 6]))
+                print(f"           the source object is unmodified, so the full sweep is still "
+                      f"on disk at {src}")
             after = [r for r in audit_file(dst) if r[0] != "ok"]
             print(f"           re-audit: {len(after)} remaining issue(s)"
                   + ("" if not after else ": " + "; ".join(r[2][:60] for r in after)))
@@ -1330,6 +1343,23 @@ def main(argv=None):
                         "encoding on both indices and every string column, and scratch uns "
                         "keys dropped. Nothing in the DATA is changed, and what was dropped "
                         "is named")
+    s.add_argument("--path-key", default=None, metavar="OBS_COLUMN",
+                   help="the annotation path column. With it, --fix writes one column per "
+                        "LEVEL of the taxonomy (scAnno_L1, scAnno_L2, ...) beside the full "
+                        "path. A viewer groups by a categorical, and handed full paths it "
+                        "offers one category per path - the truncations are what a reader "
+                        "actually switches between")
+    s.add_argument("--level-prefix", default="scAnno_L", metavar="PREFIX",
+                   help="the level columns' prefix (default scAnno_L, giving scAnno_L1 ...)")
+    s.add_argument("--slim", action="store_true",
+                   help="also drop the per-resolution sweep columns. An object swept over "
+                        "eight resolutions carries eight of everything and a viewer's column "
+                        "list becomes unusable. This IS a removal: every dropped column is "
+                        "named, the chosen resolution's columns are kept, nothing matching a "
+                        "design, identity or QC name is touched, and the source object is not "
+                        "modified so the sweep stays on disk in full")
+    s.add_argument("--keep-obs", nargs="*", default=None, metavar="COL",
+                   help="extra obs columns --slim must keep")
     s.set_defaults(fn=_lab)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")

@@ -539,26 +539,100 @@ def audit_file(path):
     return out
 
 
-def rewrite_for_viewer(src, dst, *, drop_scratch_uns=True, label_key=None):
-    """Rewrite an object so a browser viewer can open it. Nothing is removed from the DATA.
+#: obs columns a viewer always wants, whatever else is dropped. Matched exactly or by prefix.
+VIEWER_KEEP = ("sample", "group", "batch", "chemistry", "age", "diet", "sex", "condition",
+               "donor", "patient", "timepoint", "treatment", "replicate",
+               "total_counts", "n_genes", "n_genes_by_counts", "pct_counts_mt",
+               "pct_counts_ribo", "doublet_score", "nn_agreement")
 
-    Two changes, both to how bytes are laid out rather than to what they mean:
 
-      - every string column and both indices are written in the CLASSIC variable-length
-        encoding, which is what viewers read;
-      - scratch `uns` keys left behind by an upstream sweep are dropped.
+def level_columns(adata, path_key, prefix="scAnno_L", sep="/", sentinels=("EXCLUDED",
+                                                                          "UNRESOLVED")):
+    """Write one column per level of the taxonomy: L1, L2, ... down to the deepest path.
 
-    The second is a removal, so it is reported by name and by count rather than done quietly,
-    and it is confined to keys matching a scratch prefix. No cell, gene or annotation is touched.
+    WHY A COLUMN PER LEVEL RATHER THAN THE PATH
+
+    A viewer groups by a categorical. Handed `Immune/Myeloid/Macrophage` it offers one category
+    per full path - dozens of them, most tiny - and there is no way to ask it for "the level-1
+    picture". The truncations are what a reader actually switches between, so they are written
+    out as their own columns and the full path is kept beside them.
+
+    A path SHORTER than the level it is being truncated to is a call the walk stopped on, and it
+    keeps its own value rather than being blanked: the annotator resolved it that far and no
+    further, which is a partial identity, not a missing one.
+    """
+    import pandas as pd
+    paths = [str(v) for v in adata.obs[path_key]]
+    depth = max((len(p.split(sep)) for p in paths if p not in sentinels), default=1)
+    made = []
+    for d in range(1, depth + 1):
+        col = f"{prefix}{d}"
+        adata.obs[col] = pd.Categorical(
+            [p if p in sentinels else sep.join(p.split(sep)[:d]) for p in paths])
+        made.append(col)
+    return made, depth
+
+
+def rewrite_for_viewer(src, dst, *, drop_scratch_uns=True, path_key=None,
+                       level_prefix="scAnno_L", slim=False, keep=(), log=None):
+    """Rewrite an object so a browser viewer can open it, and can be navigated once open.
+
+    Three things happen, in increasing order of how much they remove:
+
+      1. ENCODING. Every string column and both indices are written in the CLASSIC
+         variable-length encoding, which is what viewers read. Nothing is removed.
+      2. SCRATCH. `uns` keys a sweep left behind are dropped. They are not data, they are
+         working state, and a viewer that walks `uns` shows them to the user as results.
+      3. SLIM (only with `slim=True`). The per-resolution sweep columns are dropped. An object
+         swept over eight resolutions carries eight of everything and a viewer's column list
+         becomes unusable - but this IS a removal, so every dropped column is NAMED, the
+         chosen-resolution columns are kept, and nothing matching a design, QC or identity name
+         is touched. It is reversible in the strongest sense: the source object is not modified,
+         so the sweep is still on disk in full.
+
+    Returns (adata, report) where `report` names exactly what changed.
     """
     import anndata as ad
+    import pandas as pd
+    log = log or (lambda *_a, **_k: None)
     A = ad.read_h5ad(str(src))
-    dropped = []
+    rep = {"uns_dropped": [], "levels": [], "obs_dropped": [], "obs_before": len(A.obs.columns)}
+
     if drop_scratch_uns:
         for k in [k for k in list(A.uns) if str(k).startswith(SCRATCH_UNS_PREFIXES)]:
-            dropped.append(k)
+            rep["uns_dropped"].append(k)
             del A.uns[k]
+
+    if path_key and path_key in A.obs:
+        made, depth = level_columns(A, path_key, prefix=level_prefix)
+        rep["levels"], rep["depth"] = made, depth
+
+    if slim:
+        keepset = set(keep) | set(VIEWER_KEEP) | set(rep["levels"])
+        if path_key:
+            keepset.add(path_key)
+            # the statistics OF the chosen resolution, whose suffix the path key carries
+            stem, _, tag = str(path_key).partition("_path")
+            for stat in ("gap", "support", "survival", "depth", "cluster", "L2"):
+                for cand in (f"{stem}_{stat}{tag}", f"{stem}_{stat}"):
+                    if cand in A.obs:
+                        keepset.add(cand)
+            for cand in (f"leiden{tag}", f"leiden_r{tag.lstrip('_r')}", "leiden"):
+                if cand in A.obs:
+                    keepset.add(cand)
+        for c in list(A.obs.columns):
+            if c in keepset:
+                continue
+            low = str(c).lower()
+            # Never drop something that looks like design, identity or QC, however it is spelled.
+            if any(h in low for h in ("sample", "group", "batch", "donor", "condition",
+                                      "counts", "genes", "pct_", "score", "flag", "cell")):
+                continue
+            rep["obs_dropped"].append(c)
+            del A.obs[c]
+    rep["obs_after"] = len(A.obs.columns)
+
     plain_string_labels(A)
     with classic_string_encoding():
         A.write_h5ad(str(dst))
-    return A, dropped
+    return A, rep
