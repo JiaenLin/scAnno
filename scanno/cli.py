@@ -494,7 +494,7 @@ def _annotate(a):
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
     from .emit import (annotate_obs, format_plain_labels, format_readiness, format_reindex,
-                       lab_readiness, plain_string_labels, reindex_by_symbol)
+                       lab_readiness, reindex_by_symbol, write_h5ad)
 
     if a.out_h5ad:
         written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
@@ -507,10 +507,8 @@ def _annotate(a):
             rep = reindex_by_symbol(A, key=a.out_gene_key)
             for line in format_reindex(rep):
                 print(line)
-        for line in format_plain_labels(plain_string_labels(A)):
+        for line in format_plain_labels(write_h5ad(A, a.out_h5ad, compression="gzip")):
             print(line)
-        Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
-        A.write_h5ad(a.out_h5ad, compression="gzip")
         print("")
         print(f"wrote {a.out_h5ad}   {A.n_obs:,} x {A.n_vars:,}")
         print(f"  obs columns added: {', '.join(written)}")
@@ -653,10 +651,9 @@ def _cluster(a):
             else:
                 p = Path(a.out)
                 p.parent.mkdir(parents=True, exist_ok=True)
-            from .emit import format_plain_labels, plain_string_labels
-            for line in format_plain_labels(plain_string_labels(piece)):
+            from .emit import format_plain_labels, write_h5ad
+            for line in format_plain_labels(write_h5ad(piece, p)):
                 print(line)
-            piece.write_h5ad(p)
             written.append(p)
             print(f"    wrote {p}")
 

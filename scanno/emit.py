@@ -131,6 +131,61 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     return written
 
 
+class classic_string_encoding:
+    """Write string columns as HDF5 string DATASETS, not as nullable-string groups.
+
+    On pandas >= 3 there is no way to hold a string column as `object` - the new `str` dtype is
+    the default and pandas coerces back to it - and anndata >= 0.11 writes that dtype as a
+    NULLABLE STRING: a group of `values` + `mask`. The result is valid AnnData that round-trips
+    through anndata perfectly and is unreadable by anything else, because `obs/_index` is no
+    longer a dataset. A viewer reports "cannot read properties of undefined (reading 'map')",
+    which points nowhere near the cause.
+
+    Re-backing the labels as object arrays does NOT fix it on that stack; it is the writer, not
+    the dtype. `allow_write_nullable_strings = False` is the only route, and it is the
+    COMPATIBLE direction: the classic encoding is what every older reader expects, so the file
+    is readable by more things, not fewer.
+
+    Scoped rather than set once at import, because it is a global on the anndata module and this
+    library has no business changing how objects written elsewhere in the caller's process are
+    stored. Restored even if the write raises.
+    """
+
+    def __init__(self):
+        self._prev = None
+        self._had = False
+
+    def __enter__(self):
+        try:
+            import anndata as ad
+            self._prev = ad.settings.allow_write_nullable_strings
+            ad.settings.allow_write_nullable_strings = False
+            self._had = True
+        except Exception:                                                 # noqa: BLE001
+            self._had = False        # older anndata has no such setting and does not need one
+        return self
+
+    def __exit__(self, *exc):
+        if self._had:
+            try:
+                import anndata as ad
+                ad.settings.allow_write_nullable_strings = self._prev
+            except Exception:                                             # noqa: BLE001
+                pass
+        return False
+
+
+def write_h5ad(adata, path, **kw):
+    """Write an object every reader can open: plain labels, classic string encoding."""
+    from pathlib import Path
+
+    changed = plain_string_labels(adata)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with classic_string_encoding():
+        adata.write_h5ad(str(path), **kw)
+    return changed
+
+
 def plain_string_labels(adata):
     """Re-back every label and string column with plain object arrays before writing.
 
