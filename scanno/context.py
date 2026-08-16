@@ -671,9 +671,26 @@ class Context:
         if A is None:
             return None
         stem = self.path_key.rsplit("_r", 1)[0] if "_r" in self.path_key else "scanno"
-        tag = str(resolution if resolution is not None
-                  else self.chosen_resolution or "").replace(".", "p")
-        for cand in (f"leiden_r{tag}", f"{stem}_cluster_r{tag}", "leiden", "cluster"):
+        raw = str(resolution if resolution is not None else self.chosen_resolution or "")
+        # A resolution appears in a column name spelled at least three ways - `leiden_1.0`,
+        # `leiden_1p0`, `leiden_r1p0` - depending on which tool wrote it, and `1.0` and `1`
+        # are the same number written two ways. Missing the spelling loses the whole figure
+        # and reports it as "no cluster column", which reads as an object that was never
+        # clustered rather than one whose column we failed to name.
+        tags = {raw, raw.replace(".", "p"), raw.rstrip("0").rstrip("."), }
+        try:
+            f = float(raw)
+            tags |= {f"{f:g}", f"{f:g}".replace(".", "p"), f"{f}", f"{f}".replace(".", "p")}
+        except ValueError:
+            pass
+        cands = []
+        for t in sorted(tags):
+            if not t:
+                continue
+            cands += [f"leiden_r{t}", f"leiden_{t}", f"{stem}_cluster_r{t}",
+                      f"{stem}_cluster_{t}", f"cluster_r{t}", f"cluster_{t}"]
+        cands += ["leiden", "cluster", "clusters"]
+        for cand in cands:
             if cand in A.obs:
                 return np.asarray(A.obs[cand].astype(str))
         return None

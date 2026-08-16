@@ -80,11 +80,17 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
         if col and col in B.var:
             B.var_names = [str(v) for v in B.var[col]]
         B.var_names_make_unique()
-        # keep_x: .X is the matrix we just set from counts; clearing layers must not
-        # take it with them.
-        for _k in list(B.layers):
-            del B.layers[_k]
-        B.obsm.clear()
+        # Build a MINIMAL object rather than stripping a full one. `B.layers` can enumerate a
+        # `None` key that IS `.X` - the deprecation warning says so in as many words - so
+        # `for k in list(B.layers): del B.layers[k]` deletes the matrix it was meant to protect,
+        # and the failure surfaces 30 minutes later inside `normalize_total` as
+        # `'NoneType' object has no attribute 'dtype'`, naming neither the layer nor the step
+        # that removed it.
+        import anndata as _ad
+        B = _ad.AnnData(X=B.X, obs=B.obs.copy(), var=B.var.copy())
+        if B.X is None:
+            raise SystemExit(f"scanno embed: {name} has no expression matrix (.X is None) "
+                             f"after selecting counts. Nothing downstream can be computed.")
         parts.append(B)
         log(f"  read {name}: {B.n_obs:,} cells x {B.n_vars:,} genes")
 
