@@ -779,7 +779,7 @@ def _scope(a):
     import json as _json
 
     from .scope import (bare_names_unique, format_report, format_tree, internal_nodes,
-                        seal_tree, sealed_labels, vote)
+                        seal_tree, sealed_labels, truncate_tree, vote)
 
     tree = _json.loads(Path(a.tree).read_text(encoding="utf-8"))
     dup = bare_names_unique(tree)
@@ -839,6 +839,11 @@ def _scope(a):
         Path(a.out_tree).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out_tree).write_text(_json.dumps(sealed_tree, indent=1), encoding="utf-8")
         print(f"wrote {a.out_tree}   <- pass 2 reads THIS as --tree")
+    if a.out_l1_tree:
+        Path(a.out_l1_tree).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out_l1_tree).write_text(_json.dumps(truncate_tree(tree, 1), indent=1),
+                                       encoding="utf-8")
+        print(f"wrote {a.out_l1_tree}   <- the INDEPENDENT L1 run reads THIS as --tree")
     return 0
 
 
@@ -1517,6 +1522,13 @@ def main(argv=None):
     s.add_argument("--out-tree", type=Path, metavar="JSON",
                    help="the SEALED taxonomy. Pass 2 reads this as --tree; the walk itself is "
                         "unchanged, only the tree it walks is smaller")
+    s.add_argument("--out-l1-tree", type=Path, metavar="JSON",
+                   help="the DEPTH-1 taxonomy, for an INDEPENDENT L1 annotation. Running the "
+                        "unchanged walk against this gives an L1 column no seal at any depth "
+                        "can move — independent by construction, not by convention. Deriving "
+                        "L1 as path[:1] instead makes it inherit the deep walk's failures: a "
+                        "nucleus the walk sent to UNRESOLVED has no path to truncate and so no "
+                        "L1 at all")
     s.set_defaults(fn=_scope)
 
     s = sub.add_parser("readme",

@@ -251,3 +251,36 @@ def test_internal_nodes_are_full_paths():
     n = internal_nodes(TREE)
     assert "Stromal/Fibroblast" in n and "Fibroblast" not in n
     assert n["Stromal/Fibroblast"] == ["Matrifibrocyte", "Quiescent fibroblast"]
+
+
+# ---------------------------------------------------------------- the independent L1 tree
+
+def test_truncate_tree_keeps_only_the_top_level():
+    from scanno.scope import truncate_tree
+    t = truncate_tree(TREE, depth=1)
+    assert t["children"] == {"root": TREE["children"]["root"]}
+    assert "Stromal" not in t["children"]          # a LEAF now: the walk stops after one step
+    assert set(t["patterns"]) == set(TREE["children"]["root"]) | set()
+    assert TREE["children"]["Stromal"] == ["Fibroblast", "Mural"]      # no mutation
+
+
+def test_the_l1_tree_is_independent_of_every_seal():
+    """No seal at any depth can move the L1 column, because L1 has no depth to seal."""
+    from scanno.scope import truncate_tree
+    v = vote(paths(), TREE, min_support=1.0)
+    sealed, _ = seal_tree(TREE, v)
+    assert truncate_tree(TREE, 1) == truncate_tree(sealed, 1)
+
+
+def test_truncate_tree_depth_two_keeps_the_second_level():
+    from scanno.scope import truncate_tree
+    t = truncate_tree(TREE, depth=2)
+    assert t["children"]["Stromal"] == ["Fibroblast", "Mural"]
+    assert "Fibroblast" not in t["children"]       # third level gone
+    assert "Matrifibrocyte" not in t["patterns"]
+
+
+def test_truncate_tree_refuses_depth_zero():
+    from scanno.scope import truncate_tree
+    with pytest.raises(ValueError):
+        truncate_tree(TREE, depth=0)

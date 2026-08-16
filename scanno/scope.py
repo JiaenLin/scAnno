@@ -358,3 +358,53 @@ def format_tree(tree, verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
         out += ["", "declared but reached by no sample — not sealed, not drawn, still in the tree:"]
         out += [f"  {u.split('/')[-1]}" for u in unreached]
     return out
+
+
+def truncate_tree(tree, depth=1, sep=SEP):
+    """The top `depth` levels of a taxonomy, as a tree in its own right.
+
+    WHY AN INDEPENDENT L1 RUN RATHER THAN path[:1]
+
+    Truncating the deep walk's path gives an L1 that INHERITS the deep walk's failures. A cell
+    the walk sent to UNRESOLVED at the root has no path to truncate, so it has no L1 either --
+    on the cohort this was written for that is 1,880 nuclei in 4 of 10 animals, and 973 of one
+    animal's are a Pericyte population that simply vanishes from the L1 table.
+
+    Walking a depth-1 tree instead makes L1 its own annotation, produced by the UNCHANGED walk
+    against a tree with no depth to seal. Two consequences worth stating plainly:
+
+      - No seal, at any depth, can move the L1 column. The scope and L1 are independent by
+        construction rather than by convention.
+      - The root decision itself is unchanged: root's child set is the same in both trees, so
+        `node_weights` and therefore the gap at the root are identical. An independent L1 run
+        does NOT rescue a nucleus the root already declined -- it isolates L1 from everything
+        BELOW the root, which is a different and achievable guarantee. Claiming otherwise would
+        be claiming the walk had changed, and it has not.
+    """
+    if depth < 1:
+        raise ValueError(f"depth must be >= 1, got {depth}")
+    out = copy.deepcopy(tree)
+    kids = out.get("children", {})
+
+    keep_children, frontier, level = {}, [ROOT], 0
+    while frontier and level < depth:
+        nxt = []
+        for name in frontier:
+            if name in kids:
+                keep_children[name] = list(kids[name])
+                nxt.extend(kids[name])
+        frontier, level = nxt, level + 1
+    out["children"] = keep_children
+
+    reachable = {ROOT}
+    stack = [ROOT]
+    while stack:
+        for c in keep_children.get(stack.pop(), []):
+            if c not in reachable:
+                reachable.add(c)
+                stack.append(c)
+    if "patterns" in out:
+        out["patterns"] = {k: v for k, v in out["patterns"].items() if k in reachable}
+    if out.get("members"):
+        out["members"] = {k: v for k, v in out["members"].items() if k in reachable}
+    return out
