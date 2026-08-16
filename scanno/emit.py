@@ -136,6 +136,21 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
         if flag is not None:
             s[np.asarray(flag, dtype=bool)] = np.nan
         put("support", s)
+
+    # THE LEVEL COLUMNS ARE WRITTEN HERE, NOT ONLY IN THE VIEWER REWRITE.
+    #
+    # `scAnno_L1` is the only label that is comparable across samples BY CONSTRUCTION. Every
+    # other column depends on where that sample's walk happened to stop: two animals of the same
+    # arm, same batch and same chemistry have been measured returning 11.25% `Fibroblast` / 0.00%
+    # `Matrifibrocyte` and 0.00% / 17.71% on the same cells, because the gap landed either side of
+    # the bar. A cross-sample claim needs a column that cannot do that, and L1 is it.
+    #
+    # Until 0.8.2 these existed only inside `rewrite_for_viewer`, so the objects every downstream
+    # stage actually reads carried the path and no levels, and each consumer re-derived the
+    # truncation itself. `level_columns` is CALLED rather than copied for exactly that reason -
+    # this project has already been bitten by a second copy of a rule drifting from the first.
+    made, _ = level_columns(adata, f"{prefix}_path{suffix}", suffix=suffix)
+    written.extend(made)
     return written
 
 
@@ -562,7 +577,8 @@ VIEWER_KEEP = ("sample", "group", "batch", "chemistry", "age", "diet", "sex", "c
 
 
 def level_columns(adata, path_key, prefix="scAnno_L", sep="/", sentinels=("EXCLUDED",
-                                                                          "UNRESOLVED")):
+                                                                          "UNRESOLVED"),
+                  suffix=""):
     """Write one column per level of the taxonomy: L1, L2, ... down to the deepest path.
 
     WHY A COLUMN PER LEVEL RATHER THAN THE PATH
@@ -575,13 +591,22 @@ def level_columns(adata, path_key, prefix="scAnno_L", sep="/", sentinels=("EXCLU
     A path SHORTER than the level it is being truncated to is a call the walk stopped on, and it
     keeps its own value rather than being blanked: the annotator resolved it that far and no
     further, which is a partial identity, not a missing one.
+
+    THAT RULE IS WHAT MAKES THE DEEPEST COLUMN THE BALANCED ONE. `scAnno_L3` holds `Macrophage`
+    and `Pericyte` where the walk reached depth 3 and `Stromal/Fibroblast` where it stopped at 2,
+    because a shallower path keeps its own value. It is the walk's own answer, not a flat level:
+    padding it down would invent a subtype the walk explicitly refused to choose, and reading L2
+    instead would discard the four subtypes that cleared their gap by 2.5-3.5x.
+
+    `suffix` mirrors `annotate_obs`: a sweep annotating one object at eight resolutions needs
+    `scAnno_L1_r0p25 ... scAnno_L1_r2p0` rather than eight columns fighting over one name.
     """
     import pandas as pd
     paths = [str(v) for v in adata.obs[path_key]]
     depth = max((len(p.split(sep)) for p in paths if p not in sentinels), default=1)
     made = []
     for d in range(1, depth + 1):
-        col = f"{prefix}{d}"
+        col = f"{prefix}{d}{suffix}"
         adata.obs[col] = pd.Categorical(
             [p if p in sentinels else sep.join(p.split(sep)[:d]) for p in paths])
         made.append(col)

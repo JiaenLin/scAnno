@@ -769,6 +769,73 @@ def _compare(a):
     return 0
 
 
+def _scope(a):
+    """The common scope: the splits every sample agreed to make, as a sealed tree."""
+    try:
+        import anndata as ad
+    except ImportError:
+        print("scanno: scope needs anndata.  pip install -e '.[run]'", file=sys.stderr)
+        return 1
+    import json as _json
+
+    from .scope import (bare_names_unique, format_report, internal_nodes, seal_tree,
+                        sealed_labels, vote)
+
+    tree = _json.loads(Path(a.tree).read_text(encoding="utf-8"))
+    dup = bare_names_unique(tree)
+    if dup:
+        # A seal is applied by BARE name because that is how `children` is keyed. If a name sits
+        # at two positions, sealing one seals both — silently, and in the wrong lineage.
+        print(f"scanno: scope refuses — these names appear at more than one position in the "
+              f"tree, so a seal cannot be applied unambiguously: {dup}", file=sys.stderr)
+        return 1
+
+    paths_by_sample = {}
+    for p in a.h5ad:
+        obs = ad.read_h5ad(p, backed="r").obs
+        if a.path_key not in obs:
+            print(f"scanno: {p} has no obs column {a.path_key!r}. Run pass 1 first with "
+                  f"`scanno annotate --out-h5ad`.", file=sys.stderr)
+            return 1
+        name = (str(obs[a.sample_key].iloc[0]) if a.sample_key in obs and len(obs)
+                else Path(p).stem)
+        if name in paths_by_sample:
+            print(f"scanno: two objects both call themselves {name!r}; a vote would count that "
+                  f"animal twice. Give them distinct {a.sample_key!r} values.", file=sys.stderr)
+            return 1
+        paths_by_sample[name] = [str(v) for v in obs[a.path_key]]
+
+    verdicts = vote(paths_by_sample, tree, min_support=a.min_support,
+                    min_reach=a.min_reach, descend_rule=a.descend_rule)
+    lost = sealed_labels(verdicts, paths_by_sample)
+    sealed_tree, removed = seal_tree(tree, verdicts)
+
+    print("")
+    print(f"scope over {len(paths_by_sample)} samples: {', '.join(sorted(paths_by_sample))}")
+    print(f"rule: seal unless support >= {a.min_support} (descend-rule {a.descend_rule!r}, "
+          f"min-reach {a.min_reach})\n")
+    for line in format_report(verdicts, removed=removed, sealed=lost):
+        print(line)
+
+    if a.out:
+        payload = {"rule": {"min_support": a.min_support, "min_reach": a.min_reach,
+                            "descend_rule": a.descend_rule, "path_key": a.path_key},
+                   "samples": sorted(paths_by_sample),
+                   "tree": str(a.tree),
+                   "nodes": verdicts,
+                   "sealed": {k: list(v) for k, v in removed.items()},
+                   "removed_labels": lost,
+                   "declared_internal_nodes": internal_nodes(tree)}
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out).write_text(_json.dumps(payload, indent=1, default=str), encoding="utf-8")
+        print(f"\nwrote {a.out}")
+    if a.out_tree:
+        Path(a.out_tree).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out_tree).write_text(_json.dumps(sealed_tree, indent=1), encoding="utf-8")
+        print(f"wrote {a.out_tree}   <- pass 2 reads THIS as --tree")
+    return 0
+
+
 def _report(a):
     """The delivery: one cohort document, and one comprehensive page per sample.
 
@@ -1411,6 +1478,40 @@ def main(argv=None):
     s.add_argument("--keep-obs", nargs="*", default=None, metavar="COL",
                    help="extra obs columns --slim must keep")
     s.set_defaults(fn=_lab)
+
+    s = sub.add_parser("scope",
+                       help="step 2 of 3: vote the ten scouting walks into ONE common scope")
+    s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
+                   help="every PASS 1 object — the independent per-sample walks")
+    s.add_argument("--tree", required=True, type=Path, metavar="JSON",
+                   help="the DECLARED taxonomy pass 1 walked")
+    s.add_argument("--path-key", default="scanno_path", metavar="OBS_COLUMN",
+                   help="the pass-1 path column (default scanno_path; a sweep suffixes it, "
+                        "e.g. scanno_path_r1p0)")
+    s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN",
+                   help="the biological unit. One vote per sample, not per object")
+    s.add_argument("--min-support", type=float, default=1.0, metavar="FRAC",
+                   help="seal a node unless at least this fraction of the samples that REACHED "
+                        "it descended below it. Default 1.0 — unanimity: a split one animal "
+                        "would not make is a split the cohort cannot be compared across. "
+                        "Loosening it lets residual per-sample depth disagreement through, "
+                        "which is the whole problem this step exists to remove")
+    s.add_argument("--min-reach", type=int, default=2, metavar="N",
+                   help="a node reached by fewer than N samples is UNVOTABLE and is left OPEN, "
+                        "never sealed. Sealing on one animal's evidence is a removal with no "
+                        "quorum behind it (default 2)")
+    s.add_argument("--descend-rule", choices=("any", "majority"), default="any",
+                   help="what counts as one sample having descended. 'any' — at least one of "
+                        "its cells went below. 'majority' — more than half the cells arriving "
+                        "at the node did. They differ because a single sample can do both: "
+                        "different clusters of one lineage truncating differently inside one "
+                        "animal is common (default any)")
+    s.add_argument("--out", type=Path, metavar="JSON",
+                   help="the vote, every node's evidence, and the labels each seal removes")
+    s.add_argument("--out-tree", type=Path, metavar="JSON",
+                   help="the SEALED taxonomy. Pass 2 reads this as --tree; the walk itself is "
+                        "unchanged, only the tree it walks is smaller")
+    s.set_defaults(fn=_scope)
 
     s = sub.add_parser("readme",
                        help="write the README that says WHICH FILE TO USE, from what is on disk")
