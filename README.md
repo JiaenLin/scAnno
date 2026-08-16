@@ -3,13 +3,13 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.8.1-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.9.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.8.1` this is a classifier, not a
+> **Read [Status](#status) before planning anything.** At `0.9.0` this is a classifier, not a
 > pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
 > `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
 > downstream can actually read — `--report` writes a self-contained document beside it, and an
@@ -382,7 +382,7 @@ but may not match a published number.
 
 ## Status
 
-**0.8.1.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.9.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
