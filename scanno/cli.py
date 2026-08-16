@@ -814,7 +814,8 @@ def _scope(a):
     print(f"scope over {len(paths_by_sample)} samples: {', '.join(sorted(paths_by_sample))}")
     print(f"rule: seal unless support >= {a.min_support} (descend-rule {a.descend_rule!r}, "
           f"min-reach {a.min_reach})\n")
-    for line in format_report(verdicts, removed=removed, sealed=lost):
+    for line in format_report(verdicts, removed=removed, sealed=lost,
+                              n_samples=len(paths_by_sample)):
         print(line)
 
     # THE SCOPE ITSELF, drawn. The table above says what the vote decided; this says what you

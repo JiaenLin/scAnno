@@ -284,3 +284,12 @@ def test_truncate_tree_refuses_depth_zero():
     from scanno.scope import truncate_tree
     with pytest.raises(ValueError):
         truncate_tree(TREE, depth=0)
+
+
+def test_report_does_not_hardcode_a_cohort_size():
+    """The first version printed "/10" as a literal — this cohort's size, baked into the tool."""
+    from scanno.scope import format_report
+    p = {f"S{i}": ["Cardiomyocyte/Working cardiomyocyte"] for i in range(7)}
+    v = vote(p, TREE, min_support=1.0)
+    txt = "\n".join(format_report(v, n_samples=len(p)))
+    assert "7/7" in txt and "/10" not in txt

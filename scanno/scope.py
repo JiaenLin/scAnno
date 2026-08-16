@@ -270,15 +270,23 @@ def apply_scope(path, verdicts, sep=SEP, sentinels=SENTINELS):
     return p
 
 
-def format_report(verdicts, removed=None, sealed=None):
-    """The vote as lines a human reads before approving it."""
+def format_report(verdicts, removed=None, sealed=None, n_samples=None):
+    """The vote as lines a human reads before approving it.
+
+    `n_samples` is the cohort size. It is a PARAMETER because the first version of this printed
+    "/10" as a literal, which is the cohort this was written for baked into the tool: on seven
+    samples it would have printed "7/10" and nobody reading it would have known.
+    """
     order = {"SEAL": 0, "UNVOTABLE": 1, "KEEP": 2, "UNREACHED": 3}
+    if n_samples is None:
+        n_samples = max((v["n_reached"] for v in verdicts.values()), default=0)
     rows = sorted(verdicts.items(), key=lambda kv: (order.get(kv[1]["verdict"], 9),
                                                     -kv[1]["n_reached"], kv[0]))
     out = [f"{'node':<34}{'reached':>8}{'descend':>8}{'support':>9}   verdict", "-" * 76]
     for node, v in rows:
         s = "  n/a" if v["n_reached"] == 0 else f"{v['support']:.3f}"
-        out.append(f"{node:<34}{v['n_reached']:>6}/10{v['n_descended']:>8}{s:>9}   {v['verdict']}")
+        reach = f"{v['n_reached']}/{n_samples}"
+        out.append(f"{node:<34}{reach:>8}{v['n_descended']:>8}{s:>9}   {v['verdict']}")
     if sealed:
         out += ["", "WHAT EACH SEAL REMOVES — the labels themselves, not the category:"]
         for node, lost in sealed.items():
