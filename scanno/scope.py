@@ -347,8 +347,20 @@ def format_tree(tree, verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
             cpath = sep.join(path + [c])
             stem = "└── " if last else "├── "
             grand = [g for g in kids.get(c, []) if sep.join(path + [c, g]) in reached]
-            if grand:                                   # an OPEN internal node: no count of its own
-                out.append(f"{pad}{stem}{c}")
+            if grand:
+                # AN OPEN INTERNAL NODE CAN STILL HOLD CELLS OF ITS OWN, and the first version
+                # of this drew it with no count. Those nuclei are cells a sample stranded at the
+                # parent because its gap failed where other samples' cleared -- exactly the
+                # disagreement the scope exists to surface -- and drawing the node bare made
+                # them invisible. Measured when it was found: 1,060 nuclei missing from a
+                # drawing that looked complete, and a stated total 1,060 short of the truth.
+                own = cells.get(cpath, 0)
+                if own:
+                    head = f"{pad}{stem}{c}"
+                    out.append(f"{head:<44}{own:>8,}   {present.get(cpath, 0)}/{n}"
+                               f"   <- stranded here by {present.get(cpath, 0)} sample(s)")
+                else:
+                    out.append(f"{pad}{stem}{c}")
             else:
                 mark = "  \u25a0 SEALED" if verdicts.get(cpath, {}).get("verdict") == "SEAL" else ""
                 head = f"{pad}{stem}{c}{mark}"

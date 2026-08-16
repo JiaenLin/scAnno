@@ -293,3 +293,26 @@ def test_report_does_not_hardcode_a_cohort_size():
     v = vote(p, TREE, min_support=1.0)
     txt = "\n".join(format_report(v, n_samples=len(p)))
     assert "7/7" in txt and "/10" not in txt
+
+
+def test_an_open_node_holding_its_own_cells_is_drawn_with_its_count():
+    """The first version drew such a node bare, hiding every nucleus stranded at it.
+
+    An open internal node holds cells when one sample's gap failed where the others' cleared —
+    the exact disagreement the scope exists to surface. Drawing it with no count made the tree
+    read as complete while being short by every stranded nucleus.
+    """
+    from scanno.scope import format_tree, scoped_counts
+    p = {"S1": ["Endothelial"] * 3 + ["Endothelial/Endocardial"] * 7,
+         "S2": ["Endothelial/Endocardial"] * 10}
+    v = vote(p, TREE, min_support=1.0)
+    sealed, _ = seal_tree(TREE, v)
+    lines = format_tree(sealed, v, p)
+    endo = [l for l in lines if "Endothelial" in l and "Endocardial" not in l]
+    assert endo and "3" in endo[0] and "stranded" in endo[0], lines
+
+    # and the drawing must account for every scoped nucleus
+    cells, _ = scoped_counts(v, p)
+    drawn = sum(int(t.replace(",", "")) for l in lines for t in l.split()
+                if t.replace(",", "").isdigit() and "/" not in t)
+    assert drawn >= sum(cells.values()), (drawn, sum(cells.values()))

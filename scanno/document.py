@@ -90,6 +90,11 @@ padding:.7rem .9rem;text-decoration:none}
 .samples .n{display:block;font-size:.76rem;color:var(--mut)}
 .sw{display:inline-block;width:.72rem;height:.72rem;border-radius:2px;vertical-align:-1px;
 margin-right:.4rem}
+ul.rule{font-size:.93rem;padding-left:1.2rem;margin:.8rem 0}
+ul.rule li{margin:.45rem 0}
+pre.tree{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:.9rem 1.1rem;margin:1rem 0;overflow-x:auto;font-family:ui-monospace,Consolas,monospace;
+font-size:.8rem;line-height:1.5}
 """
 
 #: Manuscript legends, keyed by figure id. They live here rather than in the drawing code so the
@@ -336,6 +341,263 @@ def _write_table(out_dir, name, headers, rows):
     return f"tables/{name}"
 
 
+# =============================================================== the common scope
+
+#: What a seal can and cannot be read as. Written in the same voice as CANNOT_SHOW because it is
+#: the same kind of statement: a bound on what the section supports, placed where the section is,
+#: rather than a caveat somewhere a reader has to go looking for.
+SCOPE_CANNOT_SHOW = (
+    "<b>A seal removes the possibility of a LABEL, never an observation.</b> Nothing was "
+    "filtered, dropped or excluded here. Every nucleus is still annotated, still carries its "
+    "pass-1 path in <code>obs</code>, and is merely called by its parent instead of a subtype — "
+    "so the decision is reversible by re-running against the declared tree, and the removed "
+    "labels are named individually below rather than described as a category. "
+    "<b>It cannot distinguish a split the DATA cannot make from one the CORPUS cannot.</b> A "
+    "node is sealed because samples disagreed about descending, and that disagreement is "
+    "produced by the gap between sibling scores — which depends on both the biology and on which "
+    "markers the corpus happens to carry for those siblings. A subtype the tissue does not "
+    "contain and a subtype the corpus has no separating markers for produce the same vote, and "
+    "nothing in this section separates them. "
+    "<b>The vote counts SAMPLES, not nuclei.</b> A node can therefore be kept unanimously while "
+    "a large share of one sample's nuclei still stop at it; the <i>stopped here</i> column is "
+    "where that shows, and a seal does not repair it. "
+    "<b>And it says nothing about whether any label is correct</b> — agreement between samples "
+    "is agreement, not truth.")
+
+#: The two `descend_rule` values, in words. Kept beside the section rather than in the CLI help
+#: because the report must state the rule it was actually run under, and a reader of the HTML has
+#: no access to the command line.
+_DESCEND_WORDS = {
+    "any": ("a sample counts as having descended if <b>any</b> of its nuclei went below the "
+            "node — one cluster descending is enough to count that sample as having made the "
+            "split"),
+    "majority": ("a sample counts as having descended only if <b>more than half</b> the nuclei "
+                 "arriving at the node went below it, so a single stray cluster does not carry "
+                 "the sample"),
+}
+
+_VERDICT_WORDS = {
+    "KEEP": "the split stays; every sample that reached it agreed to make it",
+    "SEAL": "the node becomes a LEAF; its children are removed from the tree",
+    "UNVOTABLE": "too few samples reached it to vote — reported, NOT sealed",
+    "UNREACHED": "no sample reached it at all — left in the tree, holds nothing",
+}
+
+_VERDICT_ORDER = {"SEAL": 0, "UNVOTABLE": 1, "KEEP": 2, "UNREACHED": 3}
+
+
+def _scope_stopped(v):
+    """Nuclei that ARRIVED at a node and did not go below it, and in how many samples.
+
+    Computed from the vote's own per-sample `cells` / `cells_below`, which is the only place the
+    residual is visible: `support` is a count of SAMPLES, so a node where nine samples descended
+    with every nucleus and the tenth descended with one reads as unanimous.
+    """
+    cells = v.get("cells") or {}
+    below = v.get("cells_below") or {}
+    per = {s: int(cells[s]) - int(below.get(s, 0)) for s in cells}
+    return sum(per.values()), sum(1 for n in per.values() if n > 0)
+
+
+def _scope_support(v):
+    sup = v.get("support")
+    try:
+        sup = float(sup)
+    except (TypeError, ValueError):
+        return "—"
+    if not v.get("n_reached") or sup != sup:          # nan
+        return "n/a"
+    return f"{sup:.3f}"
+
+
+def scope_section(scope, out_dir=None):
+    """The common scope, as the block of HTML the cohort document carries.
+
+    Fed ENTIRELY by `scanno scope --out` (scope.json). Nothing here is recomputed from the
+    objects: the report must show the scope the run was actually annotated against, and a
+    section that re-derived it from the annotated objects would be describing pass 2's output
+    rather than the decision pass 2 was given.
+
+    Returns a list of HTML chunks. Never returns an empty list — a scope that is missing renders
+    as a NAMED ABSENCE, because a section that simply does not appear is indistinguishable from
+    one whose answer was "nothing was sealed", and those are opposite statements.
+    """
+    body = ["<h2>The common scope</h2>"]
+    if not scope:
+        body.append(_absent_section(
+            "the common scope from `scanno scope --out scope.json`",
+            "Without it this document cannot say which splits the cohort agreed to make, so it "
+            "cannot tell you whether a label is absent from a sample because that sample has "
+            "none, or because the scope removed the label everywhere. Run `scanno scope` over "
+            "the pass-1 objects and pass the result with --scope."))
+        return body
+
+    nodes = scope.get("nodes") or {}
+    rule = scope.get("rule") or {}
+    sealed_children = scope.get("sealed") or {}
+    removed = scope.get("removed_labels") or {}
+    lines = scope.get("tree_lines") or []
+    samples = scope.get("samples") or []
+    n_samples = scope.get("n_samples") or len(samples) or None
+
+    seals = [n for n, v in nodes.items() if v.get("verdict") == "SEAL"]
+    n_lost = sum(sum(d.values()) for d in removed.values())
+    lost_labels = sorted({p for d in removed.values() for p in d})
+
+    body.append(
+        f"<p class='lede'>Ten independent walks produce ten scopes: on a lineage where the "
+        f"sibling contrast sits near the bar, one sample descends and the next truncates, so the "
+        f"same cells get a subtype in one library and its parent in another — which downstream "
+        f"is indistinguishable from a compositional shift. The scope decides the depth "
+        f"<b>once</b>, from what the samples agree on, and every sample is annotated against it. "
+        f"This section is that decision: the rule it was made under, the tree it produced, and "
+        f"the labels it costs.</p>")
+
+    body.append(_kpi([
+        ("samples voting", f"{n_samples:,}" if n_samples else "—",
+         ", ".join(_esc(s) for s in samples[:6]) + (" …" if len(samples) > 6 else "")
+         or "no sample list in scope.json"),
+        ("nodes sealed", f"{len(seals)}",
+         f"of {len(nodes)} internal node(s) voted on"),
+        ("labels removed", f"{len(lost_labels)}",
+         "the possibility of a label, never a nucleus"),
+        ("nuclei re-labelled to a parent", f"{n_lost:,}",
+         "still annotated, still on disk, called one level higher"),
+    ]))
+    body.append(f"<div class='warn'>{SCOPE_CANNOT_SHOW}</div>")
+
+    # ---- the rule, in words ---------------------------------------------------------------
+    ms, mr = rule.get("min_support"), rule.get("min_reach")
+    dr = str(rule.get("descend_rule", ""))
+    words = ["<h3>the rule this scope was made under</h3>", "<ul class='rule'>"]
+    if ms is not None:
+        pct = f"{float(ms) * 100:.0f}%"
+        words.append(
+            f"<li><b>min-support {ms}</b> — a node is <b>SEALED</b> unless at least {pct} of the "
+            f"samples that <i>reached</i> it descended below it."
+            + (" At 1.0 that is unanimity among the samples that reached it: a split one sample "
+               "would not make is a split the cohort cannot be asked to compare across."
+               if float(ms) >= 1.0 else
+               " Below 1.0 this deliberately admits residual disagreement; expect it, and read "
+               "the <i>stopped here</i> column for how much got through.") + "</li>")
+    if dr:
+        words.append(f"<li><b>descend-rule <code>{_esc(dr)}</code></b> — "
+                     + _DESCEND_WORDS.get(dr, "an unrecognised rule; see `scanno scope --help`")
+                     + ".</li>")
+    if mr is not None:
+        words.append(
+            f"<li><b>min-reach {mr}</b> — a node reached by fewer than {mr} sample(s) is "
+            f"<b>UNVOTABLE</b>: it is reported by name and left OPEN, never sealed. Sealing on "
+            f"one sample's evidence is a removal with no quorum behind it.</li>")
+    words.append(
+        "<li><b>A sample whose walk never reached a node casts NO vote there.</b> It is a "
+        "missing observation, not a vote against — counting absence as opposition would seal "
+        "every branch that is merely rare, and rare is not unsupported. The denominator of "
+        "<i>support</i> is therefore the number of samples that <b>reached</b> the node, never "
+        "the cohort size: a support of 4/7 and one of 4/10 are different statements, and the "
+        "<i>reached</i> column below shows which one you are reading.</li>")
+    words.append(
+        "<li><b>The root is never sealed.</b> Its children are the level-1 compartments; "
+        "removing them would return every nucleus as UNRESOLVED. Its evidence is still voted and "
+        "still shown, because root-level truncation is real — but it is not actionable as a "
+        "seal.</li>")
+    if rule.get("path_key"):
+        words.append(f"<li>Voted on the pass-1 column "
+                     f"<code>obs[{_esc(repr(rule['path_key']))}]</code>"
+                     + (f", declared tree <code>{_esc(scope['tree'])}</code>"
+                        if scope.get("tree") else "") + ".</li>")
+    words.append("</ul>")
+    body.append("".join(words))
+
+    # ---- the tree it produced --------------------------------------------------------------
+    body.append("<h3>the scope, drawn — the taxonomy pass 2 walks</h3>")
+    if lines:
+        body.append("<pre class='tree'>" + _esc("\n".join(str(x) for x in lines)) + "</pre>")
+        body.append(
+            "<p class='sub'>Counts are nuclei landing at each leaf of the SEALED tree, and "
+            "<code>n/N</code> is how many samples have any. Read this against the composition "
+            "tables, not instead of them: <b>an open internal node that some nuclei stopped at "
+            "is drawn without a count</b>, so the numbers here sum to less than the cohort "
+            "wherever the <i>stopped here</i> column below is non-zero at a KEPT node. "
+            "Source: <code>tree_lines</code> in the scope JSON.</p>")
+    else:
+        body.append(_absent_section(
+            "`tree_lines` in the scope JSON",
+            "This scope.json predates the drawn tree travelling with the vote. Re-run "
+            "`scanno scope --out` to get it; the node table below is unaffected."))
+
+    # ---- the vote, per node ------------------------------------------------------------------
+    rows, csv_rows = [], []
+    for node, v in sorted(nodes.items(),
+                          key=lambda kv: (_VERDICT_ORDER.get(kv[1].get("verdict"), 9),
+                                          -int(kv[1].get("n_reached") or 0), kv[0])):
+        verdict = str(v.get("verdict", "—"))
+        stopped, stopped_n = _scope_stopped(v)
+        nr = int(v.get("n_reached") or 0)
+        badge = (f"<b style='color:var(--badl)'>{_esc(verdict)}</b>"
+                 if verdict in ("SEAL", "UNVOTABLE") else _esc(verdict))
+        rows.append([f"<span class='mono'>{_esc(node)}</span>", badge,
+                     f"{nr}/{n_samples}" if n_samples else f"{nr}",
+                     f"{int(v.get('n_descended') or 0)}", _scope_support(v),
+                     f"{stopped:,}" + (f" <span class='sub'>({stopped_n} sample(s))</span>"
+                                       if stopped else "")])
+        csv_rows.append([node, verdict, nr, n_samples or "", int(v.get("n_descended") or 0),
+                         v.get("support"), stopped, stopped_n,
+                         ";".join(v.get("children_declared") or [])])
+    src = (_write_table(out_dir, "scope_nodes.csv",
+                        ["node", "verdict", "n_reached", "n_samples", "n_descended", "support",
+                         "nuclei_stopped_here_pass1", "samples_with_any_stopped",
+                         "children_declared"], csv_rows)
+           if out_dir is not None else "the scope JSON, key `nodes`")
+    body.append("<h3>the vote, node by node</h3>")
+    body.append(_table(["node", "verdict", "reached", "descended", "support",
+                        "stopped here (pass 1)"], rows, source=src))
+    body.append("<p class='sub'>"
+                + " · ".join(f"<b>{k}</b> {v}" for k, v in _VERDICT_WORDS.items())
+                + ". <i>stopped here</i> counts nuclei that arrived at the node in <b>pass 1</b> "
+                "and did not go below it, summed over samples — at a SEALED node every arriving "
+                "nucleus stops there in pass 2 by construction, so that column describes what "
+                "the vote SAW, not what pass 2 produces.</p>")
+
+    # ---- what each seal removes, by label ----------------------------------------------------
+    body.append("<h3>what each seal removes — the labels themselves, not the category</h3>")
+    if not seals:
+        body.append("<p class='sub'>Nothing was sealed: every node the cohort voted on was kept, "
+                    "so pass 2 walks the declared tree unchanged and no label was removed.</p>")
+    else:
+        lrows, lcsv = [], []
+        for node in sorted(seals, key=lambda n: -sum((removed.get(n) or {}).values())):
+            lost = removed.get(node) or {}
+            for p, n in sorted(lost.items(), key=lambda kv: -kv[1]):
+                lrows.append([f"<span class='mono'>{_esc(node)}</span>",
+                              f"<span class='mono'>{_esc(p)}</span>",
+                              f"<b>{_esc(leaf(p))}</b>", f"{int(n):,}"])
+                lcsv.append([node, p, leaf(p), int(n)])
+            for c in (sealed_children.get(node) or []):
+                cp = f"{node}/{c}"
+                if not any(p == cp or p.startswith(cp + "/") for p in lost):
+                    lrows.append([f"<span class='mono'>{_esc(node)}</span>",
+                                  f"<span class='mono'>{_esc(cp)}</span>",
+                                  f"<b>{_esc(c)}</b>", "0"])
+                    lcsv.append([node, cp, c, 0])
+            if not lost and not (sealed_children.get(node) or []):
+                lrows.append([f"<span class='mono'>{_esc(node)}</span>", "—",
+                              "<i>nothing — no sample descended</i>", "0"])
+        lsrc = (_write_table(out_dir, "scope_removed_labels.csv",
+                             ["sealed_node", "removed_path", "label", "nuclei"], lcsv)
+                if out_dir is not None else "the scope JSON, keys `removed_labels` and `sealed`")
+        body.append(_table(["sealed node", "removed path", "label", "nuclei in pass 1"],
+                           lrows, source=lsrc))
+        body.append(
+            f"<p class='sub'>Those {n_lost:,} nuclei are <b>not gone</b>: in pass 2 each is "
+            f"called by the sealed node itself. A removal is stated as its members and read, "
+            f"never described as a category — a list called \"the fibroblast subtypes\" is not "
+            f"assessable, and one that names each label and its count is. Rows at 0 are children "
+            f"the seal removed from the tree that no sample had reached.</p>")
+
+    return body
+
+
 # =============================================================== the cohort document
 
 def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=None):
@@ -382,6 +644,13 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                     f"{ctx.flag_column or 'a flag column'}"))
     body.append(_kpi(kpi))
     body.append(f"<div class='warn'>{CANNOT_SHOW}</div>")
+
+    # ---- the common scope ----------------------------------------------------------------
+    # BEFORE composition, deliberately. Composition is a table of labels, and the scope decides
+    # which labels exist to be counted at all - a reader who meets the composition table first
+    # has no way to tell a subtype that is absent from this tissue from one the scope removed
+    # everywhere.
+    body += scope_section(getattr(ctx, "scope", None), out_dir=out)
 
     # ---- composition, at every level ---------------------------------------------------
     body.append("<h2>Composition</h2>")
