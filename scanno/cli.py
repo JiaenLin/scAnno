@@ -306,6 +306,50 @@ def _annotate(a):
 
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
 
+    # --- the decided scope, applied to the tree BEFORE the object is read ---
+    #
+    # `--scope` makes the annotation fully driven by the vote instead of by a tree somebody
+    # sealed by hand and passed as --tree. Two things follow from reading the DECISION rather
+    # than its rendering:
+    #
+    #   - the seal cannot drift from the vote. `--tree declared.json --scope scope.json` is one
+    #     statement; `--tree sealed.json` is two files that agree only as long as nobody edits
+    #     either. Sealing here is idempotent, so an already-sealed tree plus its own scope is
+    #     still valid input and produces the same walk.
+    #   - FORCE becomes actionable. Which nodes carry it is in the vote and nowhere else: a
+    #     sealed tree cannot express "this node keeps its children AND nothing may stop on it",
+    #     because that is a statement about annotation, not about taxonomy.
+    #
+    # The walk is untouched either way. Only the tree handed to it changes, and what happens to
+    # a cluster AFTER it returns.
+    scope, force_paths = None, []
+    if getattr(a, "scope", None):
+        from .force import check_scope, force_nodes, scope_verdicts, sealed_nodes
+        from .scope import seal_tree
+        scope = json.loads(Path(a.scope).read_text(encoding="utf-8"))
+        try:
+            verdicts = scope_verdicts(scope)
+        except ValueError as e:
+            print(f"scanno: REFUSE - --scope {a.scope} is {e}", file=sys.stderr)
+            return REFUSE
+        problems = check_scope(scope, tree)
+        if problems:
+            print(f"scanno: REFUSE - --scope {a.scope} cannot be walked against --tree "
+                  f"{a.tree}:", file=sys.stderr)
+            for p in problems:
+                print(f"        - {p}", file=sys.stderr)
+            return REFUSE
+        tree, removed = seal_tree(tree, verdicts)
+        force_paths = force_nodes(verdicts)
+        n_lost = sum(sum(d.values()) for d in (scope.get("removed_labels") or {}).values())
+        print(f"scope {a.scope}: voted over {scope.get('n_samples', '?')} sample(s)")
+        print(f"  SEAL   {len(sealed_nodes(verdicts))} node(s) become leaves"
+              + (f", removing {n_lost:,} cell(s)' worth of subtype label" if n_lost else "")
+              + (f": {', '.join(sorted(removed))}" if removed
+                 else " (already applied to --tree)"))
+        print(f"  FORCE  {len(force_paths)} node(s) keep their children and may not be "
+              f"terminal: {', '.join(force_paths) or '(none)'}")
+
     # --- the independent L1 tree, checked BEFORE the object is read ---
     #
     # A depth-1 tree is the only thing that can produce an L1 column, and the check is on the
@@ -472,6 +516,29 @@ def _annotate(a):
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
                    gap_min=a.gap_min, exclude=drop)
 
+    # --- FORCE: nothing terminates on a node the cohort agreed to split ---
+    #
+    # POST-WALK, on the rows `classify` already returned. The child a stranded cluster moves to
+    # is `trace[-1]["top"]` - the argmax the unchanged walk recorded at the very node it stopped
+    # on - so no score is recomputed and no bar is moved. Applied to `res` ONLY: `res_l1` below
+    # is the independent L1 and no verdict of the scope may reach it.
+    force_rec = None
+    if force_paths:
+        from .force import apply_force, bare_force, format_force
+        res, force_rec = apply_force(res, force_paths, counts=counts)
+        stuck = bare_force(res, force_paths)
+        if stuck:
+            print(f"scanno: REFUSE - {len(stuck)} cluster(s) still terminate on a FORCE node "
+                  f"after reassignment, so this object would deliver a compartment name where "
+                  f"the\n        scope says a subtype belongs:", file=sys.stderr)
+            for s in stuck:
+                print(f"        - cluster {s['cluster']} on {s['node']}", file=sys.stderr)
+            for line in format_force(force_rec, gap_min=a.gap_min):
+                print(f"        {line.strip()}", file=sys.stderr)
+            print("        Nothing was written. Seal that node in the scope, or give its "
+                  "children corpus support.", file=sys.stderr)
+            return REFUSE
+
     # THE SECOND WALK. The same `classify`, the same Z, the same usable-gene set, the same
     # background and the same bar - only the tree differs. Nothing about the walk is
     # parameterised for this and nothing in classify.py was touched: an independent L1 is a
@@ -515,6 +582,12 @@ def _annotate(a):
     print(f"UNRESOLVED {n_un} clusters = {unres:,.0f} cells "
           f"({100*unres/counts.sum():.1f}%)")
 
+    if force_rec is not None:
+        from .force import format_force
+        print("")
+        for line in format_force(force_rec, gap_min=a.gap_min):
+            print(line)
+
     if res_l1 is not None:
         # Per CLUSTER, printed whether or not an object is written, because a run that only
         # prints is still a run somebody reads. The comparison is against the DERIVED L1 -
@@ -535,6 +608,11 @@ def _annotate(a):
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         with Path(a.out).open("w", encoding="utf-8") as fh:
             head = ["cluster", "n_cells", "label", "path", "depth", "gap"]
+            # `assignment` rides beside `gap` and not somewhere else on purpose: the two are read
+            # together or neither is read at all. `gap` is the margin under both verdicts, and
+            # `assignment` is the only thing that says whether that margin cleared the bar.
+            if force_rec is not None:
+                head += ["assignment"]
             if res_l1 is not None:
                 head += ["l1_independent", "l1_gap"]
             fh.write("\t".join(head) + "\n")
@@ -542,6 +620,8 @@ def _annotate(a):
                 c = r["cluster"]
                 row = [cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
                        str(r["depth"]), f"{r['gap']:.4f}"]
+                if force_rec is not None:
+                    row += [str(r.get("assignment", ""))]
                 if res_l1 is not None:
                     row += [res_l1[i]["path"], f"{res_l1[i]['gap']:.4f}"]
                 fh.write("\t".join(row) + "\n")
@@ -553,9 +633,9 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
-    from .emit import (annotate_obs, format_independent_l1, format_plain_labels,
-                       format_readiness, format_reindex, independent_l1, lab_readiness,
-                       reindex_by_symbol, write_h5ad)
+    from .emit import (annotate_obs, force_provenance, format_independent_l1,
+                       format_plain_labels, format_readiness, format_reindex, independent_l1,
+                       lab_readiness, reindex_by_symbol, write_h5ad)
 
     def write_columns():
         """Every obs column this run contributes, in one place so both branches write the same.
@@ -565,7 +645,19 @@ def _annotate(a):
         the object it points at does not have.
         """
         w = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
-                         support=support or None, suffix=a.label_suffix)
+                         support=support or None, suffix=a.label_suffix,
+                         assignment=force_rec is not None)
+        if force_rec is not None:
+            # WRITTEN EVEN WHEN NOTHING WAS FORCED. An all-`gap` column on a scoped run is the
+            # statement "this scope was honoured and stranded nobody here", which is a result;
+            # an absent column is indistinguishable from a run that never saw a scope.
+            key = force_provenance(A, force_rec, prefix=a.label_prefix,
+                                   suffix=a.label_suffix, scope=str(a.scope))
+            print("")
+            print(f"  {a.label_prefix}_assignment{a.label_suffix}: how each cell was assigned - "
+                  f"{force_rec['clusters_by_assignment']} by cluster")
+            print(f"    provenance in uns[{key!r}]: the FORCE node, the child chosen and the "
+                  f"margin, per cluster")
         if res_l1 is not None:
             col, rec = independent_l1(A, res_l1, y, flag=flag, suffix=a.label_suffix,
                                       tree=str(a.l1_tree))
@@ -971,6 +1063,32 @@ def _report(a):
         print("scanno: REFUSE - no objects given.", file=sys.stderr)
         return REFUSE
 
+    # --l1-key must name a SECOND walk's answer, not the deep walk's own level-1 prefix. Both
+    # refusals below catch a column that cannot possibly be independent; a column that merely
+    # AGREES everywhere is not caught, and must not be - perfect agreement is the result this
+    # section exists to report, and refusing it would refuse the good outcome.
+    if a.l1_key:
+        if a.l1_key == path_key or a.l1_key == a.label_key:
+            print(f"scanno: REFUSE - --l1-key {a.l1_key!r} is the deep walk's own column.\n"
+                  f"        The section would compare that column with itself and report 100%\n"
+                  f"        agreement, which measures nothing. Annotate a depth-1 tree with\n"
+                  f"        `scanno annotate --l1-tree` and name the column it writes.",
+                  file=sys.stderr)
+            return REFUSE
+        deep = sorted({str(v) for _n, A in objs if a.l1_key in A.obs
+                       for v in A.obs[a.l1_key].astype(str) if "/" in str(v)})
+        if deep:
+            print(f"scanno: REFUSE - --l1-key {a.l1_key!r} holds {len(deep)} value(s) below\n"
+                  f"        level 1, e.g. {', '.join(deep[:3])}. That is a PATH column, not an\n"
+                  f"        L1 column: it was written by a deep walk, so comparing it against\n"
+                  f"        the deep walk's root is not an independent measurement.",
+                  file=sys.stderr)
+            return REFUSE
+        if not any(a.l1_key in A.obs for _n, A in objs):
+            print(f"scanno: REFUSE - no object carries {a.l1_key!r}. A silently absent L1\n"
+                  f"        column renders as a cohort that never had one.", file=sys.stderr)
+            return REFUSE
+
     # The flag is DISCOVERED, not assumed: an object carrying an upstream provenance declaration
     # names its own withheld nuclei, and a report that guessed the column would describe a
     # different set of cells than the annotation withheld.
@@ -1041,6 +1159,12 @@ def _report(a):
             for node, gone in list(nodes.items())[:4]:
                 print(f"    level {d} {node}: in the corpus, NOT in this object - "
                       f"{', '.join(gone)}")
+    # The DECLARED tree, loaded whenever it was given rather than only on the --panels auto path.
+    # It is what separates a label the taxonomy has nothing below (a complete call) from one whose
+    # children the cohort removed (a recoverable one); without it every terminal label reads as
+    # complete, which is the more reassuring of the two and wrong for exactly the sealed nodes.
+    declared_tree = (json.loads(Path(a.tree).read_text(encoding="utf-8")) if a.tree else None)
+
     sweep = tol = pick = reason = None
     if a.sweep and str(a.sweep).endswith(".csv"):
         # The table form. One row per (depth, resolution); the chosen value and tolerance come
@@ -1121,7 +1245,8 @@ def _report(a):
                   tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue,
                   factors=a.factor, pinned_colours=Palette.load(a.palette),
                   gene_key=a.gene_key, joint_key=a.joint_key,
-                  group_order=a.group_order, scope=scope)
+                  group_order=a.group_order, scope=scope, l1_key=a.l1_key,
+                  tree=declared_tree)
     print(f"  taxonomy depth {ctx.depth}; "
           f"{', '.join(f'{len(ctx.label_order(d))} labels at level {d}' for d in ctx.levels)}")
     if ctx.auto_factors:
@@ -1394,6 +1519,19 @@ def main(argv=None):
     s.add_argument("--h5ad", required=True, type=Path)
     s.add_argument("--cluster-key", required=True)
     s.add_argument("--tree", required=True, type=Path)
+    s.add_argument("--scope", type=Path, metavar="JSON",
+                   help="the DECIDED scope - `scanno scope --out`. Drives the whole annotation "
+                        "from the vote instead of from a hand-sealed tree: every SEAL is applied "
+                        "to --tree here (idempotently, so an already-sealed tree is still valid "
+                        "input) and every FORCE node is honoured, meaning no cluster may "
+                        "TERMINATE on a node the cohort agreed to split. A stranded cluster is "
+                        "reassigned to the most similar child the UNCHANGED walk already "
+                        "recorded - classify() is not called again and not modified. Because a "
+                        "forced call lands below the gap bar while other samples' cells cleared "
+                        "it, the two are never pooled silently: every cell carries "
+                        "`<prefix>_assignment` (gap / forced / EXCLUDED), `<prefix>_gap` is its "
+                        "margin, and uns['<prefix>_assignment_provenance'] holds the node, the "
+                        "child and the margin per cluster. Without it nothing changes")
     s.add_argument("--l1-tree", type=Path, metavar="JSON",
                    help="a DEPTH-1 tree - `scanno scope --out-l1-tree`. With it the UNCHANGED "
                         "walk runs a SECOND time against that tree and its result becomes the "
@@ -1544,6 +1682,14 @@ def main(argv=None):
                         "vote, and every label a seal removed with its nuclei count. Without it "
                         "the section is a NAMED ABSENCE, because a reader cannot otherwise tell "
                         "a subtype absent from the tissue from one the scope removed everywhere")
+    s.add_argument("--l1-key", default=None, metavar="OBS_COLUMN",
+                   help="the INDEPENDENT level-1 label column, as written by "
+                        "`scanno annotate --l1-tree`. With it the report adds the delivered "
+                        "cell-type tree with L1 integrated: both delivered columns in one "
+                        "picture, and the measured concordance between them. Do NOT point this "
+                        "at the deep walk's own level-1 prefix - that column is DERIVED from "
+                        "the path and agrees with it by construction, so the section would "
+                        "report 100% agreement between one column and itself")
     s.add_argument("--no-per-sample", action="store_true",
                    help="write only the cohort document. The per-sample pages are the detail "
                         "behind its rows and are cheap; this is for a cohort of hundreds")

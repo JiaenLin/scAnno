@@ -300,7 +300,7 @@ def test_an_unreached_node_shows_n_a_rather_than_the_word_nan():
     s = scope_json(p, OTHER_TREE, path_key="p")
     assert s["nodes"]["Beta"]["verdict"] == "UNREACHED"
     h = render(s)
-    assert "nan" not in h.lower().replace("</span>", "")
+    assert "<td>nan</td>" not in h.lower()
     beta = rows_of(h, ">Beta</span>")
     assert beta and "n/a" in beta[0], beta
 

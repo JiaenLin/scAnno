@@ -163,6 +163,52 @@ def internal_nodes(tree, sep=SEP):
     return out
 
 
+#: Why a delivered label stops where it stops. Several different facts about a taxonomy that
+#: produce the SAME string in the label column, and whose remedies have nothing in common.
+TERMINAL_REASONS = ("leaf", "sealed", "unvotable", "stranded", "sentinel")
+
+
+def why_terminal(path, tree, verdicts=None, sep=SEP, sentinels=SENTINELS):
+    """Why the delivered annotation stops at `path`. One of TERMINAL_REASONS.
+
+    THESE LOOK IDENTICAL IN THE LABEL COLUMN AND THEIR REMEDIES ARE UNRELATED.
+
+      leaf       the DECLARED tree gives this node no children. The walk went as far as the
+                 taxonomy goes and the call is complete. Nothing to remedy.
+      sealed     the node has declared children and the COHORT removed them. The subtype is
+                 recoverable — re-run pass 2 against the declared tree — and which labels were
+                 lost is named in the scope's own removal table.
+      unvotable  too few samples reached it to vote, so it was left OPEN and never sealed. A
+                 cell terminating here did so on its own gap, not on a cohort decision.
+      stranded   the node is OPEN, the cohort agreed the split is admissible, and this cell's
+                 gap failed anyway. Nothing was removed; the evidence was thin for this cell.
+      sentinel   EXCLUDED or UNRESOLVED — not a cell type at all.
+
+    A reader who cannot tell `leaf` from `sealed` reads a sealed compartment as the finest
+    resolution the tissue supports, which is the opposite of what it means. So this is computed
+    from the DECLARED tree and the verdicts together and never inferred from the label's shape:
+    a depth-1 label is a complete call when the tree gives it no children and an unfinished one
+    when it does, and the string in the column is the same either way.
+
+    Keyed on the BARE name for the tree, as `tree["children"]` is, and on the full PATH for the
+    verdicts, as `vote()` returns them. `bare_names_unique` reports whether a bare name is
+    ambiguous in a given tree.
+    """
+    p = str(path)
+    if p in sentinels:
+        return "sentinel"
+    kids = (tree or {}).get("children", {}) or {}
+    declared = list(kids.get(p.rsplit(sep, 1)[-1]) or [])
+    if not declared:
+        return "leaf"
+    verdict = str(((verdicts or {}).get(p) or {}).get("verdict") or "")
+    if verdict == "SEAL":
+        return "sealed"
+    if verdict == "UNVOTABLE":
+        return "unvotable"
+    return "stranded"
+
+
 def bare_names_unique(tree):
     """Names that appear at more than one position. Empty means bare-name sealing is safe."""
     seen = collections.Counter()

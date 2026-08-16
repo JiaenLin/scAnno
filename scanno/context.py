@@ -54,7 +54,7 @@ class Context:
                  sweep_pick=None, sweep_reason=None, flag_column=None, declaration=None,
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
-                 joint_key=None, group_order=None, scope=None):
+                 joint_key=None, group_order=None, scope=None, l1_key=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -79,6 +79,11 @@ class Context:
         # recomputed: the report must show the decision pass 2 was GIVEN, and anything derived
         # from the annotated objects would instead describe what pass 2 produced.
         self.scope = scope or None
+        # The INDEPENDENT L1 column. It is not `L1` truncated from the path: that one is DERIVED
+        # from the deep walk and agrees with it by construction, so a report showing it beside
+        # the deep label would be showing one column twice. This is a second walk's own answer,
+        # and whether the two agree is a MEASUREMENT — `l1_concordance()` — not a guarantee.
+        self.l1_key = l1_key or None
         self._group_order = [str(g) for g in (group_order or [])]
 
         frames = []
@@ -89,6 +94,13 @@ class Context:
             d["path"] = (obs[self.path_key].astype(str) if self.path_key in obs
                          else np.full(A.n_obs, UNRESOLVED))
             d["sample"] = (obs[sample_key].astype(str) if sample_key in obs else name)
+            # Read as a MISSING VALUE where the column is absent, never silently back-filled from
+            # the path. An object annotated without the independent walk has no L1 answer, and
+            # filling it from the deep path would manufacture perfect agreement for exactly the
+            # objects that never measured any.
+            if self.l1_key:
+                d["l1"] = (obs[self.l1_key].astype(str) if self.l1_key in obs
+                           else np.full(A.n_obs, ""))
             if group_key and group_key in obs:
                 d["group"] = obs[group_key].astype(str)
             # Derived from the PATH KEY, not the label key: an annotation swept over several
@@ -131,6 +143,9 @@ class Context:
             self.P[f"L{dpt}"] = self._trunc(self.P["path"], dpt)
 
         self.has_flag = "flag" in self.P and bool(self.P["flag"].any())
+        # An l1 column of empty strings is a column that was NAMED and not found in any object,
+        # which must not read as "the independent walk agreed everywhere".
+        self.has_l1 = "l1" in self.P and bool((self.P["l1"].astype(str) != "").any())
         self._order = {}
         for dpt in self.levels:
             self._order[dpt] = self._order_for(dpt)
@@ -293,6 +308,95 @@ class Context:
         population a downstream comparison can use."""
         return sum(1 for s in self._levels("sample")
                    if ((self.P["sample"] == s) & (self.P[f"L{depth}"] == label)).any())
+
+    # ------------------------------------- the delivered annotation: both columns, together
+    def l1_concordance(self):
+        """Do the two DELIVERED columns agree about the compartment? Measured, never assumed.
+
+        The independent L1 is a second walk. Nothing constrains it to return the same root the
+        deep walk returned, and the value of the comparison is exactly that nothing does — a
+        run where the two agree everywhere has demonstrated the root decision is stable, and a
+        run where they differ has found the cells whose compartment is not settled.
+
+        Sentinels are scored where BOTH routes emit them and dropped where only one does: a
+        nucleus one route withheld and the other annotated is a guaranteed mismatch that
+        measures the exclusion rather than the agreement.
+
+        Returns None when there is no independent column at all — which is not "they agreed".
+        """
+        if not self.has_l1:
+            return None
+        own = self.P["L1"].astype(str)
+        ind = self.P["l1"].astype(str)
+        scored = (ind != "")
+        n = int(scored.sum())
+        if not n:
+            return None
+        a, b = own[scored], ind[scored]
+        agree = (a == b)
+        pairs = {}
+        for x, y in zip(a[~agree], b[~agree]):
+            pairs[(x, y)] = pairs.get((x, y), 0) + 1
+        return {"n_scored": n, "n_agree": int(agree.sum()),
+                "n_disagree": int((~agree).sum()),
+                "pct": 100.0 * float(agree.mean()),
+                "pairs": dict(sorted(pairs.items(), key=lambda kv: -kv[1])),
+                "column": self.l1_key}
+
+    def l1_bands(self):
+        """The delivered annotation, grouped by the INDEPENDENT L1 column.
+
+        Returns one band per value of that column, ordered by size, each carrying the rows of the
+        scope-based taxonomy those nuclei fall in. A row is a node of the OBSERVED taxonomy —
+        built from the paths actually delivered, never from the declared tree — so the section
+        describes what was produced rather than what was asked for.
+
+        Rows come out in a depth-first walk of the observed prefix tree with siblings ordered by
+        size, which is what preserves the taxonomy's shape in a flat list. Each row carries:
+
+          depth     how deep it sits, for indentation. NOT assumed to be 1, 2 or 3.
+          n_here    nuclei whose delivered label is EXACTLY this path — a terminal count
+          n_below   nuclei at or below it — a subtotal
+          samples   how many samples have any nucleus terminating here
+
+        A row with `n_here == 0` is a guide: an intermediate node nothing terminates at, kept
+        because deleting it would flatten a three-level branch into a list of unrelated names.
+        """
+        if not self.has_l1:
+            return []
+        import pandas as pd
+
+        d = pd.DataFrame({"l1": self.P["l1"].astype(str),
+                          "path": self.P["path"].astype(str),
+                          "sample": self.P["sample"].astype(str)})
+        d = d[d["l1"] != ""]
+        bands = []
+        for band, sub in sorted(d.groupby("l1"), key=lambda kv: (-len(kv[1]), kv[0])):
+            here = sub.groupby("path").size().to_dict()
+            samp = sub.groupby("path")["sample"].nunique().to_dict()
+            # Every prefix of every delivered path, so an intermediate node with no terminal
+            # cells of its own still appears and the branch keeps its shape.
+            below = {}
+            for p, n in here.items():
+                parts = str(p).split("/")
+                for i in range(1, len(parts) + 1):
+                    below["/".join(parts[:i])] = below.get("/".join(parts[:i]), 0) + n
+            rows = []
+
+            def walk(prefix, depth):
+                kids = sorted({k for k in below
+                               if k.startswith(prefix) and k.count("/") == depth - 1},
+                              key=lambda k: (-below[k], k))
+                for k in kids:
+                    rows.append({"path": k, "label": k.rsplit("/", 1)[-1], "depth": depth,
+                                 "n_here": int(here.get(k, 0)), "n_below": int(below[k]),
+                                 "samples": int(samp.get(k, 0))})
+                    walk(k + "/", depth + 1)
+
+            walk("", 1)
+            bands.append({"l1": band, "n": int(len(sub)),
+                          "samples": int(sub["sample"].nunique()), "rows": rows})
+        return bands
 
     # ------------------------------------------------------------------ reliability
     def calls_at_chosen(self):

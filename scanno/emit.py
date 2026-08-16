@@ -39,6 +39,7 @@ from __future__ import annotations
 import numpy as np
 
 from .exclude import EXCLUDED
+from .force import BY_GAP
 
 #: The default column-name stem. `scanno_cell_type` is not arbitrary: a downstream reader has to
 #: GUESS which column holds the annotation, and every convention for that guess keys on the
@@ -76,6 +77,12 @@ def per_cell(res, y, flag=None):
         "gap": np.array([by_cluster[int(c)]["gap"] for c in y], dtype=np.float32),
         "survival": np.array([by_cluster[int(c)].get("survival", np.nan) for c in y],
                              dtype=np.float32),
+        # HOW the label was arrived at, not only what it is. Defaulted to `gap` because a row
+        # that never passed through `scanno.force` was assigned by the walk and by nothing else.
+        # The value is a statement about the row, so it is present for every row and absent for
+        # none - a column with gaps in it would be read as "unknown" where it means "ordinary".
+        "assignment": np.array([str(by_cluster[int(c)].get("assignment", BY_GAP)) for c in y],
+                               dtype=object),
     }
     if flag is not None:
         flag = np.asarray(flag, dtype=bool)
@@ -86,6 +93,9 @@ def per_cell(res, y, flag=None):
         out["depth"][flag] = 0
         out["gap"][flag] = np.nan
         out["survival"][flag] = np.nan
+        # The exclusion is per NUCLEUS. A flagged nucleus sitting in a cluster that WAS forced
+        # took no part in that decision, and `forced` here would claim it did.
+        out["assignment"][flag] = EXCLUDED
     return out
 
 
@@ -99,13 +109,20 @@ def support_per_cell(cell_type, support):
     return np.array([float(support.get(str(v), np.nan)) for v in cell_type], dtype=np.float32)
 
 
-def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, suffix=""):
+def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, suffix="",
+                 assignment=False):
     """Write the per-cell annotation into `adata.obs`. Returns the column names written.
 
     `suffix` goes on the END of each column name, which is where a sweep needs it:
     `scanno resolution` reads a family of columns sharing a prefix and differing by the
     resolution, so annotating the same object at eight resolutions wants
     `scanno_path_r0p25 … scanno_path_r2p0` rather than the resolution buried in the middle.
+
+    `assignment=True` adds `<prefix>_assignment<suffix>` — `gap` / `forced` / `EXCLUDED` per
+    cell. It is OPT-IN rather than always written because a run with no scope has nothing to
+    distinguish: every row would read `gap`, and a column that can only hold one value is a
+    column a reader has to check before learning nothing. `scanno annotate --scope` turns it on,
+    and then it is written even when zero cells were forced — there, all-`gap` is a measurement.
     """
     import pandas as pd
 
@@ -131,6 +148,8 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     put("depth", cols["depth"])
     put("gap", cols["gap"])
     put("survival", cols["survival"])
+    if assignment:
+        put("assignment", cols["assignment"], categorical=True)
     if support:
         s = support_per_cell(cols["cell_type"], support)
         if flag is not None:
@@ -717,6 +736,32 @@ def format_independent_l1(rec) -> list:
         for k, v in list(rec.get("disagreements", {}).items())[:6]:
             L.append(f"      {v:>8,}  {k}")
     return L
+
+
+def force_provenance(adata, record, prefix=DEFAULT_PREFIX, suffix="", scope=""):
+    """Record HOW the forced cells were assigned, in `uns`, beside the column that says WHICH.
+
+    Returns the key written. The pair is deliberate and mirrors `independent_l1`:
+
+      obs[`<prefix>_assignment<suffix>`]   per CELL, one of `gap` / `forced` / `EXCLUDED` — the
+                                           part a filter or a groupby needs, and the part that
+                                           survives `anndata.concat`.
+      uns[<that column>_provenance]        per CLUSTER, the FORCE node, the child chosen, the
+                                           margin, survival, cover and cell count — the part a
+                                           sensitivity check needs, and too wide to be columns.
+
+    Why the detail is not also columns: a per-cell copy of the margin would be a second home for
+    a number `<prefix>_gap` already holds, and two homes for one number is how they come to
+    disagree. Why the column is not only `uns`: `anndata.concat` drops `uns` by default, and a
+    cohort concatenated without it must still be able to tell a forced cell from a cleared one.
+    So the irreducible per-cell fact is a column and everything derivable from it is not.
+    """
+    rec = dict(record)
+    rec["column"] = f"{prefix}_assignment{suffix}"
+    rec["scope"] = str(scope)
+    key = f"{rec['column']}_provenance"
+    adata.uns[key] = rec
+    return key
 
 
 def rewrite_for_viewer(src, dst, *, drop_scratch_uns=True, path_key=None,

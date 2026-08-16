@@ -35,7 +35,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .context import MIN_FLAGGED_PER_ANIMAL
+from .context import MIN_FLAGGED_PER_ANIMAL, SENTINELS
 from .figures import FIGURES, draw
 from .primitives import NotDrawable, leaf
 
@@ -95,6 +95,16 @@ ul.rule li{margin:.45rem 0}
 pre.tree{background:var(--card);border:1px solid var(--line);border-radius:8px;
 padding:.9rem 1.1rem;margin:1rem 0;overflow-x:auto;font-family:ui-monospace,Consolas,monospace;
 font-size:.8rem;line-height:1.5}
+tr.band td{background:var(--card);font-weight:600;border-top:2px solid var(--line)}
+tr.guide td{color:var(--mut)}
+.tw{display:inline-block;min-width:1.1em}
+.why{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;padding:.1rem .4rem;
+border-radius:3px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.why.sealed,.why.stranded{color:var(--badl);border-color:var(--badl)}
+.why.leaf{color:var(--okl);border-color:var(--okl)}
+.why.unvotable{color:var(--warnl);border-color:var(--warnl)}
+.bar{display:inline-block;height:.42rem;border-radius:2px;vertical-align:middle;
+margin-left:.45rem;min-width:1px}
 """
 
 #: Manuscript legends, keyed by figure id. They live here rather than in the drawing code so the
@@ -361,6 +371,10 @@ SCOPE_CANNOT_SHOW = (
     "<b>The vote counts SAMPLES, not nuclei.</b> A node can therefore be kept unanimously while "
     "a large share of one sample's nuclei still stop at it; the <i>stopped here</i> column is "
     "where that shows, and a seal does not repair it. "
+    "<b>A FORCE is not a seal and removes nothing.</b> It reassigns nuclei that stopped on an "
+    "open node to the child they already scored highest, so it changes which label those nuclei "
+    "carry and never which labels exist. The cells it moves are the ones whose evidence was "
+    "thinnest, so they are the least certain calls in the deliverable, not the most. "
     "<b>And it says nothing about whether any label is correct</b> — agreement between samples "
     "is agreement, not truth.")
 
@@ -377,13 +391,34 @@ _DESCEND_WORDS = {
 }
 
 _VERDICT_WORDS = {
-    "KEEP": "the split stays; every sample that reached it agreed to make it",
-    "SEAL": "the node becomes a LEAF; its children are removed from the tree",
+    "SEAL": "the node becomes a LEAF; its ENTIRE child set is removed from the tree",
+    "FORCE": "the split STAYS, but nothing may terminate here — each nucleus left on the node "
+             "is pushed to its most similar child",
     "UNVOTABLE": "too few samples reached it to vote — reported, NOT sealed",
+    "KEEP": "the split stays; every sample that reached it agreed to make it",
     "UNREACHED": "no sample reached it at all — left in the tree, holds nothing",
 }
 
-_VERDICT_ORDER = {"SEAL": 0, "UNVOTABLE": 1, "KEEP": 2, "UNREACHED": 3}
+#: SEAL and FORCE first: they are the two verdicts that CHANGE something, and a reader scanning
+#: the table for what the vote did should not have to find them among the ones that did nothing.
+_VERDICT_ORDER = {"SEAL": 0, "FORCE": 1, "UNVOTABLE": 2, "KEEP": 3, "UNREACHED": 4}
+
+#: The verdicts a reader must not skim past. Rendered in the alert colour.
+_VERDICT_LOUD = ("SEAL", "FORCE", "UNVOTABLE")
+
+
+def _scope_forced(v):
+    """Nuclei a FORCE node must reassign, and in how many samples. From the vote's own `stranded`.
+
+    Read from `stranded` rather than recomputed from `cells - cells_below`, because `stranded` is
+    what the VERDICT was decided on: a node is FORCE precisely when that dict is non-empty, so
+    reporting a different number here could contradict the verdict beside it.
+    """
+    st = v.get("stranded") or {}
+    try:
+        return sum(int(x) for x in st.values()), len(st)
+    except (TypeError, ValueError):
+        return 0, 0
 
 
 def _scope_stopped(v):
@@ -441,17 +476,22 @@ def scope_section(scope, out_dir=None):
     n_samples = scope.get("n_samples") or len(samples) or None
 
     seals = [n for n, v in nodes.items() if v.get("verdict") == "SEAL"]
+    forced = [n for n, v in nodes.items() if v.get("verdict") == "FORCE"]
     n_lost = sum(sum(d.values()) for d in removed.values())
     lost_labels = sorted({p for d in removed.values() for p in d})
+    n_forced = sum(_scope_forced(nodes[n])[0] for n in forced)
 
+    # "Each sample walks once" rather than a number: the cohort size is `n_samples`, read from the
+    # JSON. A sentence that says "ten" is correct for one cohort and silently wrong for the next,
+    # and it is the same defect as the literal `/10` that shipped in `format_report`.
     body.append(
-        f"<p class='lede'>Ten independent walks produce ten scopes: on a lineage where the "
-        f"sibling contrast sits near the bar, one sample descends and the next truncates, so the "
-        f"same cells get a subtype in one library and its parent in another — which downstream "
-        f"is indistinguishable from a compositional shift. The scope decides the depth "
-        f"<b>once</b>, from what the samples agree on, and every sample is annotated against it. "
-        f"This section is that decision: the rule it was made under, the tree it produced, and "
-        f"the labels it costs.</p>")
+        f"<p class='lede'>Each sample walks independently, so a cohort produces as many scopes as "
+        f"it has samples: on a lineage where the sibling contrast sits near the bar, one sample "
+        f"descends and the next truncates, so the same cells get a subtype in one library and its "
+        f"parent in another — which downstream is indistinguishable from a compositional shift. "
+        f"The scope decides the depth <b>once</b>, from what the samples agree on, and every "
+        f"sample is annotated against it. This section is that decision: the rule it was made "
+        f"under, the tree it produced, and the labels it costs.</p>")
 
     body.append(_kpi([
         ("samples voting", f"{n_samples:,}" if n_samples else "—",
@@ -463,6 +503,10 @@ def scope_section(scope, out_dir=None):
          "the possibility of a label, never a nucleus"),
         ("nuclei re-labelled to a parent", f"{n_lost:,}",
          "still annotated, still on disk, called one level higher"),
+        ("nodes forced", f"{len(forced)}",
+         "split kept, but nothing may terminate there"),
+        ("nuclei a FORCE reassigns", f"{n_forced:,}",
+         "pushed to their most similar child; nothing removed"),
     ]))
     body.append(f"<div class='warn'>{SCOPE_CANNOT_SHOW}</div>")
 
@@ -494,8 +538,17 @@ def scope_section(scope, out_dir=None):
         "missing observation, not a vote against — counting absence as opposition would seal "
         "every branch that is merely rare, and rare is not unsupported. The denominator of "
         "<i>support</i> is therefore the number of samples that <b>reached</b> the node, never "
-        "the cohort size: a support of 4/7 and one of 4/10 are different statements, and the "
-        "<i>reached</i> column below shows which one you are reading.</li>")
+        "the cohort size: the same numerator over a partial denominator and over the whole "
+        "cohort are different statements, and the <i>reached</i> column below shows which one "
+        "you are reading.</li>")
+    words.append(
+        "<li><b>An open node may not be a terminal label.</b> A node that keeps its children is "
+        "a branch, not a call — a nucleus left sitting on it would carry the name of a "
+        "<i>compartment</i>, which is the same string the independent L1 column uses for every "
+        "nucleus beneath it, so the two delivered columns would disagree about what that word "
+        "means. Such a node is marked <b>FORCE</b>: the split stands, and each stranded nucleus "
+        "is pushed to the child it already scored highest. This is <b>not</b> a seal — nothing "
+        "is removed — and <b>not</b> a truncation, because nothing terminates there.</li>")
     words.append(
         "<li><b>The root is never sealed.</b> Its children are the level-1 compartments; "
         "removing them would return every nucleus as UNRESOLVED. Its evidence is still voted and "
@@ -560,29 +613,77 @@ def scope_section(scope, out_dir=None):
         stopped, stopped_n = _scope_stopped(v)
         nr = int(v.get("n_reached") or 0)
         badge = (f"<b style='color:var(--badl)'>{_esc(verdict)}</b>"
-                 if verdict in ("SEAL", "UNVOTABLE") else _esc(verdict))
+                 if verdict in _VERDICT_LOUD else _esc(verdict))
+        fn, fs = _scope_forced(v)
         rows.append([f"<span class='mono'>{_esc(node)}</span>", badge,
                      f"{nr}/{n_samples}" if n_samples else f"{nr}",
                      f"{int(v.get('n_descended') or 0)}", _scope_support(v),
                      f"{stopped:,}" + (f" <span class='sub'>({stopped_n} sample(s))</span>"
-                                       if stopped else "")])
+                                       if stopped else ""),
+                     (f"<b>{fn:,}</b>" if verdict == "FORCE" and fn else "—")])
         csv_rows.append([node, verdict, nr, n_samples or "", int(v.get("n_descended") or 0),
-                         v.get("support"), stopped, stopped_n,
+                         v.get("support"), stopped, stopped_n, fn, fs,
                          ";".join(v.get("children_declared") or [])])
     src = (_write_table(out_dir, "scope_nodes.csv",
                         ["node", "verdict", "n_reached", "n_samples", "n_descended", "support",
                          "nuclei_stopped_here_pass1", "samples_with_any_stopped",
+                         "nuclei_forced_to_a_child", "samples_with_any_forced",
                          "children_declared"], csv_rows)
            if out_dir is not None else "the scope JSON, key `nodes`")
     body.append("<h3>the vote, node by node</h3>")
     body.append(_table(["node", "verdict", "reached", "descended", "support",
-                        "stopped here (pass 1)"], rows, source=src))
+                        "stopped here (pass 1)", "forced to a child"], rows, source=src))
     body.append("<p class='sub'>"
                 + " · ".join(f"<b>{k}</b> {v}" for k, v in _VERDICT_WORDS.items())
                 + ". <i>stopped here</i> counts nuclei that arrived at the node in <b>pass 1</b> "
                 "and did not go below it, summed over samples — at a SEALED node every arriving "
                 "nucleus stops there in pass 2 by construction, so that column describes what "
-                "the vote SAW, not what pass 2 produces.</p>")
+                "the vote SAW, not what pass 2 produces. <i>forced to a child</i> is the same "
+                "residual at a node that stayed OPEN, which is the one case where pass 2 moves "
+                "a nucleus rather than truncating it.</p>")
+
+    # ---- what each FORCE reassigns ------------------------------------------------------------
+    # Its own subsection rather than a column note, because a FORCE and a SEAL are opposite
+    # operations that both read as "the vote did something here", and a reader who conflates them
+    # concludes that a label was removed when a label was in fact re-assigned.
+    body.append("<h3>what each FORCE reassigns — nuclei moved, never labels removed</h3>")
+    if not forced:
+        body.append(
+            "<p class='sub'>No node was forced: every node that kept its children had every "
+            "arriving nucleus descend below it, so no nucleus was left carrying a compartment "
+            "name as its final label and pass 2 moved nothing.</p>")
+    else:
+        frows, fcsv = [], []
+        for node in sorted(forced, key=lambda n: -_scope_forced(nodes[n])[0]):
+            v = nodes[node]
+            fn, fs = _scope_forced(v)
+            st = v.get("stranded") or {}
+            worst = sorted(st.items(), key=lambda kv: -int(kv[1]))
+            frows.append([
+                f"<span class='mono'>{_esc(node)}</span>",
+                f"<b>{fn:,}</b>",
+                f"{fs}/{n_samples}" if n_samples else f"{fs}",
+                ", ".join(f"{_esc(s)} <span class='sub'>({int(c):,})</span>"
+                          for s, c in worst[:4]) + (" …" if len(worst) > 4 else ""),
+                ", ".join(_esc(c) for c in (v.get("children_declared") or [])) or "—"])
+            fcsv.append([node, fn, fs, ";".join(f"{s}={int(c)}" for s, c in worst),
+                         ";".join(v.get("children_declared") or [])])
+        fsrc = (_write_table(out_dir, "scope_forced_nodes.csv",
+                             ["node", "nuclei_forced", "n_samples_with_any",
+                              "per_sample", "children_declared"], fcsv)
+                if out_dir is not None else "the scope JSON, key `nodes`, sub-key `stranded`")
+        body.append(_table(["forced node", "nuclei reassigned", "samples", "which samples",
+                            "candidate children"], frows, source=fsrc))
+        body.append(
+            f"<p class='sub'>Each of those {n_forced:,} nuclei is assigned the child it already "
+            f"scored highest at that node, so the reassignment needs no new scoring and no change "
+            f"to the walk — it reads the choice the walk had already made and declined to act on "
+            f"because the margin was thin. <b>The margin is why these are the least certain calls "
+            f"in the deliverable</b>: every one of them is a cell whose gap failed where the rest "
+            f"of the cohort's cleared. They are concentrated rather than spread — the "
+            f"<i>samples</i> column shows how few libraries produced them — so a subtype's count "
+            f"can be moved appreciably in one sample and not at all in another, which is a "
+            f"per-sample effect and not a compositional one.</p>")
 
     # ---- what each seal removes, by label ----------------------------------------------------
     body.append("<h3>what each seal removes — the labels themselves, not the category</h3>")
@@ -616,10 +717,231 @@ def scope_section(scope, out_dir=None):
         body.append(
             f"<p class='sub'>Those {n_lost:,} nuclei are <b>not gone</b>: in pass 2 each is "
             f"called by the sealed node itself. A removal is stated as its members and read, "
-            f"never described as a category — a list called \"the fibroblast subtypes\" is not "
-            f"assessable, and one that names each label and its count is. Rows at 0 are children "
+            f"never described as a category — \"the subtypes under that node\" is not "
+            f"assessable, and a list naming each label with its count is. Rows at 0 are children "
             f"the seal removed from the tree that no sample had reached.</p>")
 
+    return body
+
+
+# ================================================= the delivered tree, with L1 integrated
+
+#: The bound on the section below, in the same voice as the others.
+TAXONOMY_CANNOT_SHOW = (
+    "<b>This is the annotation that was DELIVERED, not evidence that it is right.</b> No label "
+    "here is established as correct: there is no truth set for this tissue, and the tool reports "
+    "what the corpus supports, not what is true. "
+    "<b>The two columns are two walks, and their agreement is a measurement.</b> The compartment "
+    "column is an independent walk against a depth-1 tree; the taxonomy column is the deep walk "
+    "against the scope. Nothing forces them to agree, so a concordance of 100% is a result about "
+    "this cohort and not a property of the format — and where they disagree, BOTH are shown "
+    "rather than one being silently preferred. "
+    "<b>It cannot tell you why a branch stopped, only which of the reasons applies.</b> "
+    "<i>leaf</i> points at the declared tree, <i>sealed</i> at the cohort vote, <i>stranded</i> "
+    "at one nucleus's own gap, and the remedy differs completely: extend the taxonomy, re-run "
+    "against the declared tree, or improve the evidence. A reader who reads them all as \"this "
+    "is as deep as the biology goes\" is wrong in three different ways. "
+    "<b>Counts are nuclei, not cells and not animals.</b> A label carried by one sample and one "
+    "spread across the cohort read identically in the nuclei column; the <i>samples</i> column is "
+    "the only place that shows, and a label in few samples cannot support a compositional claim "
+    "however many nuclei it has.")
+
+#: How each terminal reason is phrased on the page, and what a reader should do about it.
+_WHY_WORDS = {
+    "leaf": "the declared taxonomy has nothing below this — the call is complete",
+    "sealed": "the cohort removed this node's children; the subtype is recoverable by re-running "
+              "against the declared tree",
+    "stranded": "the node stayed OPEN and this nucleus's gap failed anyway — thin evidence, not "
+                "a removal",
+    "unvotable": "too few samples reached it to vote, so it was never sealed; this nucleus "
+                 "stopped on its own gap",
+    "sentinel": "not a cell type — withheld upstream, or never resolved",
+}
+
+
+def taxonomy_section(ctx, out_dir=None):
+    """The delivered cell-type tree with the independent L1 compartment integrated.
+
+    WHAT THIS ANSWERS THAT THE COMPOSITION TABLES DO NOT
+
+    The deliverable is TWO label columns: an independent level-1 compartment, and the
+    scope-based label from the deep walk. A reader who wants to know "what is this cell at L1,
+    and how far down did the scope let us go" currently has to read one table of paths, hold the
+    taxonomy in their head, and cross-reference a second table for the compartment. This section
+    is that question answered in one picture.
+
+    WHY A BANDED, INDENTED TABLE RATHER THAN A DRAWN TREE
+
+    A `pre` drawing (which the scope section uses, correctly, because there it is reproducing the
+    vote's own output verbatim) puts the numbers inside the picture, where they cannot be aligned,
+    sorted or read down a column, and it wraps once the taxonomy is wide. The delivered tree has
+    to carry four numbers per row and stay readable when a lineage is deep, so:
+
+      - the INDEPENDENT L1 compartment is the BAND, not a column. It is the coarsest partition
+        and the one a biologist navigates by, so it becomes the thing you scan for; and because
+        a band is defined by the independent column while its rows are defined by the deep one,
+        a disagreement between the two shows up as a row whose path does not begin with its own
+        band's name — visible without a separate table.
+      - the taxonomy is an INDENT inside the band, computed from the path's own depth, so the
+        layout has no idea how many levels exist and gains none when a fourth is added.
+      - intermediate nodes nothing terminates at are kept as dimmed GUIDE rows. Dropping them
+        would flatten a deep branch into a list of unrelated names, which is exactly the reading
+        error this section exists to prevent.
+      - siblings are ordered by size within their parent, so the eye meets the populations that
+        matter first at every level, and the ordering rule is the same one the composition
+        figures use.
+
+    Returns a list of HTML chunks; never empty. Without the independent column the section is a
+    NAMED ABSENCE, because a silently missing section reads as a cohort that had no L1.
+    """
+    body = ["<h2>The delivered annotation — the cell-type tree, with L1 integrated</h2>"]
+    if not getattr(ctx, "has_l1", False):
+        body.append(_absent_section(
+            "the INDEPENDENT level-1 column, named with `--l1-key`",
+            "The deliverable is two label columns and this section shows them together. Without "
+            "the independent one there is only the deep walk's own path, whose level-1 prefix "
+            "agrees with it by construction — showing that beside it would be showing one column "
+            "twice and calling it agreement. Annotate with `scanno annotate --l1-tree` and name "
+            "the resulting column with `--l1-key`."))
+        return body
+
+    bands = ctx.l1_bands()
+    con = ctx.l1_concordance()
+    scope = getattr(ctx, "scope", None) or {}
+    verdicts = scope.get("nodes") or {}
+    tree = getattr(ctx, "tree", None) or {}
+
+    from .scope import why_terminal
+
+    sent = set(SENTINELS)
+    real = [b for b in bands if b["l1"] not in sent]
+    tail = [b for b in bands if b["l1"] in sent]
+    n_terminal = sum(1 for b in real for r in b["rows"]
+                     if r["n_here"] and r["path"] not in sent)
+
+    body.append(
+        "<p class='lede'>Two columns were delivered for every nucleus: an <b>independent</b> "
+        "level-1 compartment, walked against a depth-1 tree of its own, and the <b>scope-based</b> "
+        "label from the deep walk. They are shown together here because they answer different "
+        "halves of one question — <i>what is this cell</i>, and <i>how far down did the cohort "
+        "let us go</i> — and reading either alone gives a confident answer to half of it. The "
+        "compartment is the band; the taxonomy beneath it is what the scope permitted.</p>")
+
+    kpi = [("compartments (independent L1)", f"{len(real)}",
+            f"from <code>obs[{_esc(repr(ctx.l1_key))}]</code>"),
+           ("terminal labels delivered", f"{n_terminal}",
+            f"across {ctx.depth} level(s) of taxonomy"),
+           ("deepest level reached", f"{ctx.depth}",
+            "read from the labels, never assumed")]
+    if con:
+        kpi.append(("the two columns agree", f"{con['pct']:.2f}%",
+                    f"on {con['n_scored']:,} nuclei · "
+                    + (f"<b>{con['n_disagree']:,}</b> disagree"
+                       if con["n_disagree"] else "none disagree")))
+    body.append(_kpi(kpi))
+    body.append(f"<div class='warn'>{TAXONOMY_CANNOT_SHOW}</div>")
+
+    # ---- do the two delivered columns agree? -------------------------------------------------
+    body.append("<h3>do the two delivered columns agree about the compartment?</h3>")
+    if con and not con["n_disagree"]:
+        body.append(
+            f"<p class='sub'>The independent walk and the deep walk's own root return the "
+            f"<b>same compartment for all {con['n_scored']:,} nuclei</b> scored. That is what an "
+            f"unchanged root decision predicts, and it is <b>measured here rather than assumed</b> "
+            f"— the two columns are separate walks and nothing in the pipeline constrains them to "
+            f"match. Because they do, every band below contains exactly one lineage and the "
+            f"compartment column can be read as a strict parent of the taxonomy column. Had they "
+            f"differed, the bands would not partition the tree and this paragraph would say so.</p>")
+    elif con:
+        drows = [[f"<span class='mono'>{_esc(a)}</span>", f"<span class='mono'>{_esc(b)}</span>",
+                  f"{n:,}", f"{100.0 * n / max(con['n_scored'], 1):.3f}%"]
+                 for (a, b), n in con["pairs"].items()]
+        dsrc = (_write_table(out_dir, "l1_concordance.csv",
+                             ["deep_walk_root", "independent_l1", "nuclei", "pct_of_scored"],
+                             [[a, b, n, round(100.0 * n / max(con["n_scored"], 1), 4)]
+                              for (a, b), n in con["pairs"].items()])
+                if out_dir is not None else "the two label columns in obs")
+        body.append(
+            f"<p class='sub'>The two columns disagree about the compartment for "
+            f"<b>{con['n_disagree']:,}</b> of {con['n_scored']:,} nuclei "
+            f"({100.0 - con['pct']:.3f}%). <b>Neither is corrected to match the other.</b> Those "
+            f"nuclei appear in the band their INDEPENDENT column names, carrying the full "
+            f"scope-based path they were actually given — so a row whose path does not begin with "
+            f"its band's name is one of these, and is visible in the tree below without needing "
+            f"this table.</p>")
+        body.append(_table(["deep walk's root", "independent L1", "nuclei", "share of scored"],
+                           drows, source=dsrc))
+
+    # ---- the tree ----------------------------------------------------------------------------
+    body.append("<h3>the tree as delivered — compartment, then everything the scope allowed</h3>")
+    rows, csv_rows = [], []
+    total = max(int(ctx.n), 1)
+    for b in real + tail:
+        is_sent = b["l1"] in sent
+        sw = f"<span class='sw' style='background:{ctx.colour(b['l1'])}'></span>"
+        rows.append([
+            f"<tr class='band'><td>{sw}<b>{_esc(b['l1'])}</b>"
+            + ("  <span class='why sentinel'>not a cell type</span>" if is_sent else "")
+            + "</td>",
+            "<td>—</td>",
+            "<td>—</td>",
+            f"<td><b>{b['n']:,}</b>"
+            f"<span class='bar' style='width:{60.0 * b['n'] / total:.2f}rem;"
+            f"background:{ctx.colour(b['l1'])}'></span></td>",
+            f"<td>{100.0 * b['n'] / total:.2f}%</td>",
+            f"<td>{b['samples']}/{len(ctx.samples)}</td></tr>"])
+        csv_rows.append([b["l1"], "", "", 0, b["n"], b["n"], round(100.0 * b["n"] / total, 4),
+                         b["samples"], "compartment"])
+        for r in b["rows"]:
+            term = bool(r["n_here"])
+            why = why_terminal(r["path"], tree, verdicts) if term else ""
+            # The path is shown in full whenever it does not simply extend its band, so a
+            # disagreement between the two delivered columns is legible in place.
+            shows_path = not str(r["path"]).startswith(b["l1"])
+            name = (f"<span class='mono'>{_esc(r['path'])}</span>" if shows_path
+                    else _esc(r["label"]))
+            glyph = "└ " if r["depth"] > 1 else ""
+            cls = "" if term else " class='guide'"
+            rows.append([
+                f"<tr{cls}><td><span style='padding-left:{1.15 * (r['depth'] - 1):.2f}rem'></span>"
+                f"<span class='tw'>{glyph}</span>{name}</td>",
+                (f"<td><span class='why {why}'>{_esc(why)}</span></td>" if term
+                 else "<td><span class='sub'>branch</span></td>"),
+                (f"<td>{r['n_here']:,}</td>" if term else "<td>—</td>"),
+                f"<td>{r['n_below']:,}"
+                f"<span class='bar' style='width:{60.0 * r['n_below'] / total:.2f}rem;"
+                f"background:{ctx.colour(r['path'])}'></span></td>",
+                f"<td>{100.0 * r['n_below'] / total:.2f}%</td>",
+                f"<td>{r['samples']}/{len(ctx.samples)}</td></tr>" if term
+                else "<td>—</td></tr>"])
+            csv_rows.append([b["l1"], r["path"], r["label"], r["depth"], r["n_here"],
+                             r["n_below"], round(100.0 * r["n_below"] / total, 4),
+                             r["samples"] if term else "", why or "branch"])
+
+    src = (_write_table(out_dir, "delivered_tree_with_l1.csv",
+                        ["independent_l1", "scope_path", "label", "depth", "nuclei_terminal",
+                         "nuclei_at_or_below", "pct_of_cohort", "samples", "stops_because"],
+                        csv_rows)
+           if out_dir is not None else "the two label columns in obs")
+    head = "".join(f"<th>{_esc(x)}</th>" for x in
+                   ["compartment / cell type", "stops here because", "nuclei here",
+                    "at or below", "share", "samples"])
+    body.append(f"<div class='scroll'><table><tr>{head}</tr>"
+                + "".join("".join(r) for r in rows)
+                + f"</table></div><p class='src'>source: <code>{_esc(src)}</code></p>")
+
+    body.append(
+        "<p class='sub'><b>Bold rows are compartments</b> — the independent L1 column. Indented "
+        "rows beneath them are the scope-based taxonomy, one level of indent per level of path. "
+        "<b><i>nuclei here</i> is the terminal count</b>: nuclei whose delivered label is exactly "
+        "that path and goes no deeper. <b><i>at or below</i> is the subtotal</b> including every "
+        "descendant, so the two are equal only at a row with no children. A greyed row is a "
+        "branch nothing terminates at — it carries no label of its own and exists to show the "
+        "lineage's shape. Rows shown as a full monospaced path are nuclei whose independent "
+        "compartment differs from the path they were given; where the concordance above is total, "
+        "there are none.</p>")
+    body.append("<p class='sub'>"
+                + " · ".join(f"<b>{k}</b> {v}" for k, v in _WHY_WORDS.items()) + ".</p>")
     return body
 
 
@@ -676,6 +998,13 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # has no way to tell a subtype that is absent from this tissue from one the scope removed
     # everywhere.
     body += scope_section(getattr(ctx, "scope", None), out_dir=out)
+
+    # ---- the delivered tree, with L1 integrated ------------------------------------------
+    # AFTER the scope and BEFORE composition. The scope says what the labels below were allowed
+    # to be; this says what they turned out to be; composition then counts them across the
+    # design. Put before the scope it would show a taxonomy with no account of why it stops
+    # where it does, which is the reading error the `stops here because` column exists to stop.
+    body += taxonomy_section(ctx, out_dir=out)
 
     # ---- composition, at every level ---------------------------------------------------
     body.append("<h2>Composition</h2>")
@@ -1160,6 +1489,14 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
         # cohort annotated against" must get the decision itself, not this document's rendering
         # of it, and must be able to diff it against the scope.json the run was given.
         "scope": getattr(ctx, "scope", None),
+        # Both delivered columns, machine-readable. A consumer asking "what is this cell at L1 and
+        # how deep did it go" must get it without scraping the HTML the section renders.
+        "l1": ({"column": ctx.l1_key,
+                "concordance": (lambda c: c and {k: v for k, v in c.items() if k != "pairs"}
+                                | {"pairs": [{"deep_walk_root": a, "independent_l1": b,
+                                              "nuclei": n} for (a, b), n in c["pairs"].items()]}
+                                )(ctx.l1_concordance()),
+                "bands": ctx.l1_bands()} if getattr(ctx, "has_l1", False) else None),
         "palette": ctx.palette.as_dict(),
         "figures_not_drawn": absent,
         "figures_failed": failed,
