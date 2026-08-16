@@ -305,9 +305,43 @@ def test_an_unreached_node_shows_n_a_rather_than_the_word_nan():
     assert beta and "n/a" in beta[0], beta
 
 
+def _without_comments(src):
+    """`src` with every `#` comment blanked, using the tokenizer rather than a regex.
+
+    Stripping only docstrings was not enough, and the way it failed is worth keeping. The
+    section carries a comment that NAMES the historical `/10` literal in order to warn the
+    next author off repeating it — and this guard read that warning and reported it as the
+    defect. A guard that fires on the sentence written to prevent the failure is a guard
+    somebody deletes, and the code it was watching was correct throughout.
+
+    A comment cannot reach the rendered page, so it cannot be a hardcode; only code can.
+    Prose may cite the cohort this was written for, exactly as `tests/test_force.py` allows
+    for docstrings. The tokenizer is used because `#` inside a string literal is not a
+    comment, and a regex cannot tell the two apart.
+
+    Applied to the SECTION, never to the whole module: the section's own end marker is the
+    banner comment `# ====`, so blanking comments module-wide deletes the boundary and the
+    scan silently runs to end of file — a guard reading the wrong span, which is how this
+    class of check goes wrong in the direction nobody notices.
+    """
+    import io
+    import tokenize
+    lines = src.splitlines(keepends=True)
+    cut = {}
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.COMMENT:
+            row, col = tok.start
+            cut[row] = min(cut.get(row, len(lines[row - 1])), col)
+    return "".join((line[:cut[i + 1]].rstrip() + "\n") if (i + 1) in cut else line
+                   for i, line in enumerate(lines))
+
+
 def test_the_module_hardcodes_no_node_name_and_no_cohort_size():
     doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
-    section = doc.split("def scope_section(", 1)[1].split("\n# ====", 1)[0]
+    head = "def scope_section("
+    section = doc.split(head, 1)[1].split("\n# ====", 1)[0]
+    # the head is put back only so the fragment tokenizes; it is not part of the scan
+    section = _without_comments(head + section)[len(head):]
     code = re.sub(r'""".*?"""', "", section, flags=re.S)
     for banned in ("Fibroblast", "Matrifibrocyte", "Lymphoid", "Cardiomyocyte", "Endothelial",
                    "B cell", "NK cell", "Macrophage", "Pericyte"):
