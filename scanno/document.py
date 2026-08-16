@@ -510,16 +510,41 @@ def scope_section(scope, out_dir=None):
     body.append("".join(words))
 
     # ---- the tree it produced --------------------------------------------------------------
+    # The drawing is rendered VERBATIM from the JSON rather than redrawn here: redrawing would
+    # need every pass-1 object just to make a picture, and would drift from what the vote
+    # actually printed the day it ran. What this section adds is the CROSS-CHECK below, computed
+    # from the same JSON, so a drawing that is short says so on the page.
     body.append("<h3>the scope, drawn — the taxonomy pass 2 walks</h3>")
     if lines:
         body.append("<pre class='tree'>" + _esc("\n".join(str(x) for x in lines)) + "</pre>")
-        body.append(
-            "<p class='sub'>Counts are nuclei landing at each leaf of the SEALED tree, and "
-            "<code>n/N</code> is how many samples have any. Read this against the composition "
-            "tables, not instead of them: <b>an open internal node that some nuclei stopped at "
-            "is drawn without a count</b>, so the numbers here sum to less than the cohort "
-            "wherever the <i>stopped here</i> column below is non-zero at a KEPT node. "
-            "Source: <code>tree_lines</code> in the scope JSON.</p>")
+        stranded, stranded_nodes, root_stopped = 0, 0, None
+        for node, v in nodes.items():
+            n, k = _scope_stopped(v)
+            if node == "root":
+                root_stopped = n            # truncation AT the root: these are UNRESOLVED
+                continue
+            if v.get("verdict") != "SEAL" and n:
+                stranded += n
+                stranded_nodes += 1
+        cap = ["<p class='sub'>Counts are nuclei landing at each node of the SEALED tree; "
+               "<code>n/N</code> is how many samples have any. A node marked "
+               "<code>&lt;- stranded</code> is an <b>open</b> node holding nuclei of its own — a "
+               "sample whose gap failed there where the other samples' cleared. Those are real "
+               "values in the label column, so the scope has more terminal labels than it has "
+               "leaves. Source: <code>tree_lines</code> in the scope JSON.</p>"]
+        if stranded:
+            cap.append(
+                f"<p class='sub'><b>Cross-check, computed from the vote rather than the "
+                f"drawing:</b> {stranded:,} nuclei are stranded at {stranded_nodes} open "
+                f"internal node(s). If the tree above carries no <code>stranded</code> marking, "
+                f"this scope JSON was written before that was drawn and <b>the picture is short "
+                f"by those {stranded:,} nuclei</b> — regenerate it with `scanno scope --out`.</p>")
+        if root_stopped:
+            cap.append(
+                f"<p class='sub'>A further <b>{root_stopped:,}</b> nuclei truncated at the "
+                f"<b>root</b> and are UNRESOLVED. They appear in no branch of this drawing, and "
+                f"no seal can repair them: the root is never sealed.</p>")
+        body.append("".join(cap))
     else:
         body.append(_absent_section(
             "`tree_lines` in the scope JSON",
@@ -1131,6 +1156,10 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
                       "by_factor": ctx.flag_by_factor(),
                       "identity": ctx.flag_identity(1)} if ctx.has_flag else None),
         "resolution_sweep": ctx.resolution_sweep() or None,
+        # The scope travels into report.json UNCHANGED. A consumer asking "which splits was this
+        # cohort annotated against" must get the decision itself, not this document's rendering
+        # of it, and must be able to diff it against the scope.json the run was given.
+        "scope": getattr(ctx, "scope", None),
         "palette": ctx.palette.as_dict(),
         "figures_not_drawn": absent,
         "figures_failed": failed,

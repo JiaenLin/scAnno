@@ -305,6 +305,34 @@ def _annotate(a):
         return 1
 
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
+
+    # --- the independent L1 tree, checked BEFORE the object is read ---
+    #
+    # A depth-1 tree is the only thing that can produce an L1 column, and the check is on the
+    # DECLARATION so that all ten samples of a cohort get the same verdict. It runs here, ahead
+    # of the h5ad read and the background, because a refusal after the expensive part is a
+    # refusal the caller pays for twice.
+    l1_tree = None
+    if getattr(a, "l1_tree", None):
+        from .scope import root_child_diff, tree_depth
+        l1_tree = json.loads(Path(a.l1_tree).read_text(encoding="utf-8"))
+        d = tree_depth(l1_tree)
+        if d != 1:
+            print(f"scanno: REFUSE - --l1-tree {a.l1_tree} is a depth-{d} tree.\n"
+                  f"        The L1 column holds one level and nothing below it. Build the tree "
+                  f"with\n"
+                  f"        `scanno scope --out-l1-tree`, which emits exactly this.",
+                  file=sys.stderr)
+            return REFUSE
+        only_deep, only_l1 = root_child_diff(tree, l1_tree)
+        if only_deep or only_l1:
+            print("  REVIEW  the two trees do not agree at the ROOT, so the L1 column and the "
+                  "label\n          column's first level are not the same taxonomy:")
+            if only_deep:
+                print(f"          only in --tree:    {', '.join(only_deep)}")
+            if only_l1:
+                print(f"          only in --l1-tree: {', '.join(only_l1)}")
+
     A = ad.read_h5ad(a.h5ad)
     if a.cluster_key not in A.obs:
         print(f"scanno: {a.h5ad} has no obs column {a.cluster_key!r}. Available: "
@@ -443,6 +471,17 @@ def _annotate(a):
     tree["genes"] = store.genes
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
                    gap_min=a.gap_min, exclude=drop)
+
+    # THE SECOND WALK. The same `classify`, the same Z, the same usable-gene set, the same
+    # background and the same bar - only the tree differs. Nothing about the walk is
+    # parameterised for this and nothing in classify.py was touched: an independent L1 is a
+    # second CALL, not a second mode. `drop` goes here too, or an unprofilable cluster would be
+    # EXCLUDED in one column and labelled in the other.
+    res_l1 = None
+    if l1_tree is not None:
+        l1_tree["genes"] = store.genes
+        res_l1 = classify(Z, usable, l1_tree, store=None if asr else store, assertions=asr,
+                          gap_min=a.gap_min, exclude=drop)
 
     support = {}
     if a.db:
@@ -1008,6 +1047,28 @@ def _report(a):
                   f"(keys: {', '.join(sorted(sw)[:8])}). The resolution section will say so.",
                   file=sys.stderr)
 
+    # The common scope, carried in VERBATIM. It is a decision, not a measurement, so the report
+    # renders the file rather than re-deriving anything from the annotated objects: re-deriving
+    # would describe what pass 2 produced instead of what pass 2 was told to do, and those differ
+    # exactly where something went wrong.
+    scope = None
+    if a.scope:
+        scope = json.loads(Path(a.scope).read_text(encoding="utf-8"))
+        if not isinstance(scope, dict) or "nodes" not in scope:
+            print(f"scanno: REFUSE - {a.scope} is not a `scanno scope --out` result "
+                  f"(no 'nodes' key). Rendering it would put an unrecognised file on the page "
+                  f"under a heading that claims it is the scope.", file=sys.stderr)
+            return REFUSE
+        _seals = [n for n, v in scope["nodes"].items() if v.get("verdict") == "SEAL"]
+        _lost = sum(sum(d.values()) for d in (scope.get("removed_labels") or {}).values())
+        print(f"  scope read from {a.scope}: {len(_seals)} sealed node(s) over "
+              f"{scope.get('n_samples', '?')} sample(s), "
+              f"{_lost:,} nuclei re-labelled to a parent"
+              + (f"  ({', '.join(sorted(_seals)[:4])})" if _seals else ""))
+        if not scope.get("tree_lines"):
+            print(f"scanno: {a.scope} carries no 'tree_lines'; the drawn scope will be a named "
+                  f"absence. Re-run `scanno scope --out` to include it.", file=sys.stderr)
+
     print(f"{len(objs)} object(s), {sum(A.n_obs for _n, A in objs):,} nuclei")
     if flag:
         print(f"  withheld nuclei read from obs[{flag!r}]"
@@ -1021,7 +1082,7 @@ def _report(a):
                   tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue,
                   factors=a.factor, pinned_colours=Palette.load(a.palette),
                   gene_key=a.gene_key, joint_key=a.joint_key,
-                  group_order=a.group_order)
+                  group_order=a.group_order, scope=scope)
     print(f"  taxonomy depth {ctx.depth}; "
           f"{', '.join(f'{len(ctx.label_order(d))} labels at level {d}' for d in ctx.levels)}")
     if ctx.auto_factors:
@@ -1427,6 +1488,12 @@ def main(argv=None):
                    help="the chosen clustering resolution, named on the pages")
     s.add_argument("--sweep", type=Path, metavar="JSON",
                    help="`scanno resolution --out` result; adds the resolution section")
+    s.add_argument("--scope", type=Path, metavar="JSON",
+                   help="`scanno scope --out` result. Adds the common-scope section: the rule "
+                        "the scope was voted under, the sealed tree pass 2 walked, the per-node "
+                        "vote, and every label a seal removed with its nuclei count. Without it "
+                        "the section is a NAMED ABSENCE, because a reader cannot otherwise tell "
+                        "a subtype absent from the tissue from one the scope removed everywhere")
     s.add_argument("--no-per-sample", action="store_true",
                    help="write only the cohort document. The per-sample pages are the detail "
                         "behind its rows and are cheap; this is for a cohort of hundreds")

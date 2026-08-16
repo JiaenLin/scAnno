@@ -54,7 +54,7 @@ class Context:
                  sweep_pick=None, sweep_reason=None, flag_column=None, declaration=None,
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
-                 joint_key=None, group_order=None):
+                 joint_key=None, group_order=None, scope=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -75,6 +75,10 @@ class Context:
         self.tree = tree or {}
         self.gene_key, self.gene_column = gene_key, None
         self.joint_key = joint_key
+        # The common scope, as `scanno scope --out` wrote it. Carried verbatim and never
+        # recomputed: the report must show the decision pass 2 was GIVEN, and anything derived
+        # from the annotated objects would instead describe what pass 2 produced.
+        self.scope = scope or None
         self._group_order = [str(g) for g in (group_order or [])]
 
         frames = []

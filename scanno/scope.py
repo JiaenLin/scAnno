@@ -132,6 +132,18 @@ def node_votes(paths_by_sample, sep=SEP, sentinels=SENTINELS, descend_rule="any"
     return out
 
 
+def _stranded(node, v):
+    """Cells that ARRIVED at this node and went no further, per sample.
+
+    Derived, never declared: it is the arrival count minus the below count, which the vote has
+    already measured. A node with zero stranded cells needs no forcing, so the verdict stays
+    KEEP and nothing about that branch changes.
+    """
+    return {s: v["cells"][s] - v["cells_below"].get(s, 0)
+            for s in v.get("reached", [])
+            if v["cells"][s] - v["cells_below"].get(s, 0) > 0}
+
+
 def internal_nodes(tree, sep=SEP):
     """Every node the declared tree gives children to, as full paths from the root.
 
@@ -180,6 +192,7 @@ def vote(paths_by_sample, tree, min_support=MIN_SUPPORT, min_reach=MIN_REACH,
                                   "n_descended": 0, "support": float("nan"),
                                   "cells": {}, "cells_below": {}}))
         v["children_declared"] = declared[node]
+        v["stranded"] = _stranded(node, v)
         if node == ROOT:
             # SEALING THE ROOT IS NOT A SCOPE, IT IS AN EMPTY ANNOTATION. Its child set is the
             # level-1 compartments; delete them and every nucleus comes back UNRESOLVED. The
@@ -193,7 +206,16 @@ def vote(paths_by_sample, tree, min_support=MIN_SUPPORT, min_reach=MIN_REACH,
         elif v["n_reached"] < min_reach:
             v["verdict"] = "UNVOTABLE"
         elif v["support"] >= min_support:
-            v["verdict"] = "KEEP"
+            # AN OPEN NODE MAY NOT BE A TERMINAL LABEL. A node that keeps its children is a
+            # branch, not a call: a cell left sitting on it carries the name of a COMPARTMENT,
+            # which is the same string the L1 column uses for every cell beneath it. Read side
+            # by side those two columns then disagree about what the word means -- one animal's
+            # 961 `Endothelial` against the 26,552 `Endothelial` of the compartment.
+            #
+            # So the node is marked FORCE: annotation must push each stranded cell to its most
+            # similar child rather than stopping. This is not a seal (the split is admissible,
+            # the cohort agreed on it) and it is not a truncation (nothing terminates here).
+            v["verdict"] = "FORCE" if v["stranded"] else "KEEP"
         else:
             v["verdict"] = "SEAL"
         verdicts[node] = v
@@ -277,7 +299,7 @@ def format_report(verdicts, removed=None, sealed=None, n_samples=None):
     "/10" as a literal, which is the cohort this was written for baked into the tool: on seven
     samples it would have printed "7/10" and nobody reading it would have known.
     """
-    order = {"SEAL": 0, "UNVOTABLE": 1, "KEEP": 2, "UNREACHED": 3}
+    order = {"SEAL": 0, "FORCE": 1, "UNVOTABLE": 2, "KEEP": 3, "UNREACHED": 4}
     if n_samples is None:
         n_samples = max((v["n_reached"] for v in verdicts.values()), default=0)
     rows = sorted(verdicts.items(), key=lambda kv: (order.get(kv[1]["verdict"], 9),
@@ -355,12 +377,13 @@ def format_tree(tree, verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
                 # them invisible. Measured when it was found: 1,060 nuclei missing from a
                 # drawing that looked complete, and a stated total 1,060 short of the truth.
                 own = cells.get(cpath, 0)
+                head = f"{pad}{stem}{c}"
                 if own:
-                    head = f"{pad}{stem}{c}"
-                    out.append(f"{head:<44}{own:>8,}   {present.get(cpath, 0)}/{n}"
-                               f"   <- stranded here by {present.get(cpath, 0)} sample(s)")
+                    ns = len(verdicts.get(cpath, {}).get("stranded", {}) or {})
+                    out.append(f"{head:<44}{'':>8}   "
+                               f"[{own:,} from {ns} sample(s) -> most similar child]")
                 else:
-                    out.append(f"{pad}{stem}{c}")
+                    out.append(head)
             else:
                 mark = "  \u25a0 SEALED" if verdicts.get(cpath, {}).get("verdict") == "SEAL" else ""
                 head = f"{pad}{stem}{c}{mark}"
@@ -428,3 +451,45 @@ def truncate_tree(tree, depth=1, sep=SEP):
     if out.get("members"):
         out["members"] = {k: v for k, v in out["members"].items() if k in reachable}
     return out
+
+
+def tree_depth(tree):
+    """How many levels BELOW the root this tree can emit. `truncate_tree(t, 1)` gives 1.
+
+    This is the check that makes `--l1-tree` refuse a file that is not a depth-1 tree, and it
+    reads the TREE rather than the walk's output. A result-based check would be data-dependent:
+    a depth-2 tree whose gap happened to fail everywhere in sample 3 would pass there and refuse
+    on sample 4, so a cohort would get half a column written one way and half the other. The
+    declaration gives every sample the same verdict, which is what a per-sample pipeline needs.
+
+    A name reachable by two routes is counted at the SHALLOWER one and not revisited — the guard
+    that stops a malformed cyclic `children` spinning forever. `bare_names_unique` is what
+    DETECTS that shape; this function only refuses to hang on it.
+    """
+    kids = (tree or {}).get("children", {}) or {}
+    depth, frontier, seen = 0, [ROOT], {ROOT}
+    while frontier:
+        nxt = []
+        for name in frontier:
+            for c in kids.get(name, []):
+                if c not in seen:
+                    seen.add(c)
+                    nxt.append(c)
+        if not nxt:
+            break
+        depth, frontier = depth + 1, nxt
+    return depth
+
+
+def root_child_diff(tree, other):
+    """`(only_in_tree, only_in_other)` for the two root child sets, as sorted lists.
+
+    An independent L1 run is comparable with the deep walk's `path[:1]` only when both walks
+    faced the SAME decision at the root — same children, therefore the same weights and the same
+    gap. `truncate_tree` guarantees that; a hand-written depth-1 tree does not, and the
+    difference is silent, giving two label columns that look like one taxonomy and are not.
+    Reported, never refused: scAnno does not get to decide that a caller meant them to match.
+    """
+    a = set((tree or {}).get("children", {}).get(ROOT, []) or [])
+    b = set((other or {}).get("children", {}).get(ROOT, []) or [])
+    return sorted(a - b), sorted(b - a)

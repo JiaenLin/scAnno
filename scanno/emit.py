@@ -613,6 +613,112 @@ def level_columns(adata, path_key, prefix="scAnno_L", sep="/", sentinels=("EXCLU
     return made, depth
 
 
+#: Where the values in an L1 column came from. `derived` is `level_columns` truncating the deep
+#: walk's own path; `independent` is a SECOND walk, against a depth-1 tree, of its own.
+L1_DERIVED = "derived"
+L1_INDEPENDENT = "independent"
+
+
+def independent_l1(adata, res, y, flag=None, level_prefix="scAnno_L", suffix="", sep="/",
+                   sentinels=(EXCLUDED, UNRESOLVED), tree=""):
+    """Replace the DERIVED L1 column with a second, independent walk's result. Returns (col, rec).
+
+    `res` is `classify()`'s output for the DEPTH-1 tree — the same unchanged walk, the same Z,
+    the same background, the same gap. Nothing here re-decides anything: it joins per cell
+    exactly as `annotate_obs` does, honours the per-nucleus flag the same way, and writes the
+    values into the column `level_columns` has already made.
+
+    WHY IT OVERWRITES `scAnno_L1<suffix>` RATHER THAN TAKING A NAME OF ITS OWN
+
+    `scAnno_L1` is the name every consumer of this cohort already keys on, and the deliverable is
+    defined as two label columns, one of them called L1. A second column named
+    `scAnno_L1_independent` would leave the independent answer invisible to exactly the readers
+    it was built for, and would leave the derived column — the one this run means to supersede —
+    still sitting under the name they read. The suffix rule is untouched and is what keeps a
+    sweep from colliding: a suffixed run writes `scAnno_L1_r1p0`, never `scAnno_L1`.
+
+    WHY THE MARK IS IN `uns` AND NOT IN THE NAME
+
+    "Independent" is a fact about where the column came from, not about what it holds, and
+    provenance encoded in a column name can only be read by a human squinting at it.
+    `uns[f"{col}_provenance"]` sorts beside the column it describes, is machine-readable, and
+    survives `rewrite_for_viewer`, which drops only `_tmp`/`_scratch`/`_temp` keys.
+
+    The cost is stated rather than hidden: `anndata.concat` drops `uns` by default, so
+    concatenating a `--l1-tree` object with one annotated without it gives a single `scAnno_L1`
+    holding both kinds and no record of which cell got which. A distinct column name would have
+    made that visible, as missing values. So the record also carries `n_disagree` against the
+    derived column it replaced — a run whose two L1s would have differed says so at write time,
+    while the object is still cheap to rebuild.
+    """
+    import pandas as pd
+
+    col = f"{level_prefix}1{suffix}"
+    cols = per_cell(res, y, flag=flag)
+    vals = [str(v) for v in cols["path"]]
+
+    # An L1 column may not hold a path. If it does, the tree was not depth 1 and the caller's
+    # guard did not fire — raise rather than truncate, because truncating here would silently
+    # produce a correct-LOOKING L1 out of a tree nobody meant to pass.
+    deep = sorted({v for v in vals if v not in sentinels and sep in v})
+    if deep:
+        raise ValueError(
+            f"the L1 walk returned {len(deep)} path(s) below level 1 — "
+            f"{', '.join(deep[:4])}{' ...' if len(deep) > 4 else ''}. "
+            f"--l1-tree needs a DEPTH-1 tree: `scanno scope --out-l1-tree`, or "
+            f"`scope.truncate_tree(tree, 1)`.")
+
+    before = [str(v) for v in adata.obs[col]] if col in adata.obs else None
+    adata.obs[col] = pd.Categorical(vals)
+
+    counts = {}
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+    rec = {
+        "column": col,
+        "source": L1_INDEPENDENT,
+        "tree": str(tree),
+        "n_cells": len(vals),
+        "labels": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        "replaced": L1_DERIVED if before is not None else "",
+        # -1, not 0: there was no derived column to compare against, which is not "they agreed".
+        "n_disagree": (int(sum(1 for a, b in zip(before, vals) if a != b))
+                       if before is not None else -1),
+        "disagreements": {},
+    }
+    if before is not None:
+        d = {}
+        for a, b in zip(before, vals):
+            if a != b:
+                d[f"{a} -> {b}"] = d.get(f"{a} -> {b}", 0) + 1
+        rec["disagreements"] = dict(sorted(d.items(), key=lambda kv: -kv[1]))
+    adata.uns[f"{col}_provenance"] = rec
+    return col, rec
+
+
+def format_independent_l1(rec) -> list:
+    """The independent-L1 record as lines: what it replaced, and where the two differ."""
+    prov = f"{rec['column']}_provenance"
+    L = [f"  {rec['column']}: an INDEPENDENT walk against {rec['tree'] or 'the depth-1 tree'} — "
+         f"{len(rec['labels'])} label(s) over {rec['n_cells']:,} cells",
+         f"    provenance in uns[{prov!r}], source={rec['source']!r}, so a reader can tell this "
+         f"column from a derived one"]
+    if rec.get("replaced"):
+        L.append(f"    it REPLACED the {rec['replaced']} L1 — the deep walk's path truncated to "
+                 f"level 1")
+    n = rec.get("n_disagree", -1)
+    if n == 0:
+        L.append("    the two agree on every cell, which is what an unchanged root decision "
+                 "predicts. Measured here, not assumed")
+    elif n > 0:
+        pct = 100 * n / max(rec["n_cells"], 1)
+        L.append(f"    REVIEW  they differ on {n:,} cell(s) ({pct:.3f}%). The deeper level "
+                 f"columns are still the DEEP walk's, so L1 and L2 disagree for those cells:")
+        for k, v in list(rec.get("disagreements", {}).items())[:6]:
+            L.append(f"      {v:>8,}  {k}")
+    return L
+
+
 def rewrite_for_viewer(src, dst, *, drop_scratch_uns=True, path_key=None,
                        level_prefix="scAnno_L", slim=False, keep=(), log=None):
     """Rewrite an object so a browser viewer can open it, and can be navigated once open.
