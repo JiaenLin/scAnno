@@ -442,9 +442,9 @@ def test_without_a_scope_the_annotate_path_is_untouched():
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
     body = ast.unparse(fn)
-    assert "(scope, force_paths) = (None, [])" in body, "the scope must default to nothing"
+    assert _stmt("scope, force_paths = None, []") in body, "the scope must default to nothing"
     assert "if force_paths:" in body, "the reassignment must be gated on the scope"
-    assert "force_rec = None" in body
+    assert _stmt("force_rec = None") in body
     assert "assignment=force_rec is not None" in body, "the column must be gated too"
     # nothing may seal or force outside those two guards
     assert body.count("apply_force(") == 1 and body.count("seal_tree(") == 1
@@ -673,6 +673,24 @@ def _same(a, b):
     """Equal, with NaN equal to NaN — `survival` is NaN on the profile path and must compare."""
     import math
     return (math.isnan(a) and math.isnan(b)) or a == pytest.approx(b)
+
+
+def _stmt(src):
+    """One statement, rendered by the SAME unparser the test reads the source with.
+
+    A hand-typed expectation compared against `ast.unparse` output is an assertion about
+    CPython's pretty-printer, not about scanno. CPython 3.11 stopped parenthesising a tuple
+    ASSIGNMENT TARGET, so `"(scope, force_paths) = (None, [])"` matched on 3.9, matched
+    nothing on 3.12, and reported the strongest guarantee in this file — that absent
+    `--scope` the annotate path is byte-identical — as BROKEN on the only interpreter the
+    pipeline actually runs on, while `cli.py` was correct throughout. The wrong half of that
+    is the one that would have been "fixed".
+
+    Round-tripping the expectation through the same unparser removes the interpreter version
+    from the assertion and removes nothing else: the string still has to be present, still
+    has to be that exact statement, and a substring that merely resembles it still fails.
+    """
+    return ast.unparse(ast.parse(src))
 
 
 def _code_strings(path):
