@@ -1,0 +1,32 @@
+# The environment scAnno's results were produced in, captured from a working install rather
+# than composed from bounds. Every version here ran the SAMBO cohort end to end on 2026-08-16.
+#
+# WHY A LOCK AND NOT A RANGE. `pyproject.toml` declares `scanpy>=1.10` because scAnno's decision
+# layer genuinely tolerates a range. Its RESULTS do not: clustering is not bit-reproducible
+# across versions, and on this cohort a cluster flag moved by 47 nuclei between two commits of
+# the *upstream* tool on identical input. Bounds are what scAnno needs to IMPORT; this file is
+# what a result needs to REPRODUCE. Use it when you intend to compare against a published number.
+name: scanno
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.12.12
+  - pip
+  - pip:
+      - anndata==0.13.2
+      - scanpy==1.12.3
+      - numpy==2.4.6
+      - scipy==1.18.0
+      - pandas==3.0.5
+      - igraph==1.0.0
+      - leidenalg==0.12.0
+      - h5py==3.16.0
+      - numba==0.66.0
+      - scikit-learn==1.9.0
+      - umap-learn==0.5.12
+      - natsort==8.4.0
+      - packaging==26.1
+      # plotting: scAnno writes its report WITHOUT these - every figure becomes a named
+      # absence and the document is still produced. Installed here because you almost
+      # certainly want the figures, not because the tool needs them to run.
+      - matplotlib==3.11.1
+      - seaborn==0.13.2

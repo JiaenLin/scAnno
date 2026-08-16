@@ -3,13 +3,13 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.7.6-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.7.7-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.7.6` this is a classifier, not a
+> **Read [Status](#status) before planning anything.** At `0.7.7` this is a classifier, not a
 > pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
 > `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
 > downstream can actually read — `--report` writes a self-contained document beside it, and an
@@ -344,6 +344,30 @@ tissue before anything else — if `scanno panel` refuses, no amount of tuning w
 scanno panel --db corpus.db --species Human --tissue Blood --top 10
 ```
 
+
+### If you do not already have an environment
+
+`pip install -e '.[run]'` installs into whatever environment you are *already in*. If you have
+none, or you are reproducing a published number:
+
+```bash
+setup/install_env.sh --prefix ~/envs/scanno    # build the locked environment
+setup/install_env.sh --check                   # audit the one you have; changes nothing
+```
+
+`setup/environment.lock.yml` is captured from an environment that ran a real cohort end to end,
+not composed from bounds. The distinction matters: `pyproject.toml` says `scanpy>=1.10` because
+scAnno's decision layer genuinely tolerates a range, but **its results do not** — clustering is
+not bit-reproducible across versions, and on one cohort a cluster flag moved by 47 nuclei between
+two commits of the upstream tool on identical input. Bounds are what scAnno needs to import; the
+lock is what a result needs to reproduce.
+
+`--check` grades what it finds rather than failing on the first absence: a missing `anndata` means
+scAnno cannot read `.h5ad` at all, a missing `matplotlib` means every figure becomes a named
+absence and the report is still written, and a version that merely *differs* means it will run
+but may not match a published number.
+
+
 ## Documentation
 
 | | |
@@ -358,7 +382,7 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 
 ## Status
 
-**0.7.6.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.7.7.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
