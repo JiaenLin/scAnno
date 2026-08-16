@@ -709,7 +709,18 @@ class Context:
                           .fillna(False).to_numpy(dtype=bool))
 
     def sample_rows(self, sample):
-        """The pooled frame restricted to one sample, for the per-sample document."""
+        """The pooled frame restricted to one sample, for the per-sample document.
+
+        Matched on `_obj` FIRST — the object's own name, which is what every per-sample figure
+        is called with. `obs["sample"]` is a different string whenever the file is named for
+        anything but its sample: `Aging1.filtered.h5ad` gives an object named `Aging1.filtered`
+        while its obs says `Aging1`, and matching on obs alone returned an EMPTY frame. The
+        figures then reported "no QC columns in obs" for ten samples whose objects carried all
+        four — a named absence that was a lookup failure wearing a finding's clothes.
+        """
+        by_obj = self.P[self.P["_obj"] == str(sample)]
+        if len(by_obj):
+            return by_obj
         return self.P[self.P["sample"] == str(sample)]
 
     # ------------------------------------------------------------------ the flagged nuclei

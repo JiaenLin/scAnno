@@ -192,6 +192,39 @@ def test_depth_general():
               "depth" in inspect.signature(FIGURES[fid][0]).parameters)
 
 
+# ------------------------------------------------------------------ per-sample lookup
+def test_sample_rows():
+    """An object named for its FILE must still find its own rows.
+
+    `Aging1.filtered.h5ad` gives an object named `Aging1.filtered` whose obs says `Aging1`.
+    Matching per-sample rows on obs alone returned an empty frame, and every per-sample figure
+    then reported a named absence — "no QC columns in obs" — for objects that carried them.
+    A lookup failure that renders as a finding is worse than a crash.
+    """
+    print("per-sample lookup")
+    import numpy as np, pandas as pd
+    from scanno.context import Context
+
+    class Fake:
+        def __init__(self, name, n=40):
+            self.n_obs = n
+            self.obs = pd.DataFrame({
+                "sample": ["Aging1"] * n,                       # NOT the object name
+                "scanno_path": ["Immune/Myeloid"] * n,
+                "total_counts": np.arange(n, dtype=float),
+                "pct_counts_mt": np.ones(n),
+            }, index=[f"{name}_c{i}" for i in range(n)])
+            self.var = pd.DataFrame(index=["G1", "G2"])
+            self.obsm, self.layers, self.X = {}, {}, None
+            self.var_names = self.var.index
+
+    ctx = Context([("Aging1.filtered", Fake("Aging1.filtered"))], path_key="scanno_path")
+    r = ctx.sample_rows("Aging1.filtered")
+    check("rows found by OBJECT name", len(r) == 40, f"got {len(r)}")
+    check("its QC columns are visible", "total_counts" in r and r["total_counts"].notna().any())
+    check("obs-name lookup still works too", len(ctx.sample_rows("Aging1")) == 40)
+
+
 # ------------------------------------------------------------------ named absence
 def test_named_absence():
     print("named absence")
@@ -218,6 +251,7 @@ def test_viewer_audit():
 
 if __name__ == "__main__":
     for t in (test_palette, test_primitives, test_one_colour_rule, test_depth_general,
+              test_sample_rows,
               test_named_absence, test_viewer_audit):
         t()
     print("")
