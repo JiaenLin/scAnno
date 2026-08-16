@@ -1560,7 +1560,7 @@ def main(argv=None):
                         "called again and not modified. Because a forced call lands below the "
                         "gap bar while other samples' cells cleared it, the two are never pooled "
                         "silently: every cell carries `<prefix>_assignment` (gap / forced / "
-                        "EXCLUDED) and `<prefix>_force_depth` (how many sub-threshold steps "
+                        "EXCLUDED) and `<prefix>_force_depth` (how many steps outside the walk "
                         "produced its label), `<prefix>_gap` is the first step's margin, and "
                         "uns['<prefix>_assignment_provenance'] holds the node, the leaf and "
                         "every step's margin per cluster. Without it nothing changes")

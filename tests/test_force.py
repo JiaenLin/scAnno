@@ -800,8 +800,10 @@ def test_a_sealed_node_is_a_leaf_and_the_recursion_stops_there():
 
 
 def test_the_number_of_forced_steps_is_recorded_and_a_double_push_is_not_a_single_one():
-    """Stacked uncertainty must be visible in the OBJECT. Two sub-threshold decisions produce a
-    deeper, more confident-looking name, and nothing else in obs says how it got there."""
+    """Stacked uncertainty must be visible in the OBJECT. Two decisions the walk did not take
+    produce a deeper, more confident-looking name, and nothing else in obs says how it got
+    there. The count is not a strength: only the first step is below the bar by construction,
+    which is why every step's margin is recorded beside it rather than summarised."""
     import numpy as np
     from scanno.emit import annotate_obs, force_provenance
     A = _obj(4)
@@ -946,6 +948,10 @@ def test_the_printed_reassignment_shows_every_step_and_says_when_there_was_more_
     assert "0.050, 0.420" in text
     assert "MORE THAN ONE step" in text
     assert "force_depth" in text
+    # the WEAKEST step, named — a later step may clear the bar the first one failed, and a line
+    # calling every step sub-threshold would be as wrong as calling none of them that
+    assert "weakest step 0.050" in text
+    assert "may" in text and "either side of the bar" in text
 
 
 def test_internal_terminals_separates_a_broken_recursion_from_a_split_the_scope_left_open():

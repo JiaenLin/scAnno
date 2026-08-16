@@ -83,10 +83,12 @@ def per_cell(res, y, flag=None):
         # none - a column with gaps in it would be read as "unknown" where it means "ordinary".
         "assignment": np.array([str(by_cluster[int(c)].get("assignment", BY_GAP)) for c in y],
                                dtype=object),
-        # HOW FAR it was pushed, not merely that it was. Each forced step is another decision
-        # taken below the bar, so a twice-pushed label rests on two rejections and must not read
-        # as the equal of a once-pushed one. Zero means no step was forced - true of a
-        # gap-cleared row and of a withheld one alike, which is what `assignment` tells apart.
+        # HOW FAR it was pushed, not merely that it was. Each forced step is a decision the walk
+        # did not take, so a twice-pushed label is the end of a chain and must not read as the
+        # equal of a once-pushed one. It counts decisions, not rejections - only the first is
+        # below the bar by construction - so the margins in `uns` are what say how weak they
+        # were. Zero means no step was forced: true of a gap-cleared row and of a withheld one
+        # alike, which is what `assignment` is there to tell apart.
         "force_depth": np.array([int(by_cluster[int(c)].get("force_depth", 0)) for c in y],
                                 dtype=np.int16),
     }
@@ -160,8 +162,8 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     if assignment:
         put("assignment", cols["assignment"], categorical=True)
         # Written with it and never without it: the pair is one statement. `assignment` says a
-        # cell was forced, `force_depth` says through how many sub-threshold steps, and a reader
-        # given only the first would have no way to tell one rejection from two.
+        # cell was forced, `force_depth` says through how many steps outside the walk, and a
+        # reader given only the first has no way to tell one decision from two.
         put("force_depth", cols["force_depth"])
     if support:
         s = support_per_cell(cols["cell_type"], support)

@@ -54,11 +54,17 @@ WHAT IS RECORDED, AND WHY IT HAS TO BE
 
 A forced call and a gap-cleared call are NOT the same evidential claim: the forced cell lands on
 that child on a margin BELOW the bar, while other samples' cells reached the same child above
-it. And TWO forced steps are not the same claim as one — each step is another sub-threshold
-decision, taken on a margin the walk had already rejected, so a doubly-forced cell rests on two
-rejections and wears a deeper, more confident-looking name for it. Pooling any of these silently
-would trade a visible problem — a compartment name where a subtype belongs — for an invisible
-one, which is the worse of the two, because nothing downstream would ever ask.
+it. And TWO forced steps are not the same claim as one — the label is the end of a chain of
+decisions THE WALK DID NOT TAKE, and it is only as strong as the WEAKEST of them. Pooling any of
+these silently would trade a visible problem — a compartment name where a subtype belongs — for
+an invisible one, which is the worse of the two, because nothing downstream would ever ask.
+
+A LATER STEP IS NOT AUTOMATICALLY A SUB-THRESHOLD ONE, and saying so would be the same error in
+the other direction. Only the FIRST step is below the bar by construction — that is why the walk
+stopped there. Each step after it is scored fresh at a node the walk never reached and its
+margin may fall either side of the bar; measured on the cohort this was written for, a second
+step cleared it at 0.540 where the first had failed at 0.190. So depth counts decisions, not
+rejections, and it is never a substitute for reading the margins: every one of them is reported.
 
 So every cell carries HOW it was assigned and HOW FAR it was pushed:
 
@@ -69,7 +75,8 @@ So every cell carries HOW it was assigned and HOW FAR it was pushed:
                            walk produced it, 1 where it was pushed once, 2 where the push landed
                            on an internal node and had to be pushed again. Zero for a withheld
                            nucleus too — nothing was forced there — and `assignment` is what
-                           tells the two zeroes apart.
+                           tells the two zeroes apart. It says how many decisions were taken
+                           outside the walk, NOT how weak they were; the margins say that.
   `<prefix>_gap`           UNCHANGED, and still the margin at the FORCE node: `classify()` wrote
                            `trace[-1]["gap"]` there whether the walk descended or truncated. It
                            is the FIRST step's margin, which is exactly why it stopped being
@@ -460,20 +467,30 @@ def format_force(record, gap_min=None, sep=SEP):
                      f"   margin(s) {margins}")
         deep = {cid: a for cid, a in record["assigned"].items() if a["steps"][1:]}
         if deep:
-            L.append(f"    {len(deep)} of them needed MORE THAN ONE step, so their label rests "
-                     f"on that many sub-threshold")
-            L.append(f"    decisions rather than one. `<prefix>_force_depth` carries the count "
-                     f"per cell; do not read a")
-            L.append(f"    depth-2 call as the equal of a depth-1 one.")
+            L.append(f"    {len(deep)} of them needed MORE THAN ONE step. Such a label is the "
+                     f"end of a chain of decisions the")
+            L.append(f"    walk did not take, and is only as strong as the WEAKEST of them:")
+            for cid, a in sorted(deep.items(), key=lambda kv: -kv[1]["n_cells"]):
+                L.append(f"      cluster {cid:>6}  weakest step {min(a['margins']):.3f}"
+                         f"   ({a['force_depth']} steps)")
+            L.append(f"    `<prefix>_force_depth` carries the count per cell. It says how many "
+                     f"decisions were taken")
+            L.append(f"    outside the walk, NOT how weak they were — read the margins for "
+                     f"that.")
     else:
         L.append("    no cluster terminated on one of them — nothing was reassigned")
     if gap_min is not None and record["n_forced"]:
-        L.append(f"    A forced call is NOT a gap-cleared call: every margin above is below "
-                 f"the bar ({gap_min}), while cells")
-        L.append(f"    reaching the same child in other samples cleared it. "
-                 f"`<prefix>_assignment` says which is which, per cell,")
-        L.append(f"    and `<prefix>_gap` is the FIRST step's margin — filter on it before any "
-                 f"cross-sample claim.")
+        L.append(f"    A forced call is NOT a gap-cleared call: the FIRST margin of each chain "
+                 f"above is below the bar")
+        L.append(f"    ({gap_min}) by construction — that is why the walk stopped — while cells "
+                 f"reaching the same child in")
+        L.append(f"    other samples cleared it. A LATER step is scored fresh at a node the "
+                 f"walk never reached and may")
+        L.append(f"    fall either side of the bar; it does not inherit the first step's "
+                 f"weakness and does not cancel it.")
+        L.append(f"    `<prefix>_assignment` says which cells are which, `<prefix>_gap` is the "
+                 f"FIRST step's margin, and")
+        L.append(f"    uns holds the rest — filter on them before any cross-sample claim.")
     for cid, u in sorted(record["unforceable"].items()):
         L.append(f"    REFUSE  cluster {cid} stopped on {u['node']}, reached {u['reached']} and "
                  f"cannot be forced to a leaf: {u['reason']}")
