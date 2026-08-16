@@ -832,7 +832,12 @@ def _scope(a):
                    "nodes": verdicts,
                    "sealed": {k: list(v) for k, v in removed.items()},
                    "removed_labels": lost,
-                   "declared_internal_nodes": internal_nodes(tree)}
+                   "declared_internal_nodes": internal_nodes(tree),
+                   # The DRAWN scope travels with the JSON. A consumer that re-derived it would
+                   # need every pass-1 object just to render a picture, and would drift from
+                   # what the vote actually printed the day it ran.
+                   "tree_lines": format_tree(sealed_tree, verdicts, paths_by_sample),
+                   "n_samples": len(paths_by_sample)}
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(_json.dumps(payload, indent=1, default=str), encoding="utf-8")
         print(f"\nwrote {a.out}")
