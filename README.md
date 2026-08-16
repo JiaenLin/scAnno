@@ -3,13 +3,13 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.7.5-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.7.6-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
 `Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
 
-> **Read [Status](#status) before planning anything.** At `0.7.5` this is a classifier, not a
+> **Read [Status](#status) before planning anything.** At `0.7.6` this is a classifier, not a
 > pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
 > `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
 > downstream can actually read — `--report` writes a self-contained document beside it, and an
@@ -37,6 +37,24 @@ Three failures shaped this, all measured rather than imagined.
 - **A marker panel that scored a solid tissue on olfactory receptors.** A near-silent gene has a minute
   variance, so one stray count gives it an enormous z-score. Guarding against *exactly* zero
   variance does not catch it. The output table looked entirely plausible.
+
+
+## Running scAnno on a cluster
+
+Copy `jobs/TEMPLATE.pbs` into your project and edit the marked block. It carries three things
+that are easy to omit and expensive to omit:
+
+- **`set -euo pipefail`.** Without `-e` a failed step is logged, the job continues, and the exit
+  trap reads the status of the last `echo` — sealing a failed run as a successful one.
+- **A seal that checks products, not just exit status.** A step can exit 0 having written
+  nothing, so the trap lists the files the run must have and fails if any is missing.
+- **Scratch redirected into the run directory.** R, pip, matplotlib and numba write under
+  `$HOME` by default.
+
+Create the run directory with a plain `mkdir` before `qsub`, never `mkdir -p`: a run-key
+collision should abort rather than give two jobs one directory. PBS does not create the `-o`
+destination and loses the log silently if it is missing.
+
 
 ## The core idea
 
@@ -340,7 +358,7 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 
 ## Status
 
-**0.7.5.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.7.6.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |

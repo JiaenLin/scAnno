@@ -1,0 +1,63 @@
+#!/bin/bash
+#PBS -N scanno
+#PBS -q workq
+#PBS -l select=1:ncpus=12:mem=48gb
+#PBS -l walltime=10:00:00
+#PBS -j oe
+#
+# A template for running scAnno as a batch job. Copy it into your project's
+# stages/NN_name/jobs/ and edit the marked block. Submit with:
+#
+#     mkdir "$RUNDIR" && mkdir "$RUNDIR/logs"          # plain mkdir: a collision must ABORT
+#     qsub -v RUNDIR="$RUNDIR" -o "$RUNDIR/logs/pbs.log" thisfile.pbs
+#
+# The three lines above the edit block are not decoration. Each one is a failure that reached a
+# real deliverable:
+
+set -euo pipefail
+#  ^^ -e IS LOAD-BEARING. Without it a failed step is logged, the job carries on, and the exit
+#     trap below reads $? of the LAST command - usually an echo - and seals the run GREEN. That
+#     happened: a job whose embed and report steps both crashed wrote SEALED.txt and reported
+#     success. A green light indistinguishable from a red one is worse than no light.
+
+RUNDIR="${RUNDIR:?pass it with qsub -v RUNDIR=...}"
+
+finish() { s=$?
+  # Exit status is NECESSARY AND NOT SUFFICIENT: a step can exit 0 having written nothing.
+  # List the products this run is supposed to have, and fail the seal if any is missing.
+  miss=""
+  for want in $PRODUCTS; do [ -s "$want" ] || miss="$miss ${want#$RUNDIR/}"; done
+  [ -n "$miss" ] && [ "$s" -eq 0 ] && s=97
+  { echo "exit=$s"; echo "jobid=${PBS_JOBID:-none}"; hostname; date -u +%Y-%m-%dT%H:%M:%SZ
+    [ -n "$miss" ] && echo "missing_products:$miss"; } \
+    > "$RUNDIR/$([ "$s" -eq 0 ] && echo SEALED.txt || echo FAILED.txt)"
+  # Files, NOT -R on the tree, and logs/ stays writable: PBS copies -o/-e in AFTER the job ends,
+  # and chmod -R a-w as the last line destroys the log you most need when a job fails.
+  find "$RUNDIR" -type f -not -path "$RUNDIR/logs/*" -exec chmod a-w {} + 2>/dev/null; }
+trap finish EXIT
+
+# The job records its own identity. A RUNLOG entry is for humans and is overwritten by the next
+# push; PBS forgets the job in 24 hours, after which this file is the only record it existed.
+echo "${PBS_JOBID:-none}" > "$RUNDIR/PBS_JOBID"
+cp -- "$TOOL/HEAD.txt" "$RUNDIR/TOOL_HEAD.txt" 2>/dev/null || true
+{ date -u +%Y-%m-%dT%H:%M:%SZ; hostname; env | grep -E '^PBS_'; } > "$RUNDIR/PROVENANCE.txt"
+
+# Keep the toolchain's scratch inside the run. R, pip, matplotlib and numba write under $HOME
+# otherwise, so "nothing lands outside the project" is not true by default.
+export R_LIBS_USER="$RUNDIR/cache/R" PYTHONNOUSERSITE=1 XDG_CACHE_HOME="$RUNDIR/cache" \
+       MPLCONFIGDIR="$RUNDIR/cache/mpl" NUMBA_CACHE_DIR="$RUNDIR/cache/numba"
+mkdir -p "$RUNDIR/cache"
+
+# ============================ EDIT FROM HERE ============================
+TOOL="$HOME/tools/scAnno"
+PY="$HOME/projects/MYPROJECT/env/myenv/bin/python"
+IN="$HOME/projects/MYPROJECT/results/01_qc/objects"
+
+# Every file this run MUST produce. The seal checks them; add to it when you add a step.
+PRODUCTS="$RUNDIR/report/reports/cohort.html"
+
+PYTHONPATH="$TOOL" "$PY" -m scanno.cli report \
+    --h5ad "$IN"/*.h5ad \
+    --out "$RUNDIR/report" \
+    --sample-key sample --condition-key group
+# ============================ EDIT TO HERE ==============================

@@ -61,6 +61,26 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
     import numpy as np
     import scanpy as sc
 
+    # ---- PREFLIGHT. Check every input BEFORE spending anything ----------------------
+    #
+    # This command reads ten objects, concatenates 109,140 cells and only then normalises. A
+    # defect in input three used to surface half an hour in, inside `normalize_total`, as
+    # `'NoneType' object has no attribute 'dtype'` - naming neither the object nor the cause.
+    # Everything checkable is checked here, in seconds, and refuses by NAME.
+    bad = []
+    for name, A in objects:
+        X = A.layers["counts"] if "counts" in getattr(A, "layers", {}) else A.X
+        if X is None:
+            bad.append(f"{name}: no expression matrix (.X is None and no counts layer)")
+        elif getattr(X, "shape", (0, 0))[1] == 0:
+            bad.append(f"{name}: matrix has zero genes")
+        if A.n_obs == 0:
+            bad.append(f"{name}: zero cells")
+    if bad:
+        raise SystemExit("scanno embed: REFUSE - " + str(len(bad)) + " input(s) cannot be used:\n  "
+                         + "\n  ".join(bad))
+    log(f"  preflight: {len(objects)} object(s), all carry an expression matrix")
+
     parts = []
     for name, A in objects:
         B = A.copy()
