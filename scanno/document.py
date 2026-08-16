@@ -290,7 +290,8 @@ class Assembler:
         self.out = Path(out_dir)
         self.rel = rel                 # path prefix from the HTML file to the figure directory
         self.subdir = subdir           # figure directory under out/figures
-        self.absent = []
+        self.absent = []   # the DATA lacked an input
+        self.failed = []   # scAnno broke. Never the same thing.
         self.made = []
 
     def fig(self, fid, *, name=None, caption=None, **kw):
@@ -304,10 +305,16 @@ class Assembler:
             return (f"<div class='absent'><b>{_esc(fid)} was not drawn.</b> "
                     f"{_esc(str(e))}</div>")
         except Exception as e:                                            # noqa: BLE001
-            self.absent.append({"figure": fid, "name": stem,
+            # A DEFECT, kept visually distinct from an absence. An absence says something about
+            # the data; a defect says something about scAnno, and the two must never render the
+            # same. A lookup failure once reported "no QC columns in obs" for ten samples whose
+            # objects carried all four - a bug wearing a finding's clothes.
+            self.failed.append({"figure": fid, "name": stem,
                                 "reason": f"{type(e).__name__}: {e}"})
-            return (f"<div class='absent'><b>{_esc(fid)} failed to draw.</b> "
-                    f"<code>{_esc(type(e).__name__)}: {_esc(e)}</code></div>")
+            return (f"<div class='bad'><b>{_esc(fid)} FAILED TO DRAW — this is a defect in "
+                    f"scAnno, not a gap in your data.</b> "
+                    f"<code>{_esc(type(e).__name__)}: {_esc(e)}</code><br>"
+                    f"Please report it; do not read this as a finding about the cohort.</div>")
         self.made.append({"figure": fid, "name": stem,
                           "path": str(path.relative_to(self.out))})
         title = FIGURES[fid][2]
@@ -699,12 +706,20 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
           f"<span class='mono'>{_esc(v)}</span>"]
          for k, v in sorted(ctx.palette.as_dict().items())]))
 
+    if A.failed:
+        body.append("<h2>Figures that FAILED — defects in scAnno</h2>")
+        body.append("<div class='bad'><b>These are not findings about your data.</b> Each is an "
+                    "error inside scAnno that prevented a figure being drawn. Nothing here "
+                    "should be read as an absence of signal.</div>")
+        body.append(_table(["figure", "error"],
+                           [[_esc(a["name"]), _esc(a["reason"])] for a in A.failed]))
     if A.absent:
         body.append("<h2>Figures that could not be drawn</h2>")
-        body.append(_table(["figure", "why"],
+        body.append(_table(["figure", "the input it needed"],
                            [[_esc(a["name"]), _esc(a["reason"])] for a in A.absent]))
         body.append("<p class='sub'>Named rather than omitted: a figure that vanishes silently "
-                    "reads as a finding that there was nothing to show.</p>")
+                    "reads as a finding that there was nothing to show. These are gaps in the "
+                    "INPUT; anything that broke is listed separately above.</p>")
 
     path = out / "reports" / "cohort.html"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -814,15 +829,17 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
     a consumer never has to scrape HTML to get at them.
     """
     out = Path(out_dir)
-    links, absent = [], []
+    links, absent, failed = [], [], []
     if per_sample:
         for s in ctx.samples:
             p, A = write_sample(ctx, s, out, title=title, version=version,
                                 cohort_href="../cohort.html")
             links.append((s, f"samples/{p.name}"))
             absent += A.absent
+            failed += A.failed
     cohort, CA = write_cohort(ctx, out, title=title, version=version, sample_links=links)
     absent += CA.absent
+    failed += CA.failed
 
     payload = {
         "generated": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -847,6 +864,7 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
         "resolution_sweep": ctx.resolution_sweep() or None,
         "palette": ctx.palette.as_dict(),
         "figures_not_drawn": absent,
+        "figures_failed": failed,
         "reports": {"cohort": str(cohort.relative_to(out)),
                     "samples": [h for _, h in links]},
     }

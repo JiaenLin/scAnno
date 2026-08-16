@@ -224,6 +224,20 @@ def test_sample_rows():
     check("its QC columns are visible", "total_counts" in r and r["total_counts"].notna().any())
     check("obs-name lookup still works too", len(ctx.sample_rows("Aging1")) == 40)
 
+    # THE INVARIANT. Every object this context holds must be able to find its own rows. If it
+    # cannot, that is a defect and it must RAISE - never return empty, because empty becomes a
+    # named absence and a named absence reads as a statement about the data.
+    for smp in ctx.samples:
+        check(f"invariant: {smp} finds its rows", len(ctx.sample_rows(smp)) > 0)
+    try:
+        ctx.P.loc[:, "_obj"] = "renamed"
+        ctx.P.loc[:, "sample"] = "renamed"
+        ctx.sample_rows("Aging1.filtered")
+        raised = False
+    except LookupError as e:
+        raised = "bug in scAnno" in str(e)
+    check("a lookup failure RAISES rather than returning empty", raised)
+
 
 # ------------------------------------------------------------------ named absence
 def test_named_absence():
@@ -234,6 +248,12 @@ def test_named_absence():
     doc = (Path(__file__).resolve().parents[1] / "scanno" / "document.py").read_text("utf-8")
     check("absent SECTIONS are named, not omitted", "_absent_section(" in doc)
     check("absent FIGURES are named, not omitted", "class='absent'" in doc)
+    # A DEFECT and an ABSENCE must never render the same. One is about scAnno, the other about
+    # the data, and the page that conflates them reports a bug as a finding.
+    check("a defect renders as a DEFECT, not an absence",
+          "FAILED TO DRAW" in doc and "defect in" in doc)
+    check("defects are collected separately from absences",
+          "self.failed" in doc and "figures_failed" in doc)
     check("every figure id has a legend",
           all(fid in doc for fid in F.FIGURES), "")
 

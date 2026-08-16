@@ -721,7 +721,20 @@ class Context:
         by_obj = self.P[self.P["_obj"] == str(sample)]
         if len(by_obj):
             return by_obj
-        return self.P[self.P["sample"] == str(sample)]
+        by_sample = self.P[self.P["sample"] == str(sample)]
+        if len(by_sample):
+            return by_sample
+        if str(sample) in {str(x) for x in self.samples}:
+            # The object EXISTS and we failed to find its rows. That is a defect in this code,
+            # not a property of the data, and it must never reach a figure as a named absence -
+            # the page would then report a statement about the cohort that is really a statement
+            # about a string comparison.
+            raise LookupError(
+                f"sample_rows({sample!r}) found no rows, but {sample!r} is one of this "
+                f"context's objects. Object keys: {sorted({str(x) for x in self.P['_obj']})[:4]}; "
+                f"obs sample values: {sorted({str(x) for x in self.P['sample']})[:4]}. "
+                f"This is a bug in scAnno, not a gap in the data.")
+        return by_sample
 
     # ------------------------------------------------------------------ the flagged nuclei
     def flag_per_animal(self):
