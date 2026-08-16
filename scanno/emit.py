@@ -83,6 +83,12 @@ def per_cell(res, y, flag=None):
         # none - a column with gaps in it would be read as "unknown" where it means "ordinary".
         "assignment": np.array([str(by_cluster[int(c)].get("assignment", BY_GAP)) for c in y],
                                dtype=object),
+        # HOW FAR it was pushed, not merely that it was. Each forced step is another decision
+        # taken below the bar, so a twice-pushed label rests on two rejections and must not read
+        # as the equal of a once-pushed one. Zero means no step was forced - true of a
+        # gap-cleared row and of a withheld one alike, which is what `assignment` tells apart.
+        "force_depth": np.array([int(by_cluster[int(c)].get("force_depth", 0)) for c in y],
+                                dtype=np.int16),
     }
     if flag is not None:
         flag = np.asarray(flag, dtype=bool)
@@ -96,6 +102,7 @@ def per_cell(res, y, flag=None):
         # The exclusion is per NUCLEUS. A flagged nucleus sitting in a cluster that WAS forced
         # took no part in that decision, and `forced` here would claim it did.
         out["assignment"][flag] = EXCLUDED
+        out["force_depth"][flag] = 0
     return out
 
 
@@ -118,11 +125,13 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     resolution, so annotating the same object at eight resolutions wants
     `scanno_path_r0p25 … scanno_path_r2p0` rather than the resolution buried in the middle.
 
-    `assignment=True` adds `<prefix>_assignment<suffix>` — `gap` / `forced` / `EXCLUDED` per
-    cell. It is OPT-IN rather than always written because a run with no scope has nothing to
-    distinguish: every row would read `gap`, and a column that can only hold one value is a
-    column a reader has to check before learning nothing. `scanno annotate --scope` turns it on,
-    and then it is written even when zero cells were forced — there, all-`gap` is a measurement.
+    `assignment=True` adds TWO columns, which are one statement and are never written apart:
+    `<prefix>_assignment<suffix>` — `gap` / `forced` / `EXCLUDED` per cell — and
+    `<prefix>_force_depth<suffix>`, the number of forced steps behind that cell's label. They are
+    OPT-IN rather than always written because a run with no scope has nothing to distinguish:
+    every row would read `gap` and 0, and a column that can only hold one value is a column a
+    reader has to check before learning nothing. `scanno annotate --scope` turns them on, and
+    then they are written even when zero cells were forced — there, all-`gap` is a measurement.
     """
     import pandas as pd
 
@@ -150,6 +159,10 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     put("survival", cols["survival"])
     if assignment:
         put("assignment", cols["assignment"], categorical=True)
+        # Written with it and never without it: the pair is one statement. `assignment` says a
+        # cell was forced, `force_depth` says through how many sub-threshold steps, and a reader
+        # given only the first would have no way to tell one rejection from two.
+        put("force_depth", cols["force_depth"])
     if support:
         s = support_per_cell(cols["cell_type"], support)
         if flag is not None:
@@ -746,15 +759,21 @@ def force_provenance(adata, record, prefix=DEFAULT_PREFIX, suffix="", scope=""):
       obs[`<prefix>_assignment<suffix>`]   per CELL, one of `gap` / `forced` / `EXCLUDED` — the
                                            part a filter or a groupby needs, and the part that
                                            survives `anndata.concat`.
-      uns[<that column>_provenance]        per CLUSTER, the FORCE node, the child chosen, the
-                                           margin, survival, cover and cell count — the part a
-                                           sensitivity check needs, and too wide to be columns.
+      obs[`<prefix>_force_depth<suffix>`]  per CELL, how many forced steps produced that label.
+                                           Also irreducible: a forced push can take more than one
+                                           step, and nothing else in obs implies how many.
+      uns[<that column>_provenance]        per CLUSTER, the FORCE node, the leaf chosen, the path
+                                           after each step and the margin of each, survival,
+                                           cover and cell count — the part a sensitivity check
+                                           needs, and too wide to be columns.
 
-    Why the detail is not also columns: a per-cell copy of the margin would be a second home for
-    a number `<prefix>_gap` already holds, and two homes for one number is how they come to
-    disagree. Why the column is not only `uns`: `anndata.concat` drops `uns` by default, and a
-    cohort concatenated without it must still be able to tell a forced cell from a cleared one.
-    So the irreducible per-cell fact is a column and everything derivable from it is not.
+    Why the detail is not also columns: a per-cell copy of a margin would be a second home for a
+    number `<prefix>_gap` already holds, and two homes for one number is how they come to
+    disagree — and a chain of them has no per-cell scalar form at all. Why the columns are not
+    only `uns`: `anndata.concat` drops `uns` by default, and a cohort concatenated without it
+    must still be able to tell a forced cell from a cleared one, and a doubly-forced one from a
+    singly-forced one. So the irreducible per-cell facts are columns and everything derivable
+    from them is not.
     """
     rec = dict(record)
     rec["column"] = f"{prefix}_assignment{suffix}"

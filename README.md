@@ -3,7 +3,7 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.9.0-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.10.0-blue.svg)](#status)
 
 Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
 the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
@@ -382,7 +382,7 @@ but may not match a published number.
 
 ## Status
 
-**0.9.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
+**0.10.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
 checked against the tree rather than remembered.
 
 | | |
@@ -402,6 +402,7 @@ checked against the tree rather than remembered.
 | ✅ **cluster** | `scanno cluster` is step 1: normalise, variable genes over EVERY gene, PCA, neighbours, UMAP, Leiden at every resolution asked for. It selects nothing - every resolution is kept, because a sweep that discarded the evidence for its own stopping point would be unfalsifiable - and it REFUSES rather than proceeding when it cannot find raw counts to preserve. `--split-by` clusters each sample independently: no shared variable genes, no joint embedding, no batch key. |
 | ✅ **two-route check** | `scanno compare` scores two annotated objects against each other, excluding from the denominator any cell one route withheld, naming the confused PAIRS rather than only a percentage, and reporting how much of route B is one sample - because a joint clustering of an un-integrated cohort can group by library, and then disagreement indicts B. |
 | ✅ **report** | `--report` writes one self-contained HTML file plus a `report.json` carrying every number in it: composition, the labels on the embedding, reliability by tree depth, the corpus markers behind the calls, what was withheld and how unevenly, every cluster call, and provenance. Every section states what it cannot show, and the report counts a missing limit as a defect on its own front page. |
+| ✅ **scope: SEAL, KEEP and FORCE** | `scanno scope` votes each internal node across a cohort and `annotate --scope` acts on the verdict. A SEAL deletes a child set, so the walk stops there for every sample alike. A FORCE says the cohort agreed the split is admissible, so **no cell may terminate on an internal node**: a stranded cluster is pushed to the child the unchanged walk already measured, and if that child is itself internal the push REPEATS — each further node really scored, by the same weights over the same data — until a leaf, at any depth. Nothing is invented: a chain that cannot reach a leaf is recorded and the run refuses rather than delivering a half-pushed cell. A forced call is not a gap-cleared call and the two are never pooled silently: `<prefix>_assignment` says how each cell was assigned, `<prefix>_force_depth` through how many sub-threshold steps, and `uns` carries the chain and every step's margin. `tests/test_force.py`. |
 | ✅ **upstream provenance** | an object carrying scQC's `uns["scqc"]` declaration arms the exclusion automatically, after verifying the flag against its digest. A declaration that does not check out REFUSES. An object with a flag column and no declaration gets nothing - scAnno reads declarations and never guesses from a column name. |
 | ❌ **no ingest, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
 | ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |

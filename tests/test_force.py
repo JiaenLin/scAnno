@@ -7,7 +7,15 @@ then not acted on, so cells stranded on a node the cohort agreed to split kept t
 COMPARTMENT — the same string the L1 column uses for every cell beneath it. Two delivered
 columns then disagree about what one word means.
 
-The fix has to hold seven things at once, and each has a test named for it:
+ONE PUSH WAS NOT ENOUGH
+
+The first implementation pushed a stranded cell exactly one level. On the cohort this was
+written for that left one sample's cluster on the PARENT of two real subtypes — an internal node
+— so the compartment name was moved one level down rather than removed. FORCE now means: a cell
+may not TERMINATE on an internal node. The push repeats until a leaf, at any depth, and section
+8 below is the whole of that guarantee.
+
+The fix has to hold eight things at once, and each has a test named for it:
 
   1. FORCE lands on the ARGMAX THE WALK ALREADY RECORDED — `trace[-1]["top"]` at the node it
      stopped on. Checked against a REAL `classify()` run, not against a hand-built trace, so
@@ -20,7 +28,11 @@ The fix has to hold seven things at once, and each has a test named for it:
   6. WHICH nodes are FORCE comes from the scope FILE — nothing in the library names a node, a
      sample, a cohort size or a threshold;
   7. `scanno/classify.py` is not touched. The walk, the gap test and GAP_CORPUS are as they
-     were; everything here is post-walk or changes only which TREE is handed in.
+     were; everything here is post-walk or changes only which TREE is handed in;
+  8. the push RECURSES to a leaf; each step past the first is really scored, by the same
+     machinery the walk uses; the number of steps is recorded per cell; a chain that cannot
+     reach a leaf is recorded rather than invented and never looped; and a single-level push is
+     bit-for-bit what it was before.
 
     python tests/test_force.py        # no pytest needed; the shim below stands in
 """
@@ -64,7 +76,7 @@ except ImportError:                                                       # noqa
 
 from scanno.force import (ASSIGNMENTS, BY_FORCE, BY_GAP, EXCLUDED,  # noqa: E402
                           apply_force, bare_force, check_scope, force_nodes, format_force,
-                          scope_verdicts, sealed_nodes)
+                          internal_terminals, push_to_leaf, scope_verdicts, sealed_nodes)
 
 # ============================================================================ fixtures
 #
@@ -337,11 +349,17 @@ def test_the_provenance_names_the_node_the_child_and_the_margin_per_cluster():
     assert prov["column"] == "scanno_assignment"
     assert prov["scope"] == "scope.json"
     assert prov["nodes"] == ["Endothelial"]
+    # `steps` and `margins` are LISTS because a push can take more than one step. For a
+    # single-step push they hold one entry each, and `margin` still names the FIRST — the margin
+    # at the FORCE node — so a reader of the old record reads the same number from the same key.
     assert prov["assigned"]["0"] == {"node": "Endothelial", "to": "Endocardial",
                                      "path": "Endothelial/Endocardial", "margin": 0.02,
-                                     "survival": 0.5, "cover": 0.6, "n_cells": 961}
+                                     "survival": 0.5, "cover": 0.6, "n_cells": 961,
+                                     "force_depth": 1,
+                                     "steps": ["Endothelial/Endocardial"], "margins": [0.02]}
     assert prov["by_node"] == {"Endothelial": {"Endocardial": 961}}
     assert prov["n_cells_forced"] == 961
+    assert prov["clusters_by_force_depth"] == {"1": 1}
 
 
 def test_the_provenance_holds_no_list_of_dicts_so_the_object_can_be_written():
@@ -495,7 +513,7 @@ def test_the_library_names_no_node_no_sample_and_no_cohort_size():
     cohort = ("Cardiomyocyte", "Endothelial", "Fibroblast", "Matrifibrocyte", "Pericyte",
               "Macrophage", "Mesothelial", "Endocardial", "Lymphoid", "Aging", "Young",
               "SAMBO", "mouse_heart")
-    for mod in ("force.py", "scope.py", "emit.py"):
+    for mod in ("force.py", "scope.py", "emit.py", "step.py"):
         for s in _code_strings(ROOT / "scanno" / mod):
             hit = [w for w in cohort if w in s]
             assert not hit, f"scanno/{mod} encodes {hit} in a code string: {s!r}"
@@ -636,6 +654,342 @@ def test_the_trace_this_feature_reads_is_the_one_classify_writes():
 
     # ... and the argmax is the FIRST of a descending sort, i.e. the most similar child
     assert "srt = np.argsort(-s)" in src
+
+
+# ================================================ 8. the push RECURSES, to a LEAF, and says so
+#
+# The defect this section exists for: a single push landed a stranded cluster on the PARENT of
+# two subtypes, so the cell terminated on an internal node carrying a compartment name — the
+# thing FORCE removes, moved one level down. Everything below is that guarantee, taken apart.
+
+
+def _deep():
+    """A REAL `classify()` run stranded on a node whose ARGMAX CHILD IS ALSO INTERNAL.
+
+    That is the shape one push cannot fix, and it is built here rather than described: the walk
+    truncates at `Endothelial`, whichever child it prefers has children of its own, and only a
+    second SCORE can say which of those the cluster resembles — the walk never looked.
+
+    Returns everything a scorer needs: `(res, tree, Z, usable, store, gap_min)`.
+    """
+    import numpy as np
+    from scanno.classify import GAP_PROFILE, classify
+
+    G = 12
+    genes = [f"G{i}" for i in range(G)]
+
+    class Store:
+        #: genes 0-3 the shared compartment block, 4/5 separate the two subtypes faintly,
+        #: 6/7 separate the sub-subtypes cleanly, 8-11 the other compartment. The sub-subtype
+        #: genes are ZERO in both subtype profiles, so adding them cannot move the score at the
+        #: node above — which is what keeps this fixture's truncation the same one `_walk` has.
+        celltypes = ["VE", "EC", "CM", "VEa", "VEb", "ECa", "ECb"]
+        mean = np.array([
+            [3, 3, 3, 3, 2.0, 1.9, 0, 0, 0, 0, 0, 0],      # VE
+            [3, 3, 3, 3, 1.9, 2.0, 0, 0, 0, 0, 0, 0],      # EC
+            [0, 0, 0, 0, 0.0, 0.0, 0, 0, 3, 3, 3, 3],      # CM
+            [3, 3, 3, 3, 2.0, 1.9, 3, 0, 0, 0, 0, 0],      # VEa
+            [3, 3, 3, 3, 2.0, 1.9, 0, 3, 0, 0, 0, 0],      # VEb
+            [3, 3, 3, 3, 1.9, 2.0, 3, 0, 0, 0, 0, 0],      # ECa
+            [3, 3, 3, 3, 1.9, 2.0, 0, 3, 0, 0, 0, 0],      # ECb
+        ], float)
+
+        def grade(self, i):
+            return "A"
+
+    tree = {"children": {"root": ["Endothelial", "Cardiomyocyte"],
+                         "Endothelial": ["Vascular endothelial", "Endocardial"],
+                         "Vascular endothelial": ["Arterial", "Capillary"],
+                         "Endocardial": ["Atrial endocardial", "Ventricular endocardial"]},
+            "members": {"Endothelial": ["VE", "EC"], "Cardiomyocyte": ["CM"],
+                        "Vascular endothelial": ["VE"], "Endocardial": ["EC"],
+                        "Arterial": ["VEa"], "Capillary": ["VEb"],
+                        "Atrial endocardial": ["ECa"], "Ventricular endocardial": ["ECb"]},
+            "genes": genes}
+    Z = np.array([[3, 3, 3, 3, 2.00, 1.95, 2, 0, 0, 0, 0, 0],   # subtype unclear, sub-subtype
+                  [0, 0, 0, 0, 0.00, 0.00, 0, 0, 3, 3, 3, 3],   #   clear: the stranded one
+                  [3, 3, 3, 3, 3.00, 1.00, 3, 0, 0, 0, 0, 0]],  # clear all the way down
+                 float)
+    usable = np.ones(G, bool)
+    store = Store()
+    res = classify(Z, usable, tree, store=store, gap_min=GAP_PROFILE)
+    return res, tree, Z, usable, store, GAP_PROFILE
+
+
+def _scorer(table):
+    """A `node_scorer`-shaped callable driven by a table `{node: (top, gap)}`.
+
+    Used where the arithmetic is not what is under test. Anything absent from the table returns
+    None, which is exactly what `node_scorer` returns for a node it cannot score.
+    """
+    return lambda cid, node: (at(node, *table[node]) if node in table else None)
+
+
+def test_a_forced_push_continues_until_it_reaches_a_leaf_of_the_scoped_tree():
+    """The guarantee, end to end and with real scoring: no cell terminates on an internal node."""
+    from scanno.step import node_scorer
+    res, tree, Z, usable, store, gap_min = _deep()
+
+    assert res[0]["path"] == "Endothelial"                     # stranded on an internal node
+    first = res[0]["trace"][-1]["top"]
+    assert tree["children"][first], f"{first} must be internal or the fixture proves nothing"
+
+    forced, rec = apply_force(res, ["Endothelial"], counts={0: 99, 1: 40715, 2: 17783},
+                              tree=tree, scorer=node_scorer(Z, usable, tree, store=store))
+
+    path = forced[0]["path"].split("/")
+    assert path[0] == "Endothelial" and path[1] == first
+    assert not tree["children"].get(path[-1]), f"{path[-1]} is not a leaf"
+    assert forced[0]["depth"] == len(path) == 3
+    assert forced[0]["label"] == path[-1]
+    assert forced[0]["assignment"] == BY_FORCE
+    assert internal_terminals(forced, tree) == []
+    assert bare_force(forced, ["Endothelial"]) == []
+    assert rec["recursive"] is True
+    assert rec["clusters_by_force_depth"] == {"2": 1}
+
+
+def test_a_forced_step_is_scored_exactly_as_the_walk_would_have_scored_it():
+    """The anti-drift guarantee, and the reason a forced step is comparable to a walked one.
+
+    `scanno/step.py` repeats the arithmetic of ONE node of `classify()`'s loop, and a textual
+    copy drifts silently. So the two are not compared by reading; they are RUN over the same
+    inputs and compared entry for entry, at every node the walk actually visited — where the
+    truth is known — before either is trusted at a node it did not.
+    """
+    from scanno.step import node_scorer
+    res, tree, Z, usable, store, _ = _deep()
+    step = node_scorer(Z, usable, tree, store=store)
+
+    n = 0
+    for r in res:
+        for entry in r["trace"]:
+            got = step(r["cluster"], entry["at"])
+            assert got is not None, f"the walk scored {entry['at']} and step() would not"
+            assert got["at"] == entry["at"]
+            assert got["top"] == entry["top"], (entry["at"], got["top"], entry["top"])
+            assert got["gap"] == pytest.approx(entry["gap"], abs=1e-12)
+            assert _same(got["survival"], entry["survival"])
+            assert _same(got["cover"], entry["cover"])
+            n += 1
+    assert n, "the fixture recorded no trace at all"
+    # ... and a node the walk never reached is scored, which is the whole point
+    deeper = step(0, res[0]["trace"][-1]["top"])
+    assert deeper is not None and deeper["top"] in tree["children"][deeper["at"]]
+
+
+def test_a_sealed_node_is_a_leaf_and_the_recursion_stops_there():
+    """A seal deletes a child set, so the sealed node HAS no children and is a leaf by
+    construction. Nothing in the recursion reads the verdicts, and nothing needs to."""
+    from scanno.scope import seal_tree
+    v = scope(**{"Stromal": "FORCE", "Stromal/Mural": "SEAL"})["nodes"]
+    sealed, removed = seal_tree(TREE, v)
+    assert removed == {"Stromal/Mural": ["Pericyte", "Smooth muscle"]}
+
+    res = calls("Stromal", trace={0: [at("root", "Stromal", 0.9), at("Stromal", "Mural", 0.05)]})
+    # the scorer would happily go on if it were asked; it is not asked, because Mural is a leaf
+    scorer = _scorer({"Mural": ("Pericyte", 0.4)})
+    forced, rec = apply_force(res, ["Stromal"], tree=sealed, scorer=scorer, counts={0: 99})
+
+    assert forced[0]["path"] == "Stromal/Mural" and forced[0]["depth"] == 2
+    assert forced[0]["force_depth"] == 1
+    assert internal_terminals(forced, sealed) == []
+    # and against the UNSEALED tree the same rows would be a defect - which is what makes the
+    # check above a statement about the tree in force rather than about the label string
+    assert [t["node"] for t in internal_terminals(forced, TREE)] == ["Stromal/Mural"]
+
+
+def test_the_number_of_forced_steps_is_recorded_and_a_double_push_is_not_a_single_one():
+    """Stacked uncertainty must be visible in the OBJECT. Two sub-threshold decisions produce a
+    deeper, more confident-looking name, and nothing else in obs says how it got there."""
+    import numpy as np
+    from scanno.emit import annotate_obs, force_provenance
+    A = _obj(4)
+    res = calls("Stromal", "Endothelial",
+                trace={0: [at("root", "Stromal", 0.9), at("Stromal", "Mural", 0.05)],
+                       1: [at("root", "Endothelial", 0.9),
+                           at("Endothelial", "Endocardial", 0.02)]})
+    forced, rec = apply_force(res, ["Stromal", "Endothelial"], counts={0: 99, 1: 961},
+                              tree=TREE, scorer=_scorer({"Mural": ("Pericyte", 0.42)}))
+
+    assert forced[0]["path"] == "Stromal/Mural/Pericyte" and forced[0]["force_depth"] == 2
+    assert forced[1]["path"] == "Endothelial/Endocardial" and forced[1]["force_depth"] == 1
+    assert rec["clusters_by_force_depth"] == {"2": 1, "1": 1}
+
+    written = annotate_obs(A, forced, np.array([0, 0, 1, 1]), assignment=True)
+    assert "scanno_force_depth" in written
+    assert list(A.obs["scanno_force_depth"]) == [2, 2, 1, 1]
+    assert list(A.obs["scanno_assignment"]) == [BY_FORCE] * 4      # identical, and must not be
+    # the two are one statement: the column that says HOW and the column that says HOW FAR
+    force_provenance(A, rec)
+    a = A.uns["scanno_assignment_provenance"]["assigned"]["0"]
+    assert a["steps"] == ["Stromal/Mural", "Stromal/Mural/Pericyte"]
+    assert a["margins"] == [pytest.approx(0.05), pytest.approx(0.42)]
+    assert a["margin"] == pytest.approx(0.05)      # still the margin AT the FORCE node
+    assert a["to"] == "Pericyte" and a["force_depth"] == 2
+
+
+def test_a_gap_cleared_or_excluded_cell_is_recorded_as_zero_steps_forced():
+    """Zero is a measurement here, not a missing value — and `assignment` tells the two apart."""
+    import numpy as np
+    from scanno.emit import annotate_obs
+    A = _obj(6)
+    res, _ = apply_force(calls("EXCLUDED", "Cardiomyocyte/Working cardiomyocyte", "Stromal",
+                               trace={2: [at("root", "Stromal", .9), at("Stromal", "Mural", .05)]}),
+                         ["Stromal"], tree=TREE,
+                         scorer=_scorer({"Mural": ("Smooth muscle", 0.3)}))
+    annotate_obs(A, res, np.array([0, 0, 1, 1, 2, 2]), assignment=True)
+    assert list(A.obs["scanno_force_depth"]) == [0, 0, 0, 0, 2, 2]
+    assert list(A.obs["scanno_assignment"]) == [EXCLUDED, EXCLUDED, BY_GAP, BY_GAP,
+                                                BY_FORCE, BY_FORCE]
+
+
+def test_a_node_whose_children_cannot_be_scored_is_recorded_rather_than_invented():
+    """`node_scorer` returns None where the walk would have broken. There is no measured child
+    then, and a half-applied push would leave the cell on the internal node — the defect."""
+    res = calls("Stromal", trace={0: [at("root", "Stromal", 0.9), at("Stromal", "Mural", 0.05)]})
+    forced, rec = apply_force(res, ["Stromal"], counts={0: 99}, tree=TREE, scorer=_scorer({}))
+
+    assert forced[0]["path"] == "Stromal"          # UNTOUCHED: not moved half way
+    assert "force_depth" not in forced[0]
+    assert rec["n_forced"] == 0 and rec["n_cells_forced"] == 0
+    u = rec["unforceable"]["0"]
+    assert u["node"] == "Stromal" and u["reached"] == "Stromal/Mural"
+    assert u["n_steps"] == 1 and u["margins"] == [pytest.approx(0.05)]
+    assert "cannot be scored" in u["reason"]
+    assert u["n_cells"] == 99
+    # the post-condition still fires, which is what makes the CLI refuse rather than write
+    assert bare_force(forced, ["Stromal"]) != []
+    assert "REFUSE" in "\n".join(format_force(rec))
+
+
+def test_a_tree_that_loops_stops_the_recursion_instead_of_running_forever():
+    """A cycle is a taxonomy defect, not a reason to hang. It is named and the row is left be."""
+    loop = {"children": {"root": ["Alpha"], "Alpha": ["Beta"], "Beta": ["Alpha"]},
+            "patterns": {}, "members": {}}
+    res = calls("Alpha", trace={0: [at("root", "Alpha", 0.9), at("Alpha", "Beta", 0.05)]})
+    forced, rec = apply_force(res, ["Alpha"], tree=loop,
+                              scorer=_scorer({"Beta": ("Alpha", 0.4)}))
+
+    assert forced[0]["path"] == "Alpha" and rec["n_forced"] == 0
+    assert "already passed through" in rec["unforceable"]["0"]["reason"]
+    assert rec["unforceable"]["0"]["reached"] == "Alpha/Beta"
+
+
+def test_the_recursion_assumes_no_particular_depth():
+    """Three levels is this cohort's tree, not the tool's. A four-step chain must work the same."""
+    chain = {"children": {"root": ["N1", "X"], "N1": ["N2", "Y"], "N2": ["N3", "Z"],
+                          "N3": ["N4", "W"]},
+             "patterns": {}, "members": {}}
+    res = calls("N1", trace={0: [at("root", "N1", 0.9), at("N1", "N2", 0.05)]})
+    forced, rec = apply_force(res, ["N1"], tree=chain,
+                              scorer=_scorer({"N2": ("N3", 0.06), "N3": ("N4", 0.07)}))
+
+    assert forced[0]["path"] == "N1/N2/N3/N4"
+    assert forced[0]["depth"] == 4 and forced[0]["force_depth"] == 3
+    assert rec["assigned"]["0"]["margins"] == [pytest.approx(x) for x in (0.05, 0.06, 0.07)]
+    assert internal_terminals(forced, chain) == []
+
+
+def test_a_child_that_is_already_a_leaf_is_pushed_once_exactly_as_before():
+    """NO REGRESSION. Where the destination is a leaf, recursion must change nothing at all —
+    same path, same depth, same statistics, same record — whether or not a scorer is present."""
+    res = calls("Endothelial",
+                trace={0: [at("root", "Endothelial", .9), at("Endothelial", "Endocardial", .02)]})
+    old, rec_old = apply_force(res, ["Endothelial"], counts={0: 961})
+    new, rec_new = apply_force(res, ["Endothelial"], counts={0: 961}, tree=TREE,
+                               scorer=_scorer({"Endocardial": ("Never asked", 0.9)}))
+
+    assert new[0]["path"] == old[0]["path"] == "Endothelial/Endocardial"
+    assert new[0]["depth"] == old[0]["depth"] == 2
+    assert new[0] == old[0] and old[0]["force_depth"] == 1
+    assert rec_new["assigned"] == rec_old["assigned"]
+    assert rec_new["by_node"] == rec_old["by_node"]
+
+
+def test_without_a_tree_the_push_is_single_level_because_leafness_is_unknowable():
+    """NO REGRESSION for a caller holding only the walk's output. `Mural` is internal in TREE and
+    the push still stops there, because without a tree nothing in scope KNOWS that."""
+    res = calls("Stromal", trace={0: [at("root", "Stromal", .9), at("Stromal", "Mural", .05)]})
+    forced, rec = apply_force(res, ["Stromal"], counts={0: 99})
+    assert forced[0]["path"] == "Stromal/Mural" and forced[0]["force_depth"] == 1
+    assert rec["unforceable"] == {} and rec["recursive"] is False
+
+
+def test_a_tree_without_a_scorer_refuses_rather_than_stopping_on_an_internal_node():
+    """The one combination that must NOT silently do half the job: leafness knowable, the next
+    child not measurable. Guessing there is the same invention the walk refuses to make."""
+    res = calls("Stromal", trace={0: [at("root", "Stromal", .9), at("Stromal", "Mural", .05)]})
+    forced, rec = apply_force(res, ["Stromal"], counts={0: 99}, tree=TREE)
+    assert forced[0]["path"] == "Stromal" and rec["n_forced"] == 0
+    assert "no scorer was given" in rec["unforceable"]["0"]["reason"]
+
+
+def test_push_to_leaf_reports_the_chain_it_took_and_not_only_where_it_ended():
+    """Read on its own, because the CLI's refusal message and the provenance both need the chain
+    — a line reading `A -> C` lets a reader believe one measurement put the cell there."""
+    steps, refusal = push_to_leaf(
+        0, "Stromal", at("Stromal", "Mural", 0.05), tree=TREE,
+        scorer=_scorer({"Mural": ("Pericyte", 0.42)}))
+    assert refusal == ""
+    assert [s["path"] for s in steps] == ["Stromal/Mural", "Stromal/Mural/Pericyte"]
+    assert [s["to"] for s in steps] == ["Mural", "Pericyte"]
+    assert [s["margin"] for s in steps] == [pytest.approx(0.05), pytest.approx(0.42)]
+
+
+def test_the_printed_reassignment_shows_every_step_and_says_when_there_was_more_than_one():
+    res = calls("Stromal", trace={0: [at("root", "Stromal", .9), at("Stromal", "Mural", .05)]})
+    _, rec = apply_force(res, ["Stromal"], counts={0: 99}, tree=TREE,
+                         scorer=_scorer({"Mural": ("Pericyte", 0.42)}))
+    text = "\n".join(format_force(rec, gap_min=0.30))
+    assert "Stromal -> Mural -> Pericyte" in text
+    assert "0.050, 0.420" in text
+    assert "MORE THAN ONE step" in text
+    assert "force_depth" in text
+
+
+def test_internal_terminals_separates_a_broken_recursion_from_a_split_the_scope_left_open():
+    """Both are cells sitting on an internal node and their remedies have nothing in common: one
+    is a bug in the push, the other is the walk truncating where the scope said it may."""
+    res = calls("Cardiomyocyte", "Stromal/Fibroblast",
+                trace={0: [at("root", "Cardiomyocyte", .9),
+                           at("Cardiomyocyte", "Working cardiomyocyte", .01)]})
+    out, _ = apply_force(res, ["Stromal"], tree=TREE)       # Cardiomyocyte is NOT forced
+    stopped = internal_terminals(out, TREE)
+    assert [t["node"] for t in stopped] == ["Cardiomyocyte"]
+    assert stopped[0]["assignment"] == BY_GAP
+    assert stopped[0]["children"] == "Working cardiomyocyte, Conduction cardiomyocyte"
+    assert [t for t in stopped if t["assignment"] == BY_FORCE] == []
+
+
+def test_the_cli_refuses_a_forced_cluster_that_stopped_on_an_internal_node():
+    """AST, not behaviour: the post-condition must be READ off the finished rows in `_annotate`,
+    and a `forced` row on any internal node must reach the same refusal as a bare FORCE name."""
+    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
+    body = ast.unparse(fn)
+    assert body.count("internal_terminals(") == 1
+    assert body.count("bare_force(") == 1
+    assert "node_scorer(" in body, "the recursion needs a real scorer, not trace[-1] twice"
+    assert _stmt("stuck += [t for t in inner "
+                 "if t['assignment'] == BY_FORCE and t['cluster'] not in seen]") in body
+    assert "if stuck:" in body and "return REFUSE" in body
+
+
+def test_the_scorer_holds_no_bar_and_does_not_walk():
+    """`scanno/step.py` computes ONE node. The loop, the truncation rule and the gap bar stay in
+    classify.py — a second place that could decide to descend is a second classifier."""
+    src = (ROOT / "scanno" / "step.py").read_text(encoding="utf-8")
+    mod = ast.parse(src)
+    fn = next(n for n in ast.walk(mod) if isinstance(n, ast.FunctionDef) and n.name == "step")
+    assert not [n for n in ast.walk(fn) if isinstance(n, (ast.While, ast.For))], "it walks"
+    # CODE, not prose: the docstring is allowed to explain what FORCE needs this for.
+    for word in ("gap_min", "GAP_PROFILE", "GAP_CORPUS", "FORCE", "SEAL", "descend"):
+        assert word not in ast.unparse(fn), f"step.py's step() mentions {word!r}"
+    floats = {n.value for n in ast.walk(mod)
+              if isinstance(n, ast.Constant) and isinstance(n.value, float)}
+    assert floats == {1.0}, floats          # the spread guard classify.py uses, and nothing else
 
 
 # ------------------------------------------------------------------------------- helpers

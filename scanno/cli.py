@@ -518,26 +518,52 @@ def _annotate(a):
 
     # --- FORCE: nothing terminates on a node the cohort agreed to split ---
     #
-    # POST-WALK, on the rows `classify` already returned. The child a stranded cluster moves to
-    # is `trace[-1]["top"]` - the argmax the unchanged walk recorded at the very node it stopped
-    # on - so no score is recomputed and no bar is moved. Applied to `res` ONLY: `res_l1` below
-    # is the independent L1 and no verdict of the scope may reach it.
+    # POST-WALK, on the rows `classify` already returned. The FIRST child a stranded cluster
+    # moves to is `trace[-1]["top"]` - the argmax the unchanged walk recorded at the very node it
+    # stopped on. If that child is itself internal the push is not finished, so it continues:
+    # `node_scorer` scores the next node with the SAME weights over the SAME Z the walk used, and
+    # the descent repeats until a leaf. No bar is moved and classify.py is not touched. Applied
+    # to `res` ONLY: `res_l1` below is the independent L1 and no verdict of the scope reaches it.
     force_rec = None
     if force_paths:
-        from .force import apply_force, bare_force, format_force
-        res, force_rec = apply_force(res, force_paths, counts=counts)
+        from .force import BY_FORCE, apply_force, bare_force, format_force, internal_terminals
+        from .step import node_scorer
+        res, force_rec = apply_force(
+            res, force_paths, counts=counts, tree=tree,
+            scorer=node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr))
+        # Both post-conditions read the FINISHED rows rather than trusting the function that
+        # produced them. A bare FORCE-node label is the original defect; a FORCED row on any
+        # other internal node is a recursion that stopped short, which delivers the same kind of
+        # compartment name one level down.
         stuck = bare_force(res, force_paths)
+        inner = internal_terminals(res, tree)
+        seen = {s["cluster"] for s in stuck}
+        stuck += [t for t in inner if t["assignment"] == BY_FORCE and t["cluster"] not in seen]
         if stuck:
-            print(f"scanno: REFUSE - {len(stuck)} cluster(s) still terminate on a FORCE node "
+            print(f"scanno: REFUSE - {len(stuck)} cluster(s) still terminate on an internal node "
                   f"after reassignment, so this object would deliver a compartment name where "
                   f"the\n        scope says a subtype belongs:", file=sys.stderr)
-            for s in stuck:
+            for s in sorted(stuck, key=lambda s: s["cluster"]):
                 print(f"        - cluster {s['cluster']} on {s['node']}", file=sys.stderr)
             for line in format_force(force_rec, gap_min=a.gap_min):
                 print(f"        {line.strip()}", file=sys.stderr)
             print("        Nothing was written. Seal that node in the scope, or give its "
                   "children corpus support.", file=sys.stderr)
             return REFUSE
+        # Clusters the WALK truncated on a node the scope left open. Not a defect and not
+        # refused - the scope's own verdict is that stopping there is admissible, and refusing
+        # would replace truncation with abstention, which classify.py exists not to do - but it
+        # is the number behind "nothing terminates on an internal node", so it is measured and
+        # printed rather than assumed to be zero.
+        open_stop = [t for t in inner if t["assignment"] != BY_FORCE]
+        n_open = sum(counts[t["cluster"]] for t in open_stop)
+        print(f"  terminating on an internal node: {len(open_stop)} cluster(s) / "
+              f"{n_open:,.0f} cell(s)"
+              + (" - none, so every delivered label is a leaf of the scoped tree"
+                 if not open_stop else ", each on a node the scope did not force:"))
+        for t in sorted(open_stop, key=lambda t: -counts[t["cluster"]]):
+            print(f"      cluster {t['cluster']:>6}  {counts[t['cluster']]:>9,.0f} cell(s)  "
+                  f"{t['node']}   (children kept: {t['children']})")
 
     # THE SECOND WALK. The same `classify`, the same Z, the same usable-gene set, the same
     # background and the same bar - only the tree differs. Nothing about the walk is
@@ -612,7 +638,7 @@ def _annotate(a):
             # together or neither is read at all. `gap` is the margin under both verdicts, and
             # `assignment` is the only thing that says whether that margin cleared the bar.
             if force_rec is not None:
-                head += ["assignment"]
+                head += ["assignment", "force_depth"]
             if res_l1 is not None:
                 head += ["l1_independent", "l1_gap"]
             fh.write("\t".join(head) + "\n")
@@ -621,7 +647,7 @@ def _annotate(a):
                 row = [cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
                        str(r["depth"]), f"{r['gap']:.4f}"]
                 if force_rec is not None:
-                    row += [str(r.get("assignment", ""))]
+                    row += [str(r.get("assignment", "")), str(r.get("force_depth", 0))]
                 if res_l1 is not None:
                     row += [res_l1[i]["path"], f"{res_l1[i]['gap']:.4f}"]
                 fh.write("\t".join(row) + "\n")
@@ -656,8 +682,10 @@ def _annotate(a):
             print("")
             print(f"  {a.label_prefix}_assignment{a.label_suffix}: how each cell was assigned - "
                   f"{force_rec['clusters_by_assignment']} by cluster")
-            print(f"    provenance in uns[{key!r}]: the FORCE node, the child chosen and the "
-                  f"margin, per cluster")
+            print(f"  {a.label_prefix}_force_depth{a.label_suffix}: how many forced steps stand "
+                  f"behind the label - {force_rec['clusters_by_force_depth'] or '{}'} by cluster")
+            print(f"    provenance in uns[{key!r}]: the FORCE node, the leaf chosen and the "
+                  f"margin of EACH step, per cluster")
         if res_l1 is not None:
             col, rec = independent_l1(A, res_l1, y, flag=flag, suffix=a.label_suffix,
                                       tree=str(a.l1_tree))
@@ -1524,14 +1552,18 @@ def main(argv=None):
                         "from the vote instead of from a hand-sealed tree: every SEAL is applied "
                         "to --tree here (idempotently, so an already-sealed tree is still valid "
                         "input) and every FORCE node is honoured, meaning no cluster may "
-                        "TERMINATE on a node the cohort agreed to split. A stranded cluster is "
-                        "reassigned to the most similar child the UNCHANGED walk already "
-                        "recorded - classify() is not called again and not modified. Because a "
-                        "forced call lands below the gap bar while other samples' cells cleared "
-                        "it, the two are never pooled silently: every cell carries "
-                        "`<prefix>_assignment` (gap / forced / EXCLUDED), `<prefix>_gap` is its "
-                        "margin, and uns['<prefix>_assignment_provenance'] holds the node, the "
-                        "child and the margin per cluster. Without it nothing changes")
+                        "TERMINATE on an internal node the cohort agreed to split. A stranded "
+                        "cluster is reassigned to the most similar child the UNCHANGED walk "
+                        "already recorded, and if that child is itself internal the push REPEATS "
+                        "- scoring each further node with the same weights over the same data - "
+                        "until a leaf is reached, however deep the tree is. classify() is not "
+                        "called again and not modified. Because a forced call lands below the "
+                        "gap bar while other samples' cells cleared it, the two are never pooled "
+                        "silently: every cell carries `<prefix>_assignment` (gap / forced / "
+                        "EXCLUDED) and `<prefix>_force_depth` (how many sub-threshold steps "
+                        "produced its label), `<prefix>_gap` is the first step's margin, and "
+                        "uns['<prefix>_assignment_provenance'] holds the node, the leaf and "
+                        "every step's margin per cluster. Without it nothing changes")
     s.add_argument("--l1-tree", type=Path, metavar="JSON",
                    help="a DEPTH-1 tree - `scanno scope --out-l1-tree`. With it the UNCHANGED "
                         "walk runs a SECOND time against that tree and its result becomes the "
