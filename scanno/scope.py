@@ -290,3 +290,71 @@ def format_report(verdicts, removed=None, sealed=None):
             "A seal removes the possibility of a LABEL, never an observation. Every cell keeps",
             "its pass-1 path, so this is reversible by re-running against the declared tree."]
     return out
+
+
+def scoped_counts(verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
+    """Per node of the SEALED tree: nuclei landing there, and how many samples have any.
+
+    Counted through `apply_scope`, so a sealed node carries the nuclei its removed children used
+    to hold — `Stromal/Fibroblast` is 17,961, not the 7,929 that truncated there in pass 1. That
+    is the point: after the scope those are one population, and the tree must say so.
+    """
+    cells = collections.Counter()
+    present = collections.defaultdict(set)
+    for sample, paths in paths_by_sample.items():
+        for p in paths:
+            q = apply_scope(p, verdicts, sep=sep, sentinels=sentinels)
+            if q in sentinels:
+                continue
+            cells[q] += 1
+            present[q].add(sample)
+    return cells, {k: len(v) for k, v in present.items()}
+
+
+def format_tree(tree, verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
+    """The scope drawn as the taxonomy pass 2 will actually walk.
+
+    The node table says what the vote DECIDED; this says what you GET, which is the thing a
+    reader checks against their expectation of the tissue. Only branches some sample reached are
+    drawn — a declared branch nobody reached is reported underneath rather than drawn as though
+    it were part of the scope, because it is not a seal and it holds nothing.
+    """
+    cells, present = scoped_counts(verdicts, paths_by_sample, sep=sep, sentinels=sentinels)
+    n = len(paths_by_sample)
+    kids = tree.get("children", {})
+
+    reached = set()
+    for node in list(cells):
+        parts = node.split(sep)
+        for d in range(1, len(parts) + 1):
+            reached.add(sep.join(parts[:d]))
+
+    out = ["root"]
+
+    def walk(name, path, pad):
+        children = [c for c in kids.get(name, [])
+                    if (path + [c] and sep.join(path + [c]) in reached)]
+        for i, c in enumerate(children):
+            last = i == len(children) - 1
+            cpath = sep.join(path + [c])
+            stem = "└── " if last else "├── "
+            grand = [g for g in kids.get(c, []) if sep.join(path + [c, g]) in reached]
+            if grand:                                   # an OPEN internal node: no count of its own
+                out.append(f"{pad}{stem}{c}")
+            else:
+                mark = "  \u25a0 SEALED" if verdicts.get(cpath, {}).get("verdict") == "SEAL" else ""
+                head = f"{pad}{stem}{c}{mark}"
+                # pad to a fixed column so the counts line up regardless of nesting depth
+                out.append(f"{head:<44}{cells.get(cpath, 0):>8,}   {present.get(cpath, 0)}/{n}")
+            walk(c, path + [c], pad + ("    " if last else "│   "))
+
+    walk("root", [], "")
+
+    unreached = sorted({f"{k}/{c}" for k, v in kids.items() for c in v} -
+                       {p.split(sep)[-1] for p in reached} -
+                       {f"{k}/{c}" for k, v in kids.items() for c in v
+                        if any(p.split(sep)[-1] == c for p in reached)})
+    if unreached:
+        out += ["", "declared but reached by no sample — not sealed, not drawn, still in the tree:"]
+        out += [f"  {u.split('/')[-1]}" for u in unreached]
+    return out

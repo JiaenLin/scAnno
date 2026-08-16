@@ -778,8 +778,8 @@ def _scope(a):
         return 1
     import json as _json
 
-    from .scope import (bare_names_unique, format_report, internal_nodes, seal_tree,
-                        sealed_labels, vote)
+    from .scope import (bare_names_unique, format_report, format_tree, internal_nodes,
+                        seal_tree, sealed_labels, vote)
 
     tree = _json.loads(Path(a.tree).read_text(encoding="utf-8"))
     dup = bare_names_unique(tree)
@@ -815,6 +815,12 @@ def _scope(a):
     print(f"rule: seal unless support >= {a.min_support} (descend-rule {a.descend_rule!r}, "
           f"min-reach {a.min_reach})\n")
     for line in format_report(verdicts, removed=removed, sealed=lost):
+        print(line)
+
+    # THE SCOPE ITSELF, drawn. The table above says what the vote decided; this says what you
+    # get, which is what a reader checks against their knowledge of the tissue.
+    print("\nTHE SCOPE — the taxonomy pass 2 will walk\n")
+    for line in format_tree(sealed_tree, verdicts, paths_by_sample):
         print(line)
 
     if a.out:
