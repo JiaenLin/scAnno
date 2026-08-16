@@ -952,6 +952,26 @@ def _report(a):
     if not a.no_per_sample:
         print(f"      {out}/reports/samples/   {len(ctx.samples)} per-sample page(s)")
     print(f"      {out}/report.json   every number the pages show, machine-readable")
+    # A README beside the output, always. The directory is not self-describing and the reader
+    # who arrives next has one question - which of these is the answer - that a listing cannot
+    # answer for them.
+    from .readme import write as _write_readme
+    try:
+        _write_readme(out, chosen_resolution=a.resolution, path_key=ctx.path_key,
+                      obs_columns=list(ctx.objects[0][1].obs.columns),
+                      n_cells=int(ctx.n), n_samples=len(ctx.samples),
+                      taxonomy_depth=int(ctx.depth), version=__version__,
+                      inputs=", ".join(str(x) for x in a.h5ad[:3]) + (" ..." if len(a.h5ad) > 3 else ""),
+                      withheld=int(ctx.P["flag"].sum()) if ctx.has_flag else None,
+                      limits=["No label here is established as correct: there is no truth set, "
+                              "and this tool reports what the corpus supports, not what is true.",
+                              "The embedding is NOT integrated unless a separate step did so.",
+                              "Any nucleus withheld upstream is labelled EXCLUDED and was never "
+                              "annotated; its identity is not recoverable from this output."])
+        print(f"      {out}/README.md   which file to use, and which not to")
+    except Exception as e:                                                # noqa: BLE001
+        print(f"  README not written: {type(e).__name__}: {e}")
+
     n_absent = len(payload["figures_not_drawn"])
     if n_absent:
         print(f"  {n_absent} figure(s) could not be drawn; each is NAMED on the page with the "
@@ -1043,6 +1063,36 @@ def _lab(a):
     if worst == 2 and not a.fix:
         print("Some objects will NOT open in a browser viewer. Rewrite them:")
         print("  scanno lab --h5ad <files> --fix <output-directory>")
+    return 0
+
+
+def _readme(a):
+    """Write the README that says WHICH FILE TO USE, by inspecting what is on disk."""
+    from .readme import write
+    from . import __version__
+    obs, n_cells, n_samples, depth, withheld = [], None, None, None, None
+    src = sorted(Path(a.dir).glob("annotated/*_annotated.h5ad")) or \
+          sorted(Path(a.dir).glob("*.h5ad"))
+    if src:
+        try:
+            import anndata as ad
+            o = ad.read_h5ad(src[0], backed="r").obs
+            obs = list(o.columns)
+            n_samples = len(src)
+            n_cells = sum(ad.read_h5ad(f, backed="r").n_obs for f in src)
+            pk = a.path_key or next((c for c in obs if c.startswith(("scanno_path", "scAnno_path"))), None)
+            if pk and pk in o:
+                paths = o[pk].astype(str)
+                depth = max((len(p.split("/")) for p in paths
+                             if p not in ("EXCLUDED", "UNRESOLVED")), default=None)
+        except Exception as e:                                            # noqa: BLE001
+            print(f"  could not read {src[0].name}: {type(e).__name__}: {e}")
+    p = write(a.dir, chosen_resolution=a.resolution, path_key=a.path_key,
+              obs_columns=obs, n_cells=n_cells, n_samples=n_samples,
+              taxonomy_depth=depth, version=__version__, command=a.command,
+              inputs=a.inputs, withheld=withheld,
+              limits=[l for l in (a.limit or [])])
+    print(f"wrote {p}")
     return 0
 
 
@@ -1361,6 +1411,18 @@ def main(argv=None):
     s.add_argument("--keep-obs", nargs="*", default=None, metavar="COL",
                    help="extra obs columns --slim must keep")
     s.set_defaults(fn=_lab)
+
+    s = sub.add_parser("readme",
+                       help="write the README that says WHICH FILE TO USE, from what is on disk")
+    s.add_argument("--dir", required=True, type=Path, help="a scAnno output directory")
+    s.add_argument("--resolution", default=None, help="the chosen clustering resolution")
+    s.add_argument("--path-key", default=None, help="the obs column carrying the full label path")
+    s.add_argument("--command", default=None, help="the command that produced it, for the record")
+    s.add_argument("--inputs", default=None, help="what it was produced from")
+    s.add_argument("--limit", action="append", default=None,
+                   help="a limit of this output, repeatable. Written under 'What this cannot "
+                        "tell you' - the section most often omitted and most worth having")
+    s.set_defaults(fn=_readme)
 
     s = sub.add_parser("panel", help="show the corpus panel for one species x tissue")
     s.add_argument("--db", required=True, type=Path)
