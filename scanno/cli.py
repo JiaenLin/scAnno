@@ -515,15 +515,36 @@ def _annotate(a):
     print(f"UNRESOLVED {n_un} clusters = {unres:,.0f} cells "
           f"({100*unres/counts.sum():.1f}%)")
 
+    if res_l1 is not None:
+        # Per CLUSTER, printed whether or not an object is written, because a run that only
+        # prints is still a run somebody reads. The comparison is against the DERIVED L1 -
+        # `path[:1]` - which is what the L1 column would have held without --l1-tree.
+        diff = [(cats[r["cluster"]], p["path"].split("/")[0], r["path"])
+                for p, r in zip(res, res_l1) if p["path"].split("/")[0] != r["path"]]
+        print("")
+        print(f"independent L1 from {a.l1_tree}: "
+              f"{len({r['path'] for r in res_l1})} label(s) over {len(res_l1)} clusters")
+        if diff:
+            print(f"  REVIEW  {len(diff)} cluster(s) differ from the derived L1 (path[:1]):")
+            for cl, der, ind in diff[:10]:
+                print(f"    {cl:>10}   derived {der:<28} independent {ind}")
+        else:
+            print("  every cluster agrees with the derived L1 (path[:1]) - measured, not assumed")
+
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         with Path(a.out).open("w", encoding="utf-8") as fh:
-            fh.write("\t".join(["cluster", "n_cells", "label", "path", "depth",
-                                "gap"]) + "\n")
-            for r in res:
+            head = ["cluster", "n_cells", "label", "path", "depth", "gap"]
+            if res_l1 is not None:
+                head += ["l1_independent", "l1_gap"]
+            fh.write("\t".join(head) + "\n")
+            for i, r in enumerate(res):
                 c = r["cluster"]
-                fh.write("\t".join([cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
-                                    str(r["depth"]), f"{r['gap']:.4f}"]) + "\n")
+                row = [cats[c], f"{counts[c]:.0f}", r["label"], r["path"],
+                       str(r["depth"]), f"{r['gap']:.4f}"]
+                if res_l1 is not None:
+                    row += [res_l1[i]["path"], f"{res_l1[i]['gap']:.4f}"]
+                fh.write("\t".join(row) + "\n")
         print(f"wrote {a.out}")
 
     # The annotated object. Everything above is per CLUSTER; this is the only place the labels
@@ -532,12 +553,31 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
-    from .emit import (annotate_obs, format_plain_labels, format_readiness, format_reindex,
-                       lab_readiness, reindex_by_symbol, write_h5ad)
+    from .emit import (annotate_obs, format_independent_l1, format_plain_labels,
+                       format_readiness, format_reindex, independent_l1, lab_readiness,
+                       reindex_by_symbol, write_h5ad)
+
+    def write_columns():
+        """Every obs column this run contributes, in one place so both branches write the same.
+
+        --report and --out-h5ad each annotate the object, and until this was factored out only
+        the --out-h5ad branch would have carried the independent L1 - a report describing columns
+        the object it points at does not have.
+        """
+        w = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
+                         support=support or None, suffix=a.label_suffix)
+        if res_l1 is not None:
+            col, rec = independent_l1(A, res_l1, y, flag=flag, suffix=a.label_suffix,
+                                      tree=str(a.l1_tree))
+            print("")
+            for line in format_independent_l1(rec):
+                print(line)
+            if col not in w:
+                w.append(col)
+        return w
 
     if a.out_h5ad:
-        written = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
-                               support=support or None, suffix=a.label_suffix)
+        written = write_columns()
         # The WRITTEN object is keyed by symbol, because that is the name a reader looks a
         # gene up by. Accessions are the right index for an object being computed on - symbols
         # are not unique - so the change is made here, at the boundary, and never silently: the
@@ -574,8 +614,7 @@ def _annotate(a):
         label_key = (f"{a.label_prefix}_cell_type" if not a.label_suffix
                      else f"{a.label_prefix}_label{a.label_suffix}")
         if label_key not in A.obs:
-            annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
-                         support=support or None, suffix=a.label_suffix)
+            write_columns()
         doc = rp.collect(
             A, res, cats, y, label_key=label_key, decision=decision, support=support or None,
             store_digest=getattr(store, "digest", ""), tree_path=a.tree, db_path=a.db or "",
@@ -1355,6 +1394,17 @@ def main(argv=None):
     s.add_argument("--h5ad", required=True, type=Path)
     s.add_argument("--cluster-key", required=True)
     s.add_argument("--tree", required=True, type=Path)
+    s.add_argument("--l1-tree", type=Path, metavar="JSON",
+                   help="a DEPTH-1 tree - `scanno scope --out-l1-tree`. With it the UNCHANGED "
+                        "walk runs a SECOND time against that tree and its result becomes the "
+                        "`scAnno_L1` column, replacing the one derived by truncating this run's "
+                        "path. One command, one object, two label columns: the independent L1 "
+                        "and the label from --tree. Without it nothing changes and L1 stays "
+                        "derived. An independent L1 cannot be moved by any seal below the root; "
+                        "it does NOT rescue a cluster the root itself declined, because both "
+                        "walks face the same root child set - see scope.truncate_tree. The "
+                        "column is marked in uns['scAnno_L1_provenance'] so a reader can tell "
+                        "the two apart. REFUSES a tree deeper than one level")
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
     s.add_argument("--assay", default="sc", choices=["sc", "sn"])

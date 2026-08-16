@@ -78,10 +78,14 @@ def test_unanimity_reproduces_the_approved_sambo_scope():
     sealed = sorted(n for n, r in v.items() if r["verdict"] == "SEAL")
     assert sealed == ["Immune/Lymphoid", "Stromal/Fibroblast"], sealed
 
-    # and nothing else moved: every other reached node was unanimous
-    for node in ("root", "Cardiomyocyte", "Stromal", "Endothelial", "Immune",
-                 "Immune/Myeloid", "Stromal/Mural"):   # root: reached 10/10, never sealable
+    # nothing else was sealed. Two nodes are unanimous AND strand cells, so they are FORCE:
+    # admissible splits that nothing may terminate on.
+    for node in ("root", "Cardiomyocyte", "Immune", "Immune/Myeloid", "Stromal/Mural"):
         assert v[node]["verdict"] == "KEEP", (node, v[node])
+    for node in ("Stromal", "Endothelial"):
+        assert v[node]["verdict"] == "FORCE", (node, v[node])
+        assert v[node]["support"] == 1.0            # unanimous, yet still stranding cells
+        assert v[node]["stranded"], node
 
 
 def test_the_two_seals_carry_the_evidence_that_produced_them():
@@ -185,7 +189,8 @@ def test_a_node_no_sample_reached_is_reported_not_sealed():
 def test_loosening_support_stops_sealing_fibroblast():
     """The threshold is the knob, and it is visible: at 0.75 the fibroblast split survives."""
     v = vote(paths(), TREE, min_support=0.75)
-    assert v["Stromal/Fibroblast"]["verdict"] == "KEEP"      # 0.80 >= 0.75
+    assert v["Stromal/Fibroblast"]["verdict"] in ("KEEP", "FORCE")   # 0.80 >= 0.75: not sealed
+    assert v["Stromal/Fibroblast"]["verdict"] != "SEAL"
     assert v["Immune/Lymphoid"]["verdict"] == "SEAL"         # 0.571 < 0.75
 
 
@@ -309,10 +314,40 @@ def test_an_open_node_holding_its_own_cells_is_drawn_with_its_count():
     sealed, _ = seal_tree(TREE, v)
     lines = format_tree(sealed, v, p)
     endo = [l for l in lines if "Endothelial" in l and "Endocardial" not in l]
-    assert endo and "3" in endo[0] and "stranded" in endo[0], lines
+    # drawn with its stranded count and where those cells go — never as a terminal label
+    assert endo and "3" in endo[0] and "most similar child" in endo[0], lines
+    assert v["Endothelial"]["verdict"] == "FORCE"
 
-    # and the drawing must account for every scoped nucleus
+    # every scoped nucleus is accounted for: terminal counts plus the stranded ones being
+    # reassigned. The earlier version of this assertion scraped digits out of rendered text,
+    # which is a check on the formatting rather than on the arithmetic.
     cells, _ = scoped_counts(v, p)
-    drawn = sum(int(t.replace(",", "")) for l in lines for t in l.split()
-                if t.replace(",", "").isdigit() and "/" not in t)
-    assert drawn >= sum(cells.values()), (drawn, sum(cells.values()))
+    stranded = sum(sum(r.get("stranded", {}).values()) for r in v.values()
+                   if r["verdict"] == "FORCE")
+    terminal = sum(n for node, n in cells.items()
+                   if v.get(node, {}).get("verdict") != "FORCE")
+    assert terminal + stranded == sum(cells.values()) == 20, (terminal, stranded, cells)
+
+
+def test_the_l1_run_is_untouched_by_seals_and_by_force():
+    """L1 is its OWN annotation. Nothing the scope decides may reach it.
+
+    The scope acts on the deep tree: it SEALS nodes and it FORCEs stranded cells down to their
+    most similar child. Both operate strictly BELOW level 1, and the L1 tree has nothing below
+    level 1 — root's children are leaves there — so neither verdict can apply to it. That is the
+    guarantee the two-column deliverable rests on: `Stromal` in the L1 column means the
+    compartment and always will, while the scope column can never say `Stromal` bare at all.
+    """
+    from scanno.scope import truncate_tree
+    v = vote(paths(), TREE, min_support=1.0)
+    assert {r["verdict"] for r in v.values()} & {"SEAL", "FORCE"}      # both fire on this data
+
+    l1 = truncate_tree(TREE, 1)
+    sealed, _ = seal_tree(TREE, v)
+    assert truncate_tree(sealed, 1) == l1                              # seals cannot reach it
+
+    # and no node of the L1 tree can ever be FORCEd: they have no children to be pushed to
+    assert all(c not in l1["children"] for c in l1["children"]["root"])
+    v_l1 = vote(paths(), l1, min_support=1.0)
+    assert "FORCE" not in {r["verdict"] for r in v_l1.values()}
+    assert "SEAL" not in {r["verdict"] for r in v_l1.values()}
