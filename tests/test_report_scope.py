@@ -398,11 +398,19 @@ def test_an_unvotable_node_is_reported_as_such_and_not_sealed():
 
 if __name__ == "__main__":                                            # pragma: no cover
     # Standalone runner: collect every test_* in this module and report like the sibling suites.
+    import inspect as _inspect
+    import tempfile as _tempfile
     _fails = []
     for _n, _f in sorted(globals().items()):
         if _n.startswith("test_") and callable(_f):
             try:
-                _f()
+                # Supply pytest's `tmp_path` fixture ourselves. Calling every test with no
+                # arguments silently skipped the ones that write files - the only tests that
+                # touch the filesystem, and so the only ones that can fail on it.
+                _kw = {}
+                if "tmp_path" in _inspect.signature(_f).parameters:
+                    _kw["tmp_path"] = Path(_tempfile.mkdtemp(prefix="scanno_test_"))
+                _f(**_kw)
                 print(f"  PASS  {_n}")
             except Exception as _e:                                       # noqa: BLE001
                 print(f"  FAIL  {_n}: {type(_e).__name__}: {_e}")

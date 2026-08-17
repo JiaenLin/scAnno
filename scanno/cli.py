@@ -1298,8 +1298,19 @@ def _report(a):
     # answer for them.
     from .readme import write as _write_readme
     try:
+        # The worked example is READ FROM THE DATA, never written into the module. A hardcoded
+        # `Immune/Myeloid/Macrophage` fits one taxonomy, and a reader whose tissue has no such
+        # lineage is shown an example that cannot appear in their own file. Take the deepest real
+        # path present, which is also the most informative one to show.
+        _ex = None
+        try:
+            _paths = [p for p in ctx.P[ctx.path_key].astype(str).unique()
+                      if p and "/" in p]
+            _ex = max(_paths, key=lambda p: p.count("/")) if _paths else None
+        except Exception:                                                     # noqa: BLE001
+            _ex = None
         _write_readme(out, chosen_resolution=a.resolution, path_key=ctx.path_key,
-                      obs_columns=list(ctx.objects[0][1].obs.columns),
+                      obs_columns=list(ctx.objects[0][1].obs.columns), path_example=_ex,
                       n_cells=int(ctx.n), n_samples=len(ctx.samples),
                       taxonomy_depth=int(ctx.depth), version=__version__,
                       inputs=", ".join(str(x) for x in a.h5ad[:3]) + (" ..." if len(a.h5ad) > 3 else ""),

@@ -60,7 +60,7 @@ def _label_columns(obs_names, path_key=None):
 
 def build(out_dir, *, chosen_resolution=None, path_key=None, obs_columns=(), n_cells=None,
           n_samples=None, taxonomy_depth=None, version="", command=None, inputs=None,
-          withheld=None, limits=()):
+          withheld=None, limits=(), path_example=None):
     """Inspect `out_dir` and return the README text describing what is actually there."""
     out = Path(out_dir)
     now = datetime.now(timezone.utc).astimezone()
@@ -88,7 +88,7 @@ def build(out_dir, *, chosen_resolution=None, path_key=None, obs_columns=(), n_c
 **Use the columns for the chosen resolution: `{chosen_resolution}`.**
 {'They are: ' + ', '.join(f'`{c}`' for c in sorted(cols_at)) + '.' if cols_at else ''}
 
-{'`' + str(path_key) + '` is the full label path — `Immune/Myeloid/Macrophage` — and is the column downstream analysis should read.' if path_key else ''}
+{'`' + str(path_key) + '` is the full label path' + (' — e.g. `' + str(path_example) + '`' if path_example else '') + ' — and is the column downstream analysis should read.' if path_key else ''}
 Truncate it to work at the depth you can defend: the first component is the level-1 label, the
 first two are level 2, and so on. **The other resolutions are kept so the choice can be argued
 with, not because they are alternatives to use.**
