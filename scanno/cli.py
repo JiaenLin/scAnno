@@ -977,7 +977,7 @@ def _scope(a):
     import json as _json
 
     from .scope import (bare_names_unique, format_report, format_tree, internal_nodes,
-                        seal_tree, sealed_labels, truncate_tree, vote)
+                        scope_labels, seal_tree, sealed_labels, truncate_tree, vote)
 
     tree = _json.loads(Path(a.tree).read_text(encoding="utf-8"))
     dup = bare_names_unique(tree)
@@ -1028,6 +1028,10 @@ def _scope(a):
                    "samples": sorted(paths_by_sample),
                    "tree": str(a.tree),
                    "nodes": verdicts,
+                   # THE SCOPE ITSELF — the labels the next annotation may deliver. The vote and
+                   # the sealed tree are how it is derived and applied; this is the result, and a
+                   # consumer should not have to re-derive it from a tree to state it.
+                   "scope": scope_labels(tree, verdicts),
                    "sealed": {k: list(v) for k, v in removed.items()},
                    "removed_labels": lost,
                    "declared_internal_nodes": internal_nodes(tree),

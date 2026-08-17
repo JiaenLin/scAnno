@@ -1008,10 +1008,23 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
 
     # ---- composition, at every level ---------------------------------------------------
     body.append("<h2>Composition</h2>")
-    body.append("<p class='lede'>Read this section downward. Level 1 is what a summary quotes; "
-                "the deeper levels are where a compositional change actually appears, because "
-                "level-1 shares can sit still while everything underneath rearranges.</p>")
-    for d in ctx.levels:
+    # TWO ANNOTATIONS, AND ONLY TWO. scAnno delivers the INDEPENDENT L1 walk and the SCOPE
+    # annotation; there is no "level 2 annotation" and no "level 3 annotation". The intermediate
+    # depths are TRUNCATIONS of the scope path, and presenting them as sections of their own
+    # invites a reader to quote a level nothing was ever annotated at — and to read a sealed
+    # compartment appearing at "level 2" as a level-2 call rather than as the scope's own
+    # terminal. So the first level and the delivered scope are shown, and nothing between them.
+    _levels = list(ctx.levels)
+    _shown = [_levels[0], _levels[-1]] if len(_levels) > 1 else _levels
+    body.append("<p class='lede'>Two annotations are delivered and both are shown here: the "
+                "<b>L1 annotation</b>, an independent depth-1 walk that no seal at any depth can "
+                "move, and the <b>scope annotation</b> — the labels the cohort's own vote left "
+                "available, at whatever depth each one terminates. They are independent evidence "
+                "about the same nuclei, not a coarse and a fine view of one call. Levels between "
+                "the two are truncations of the scope path and are not annotations; they are not "
+                "shown, because a share quoted at a depth nothing was annotated at is a number "
+                "with no call behind it.</p>")
+    for d in _shown:
         rows, csv_rows = [], []
         jl = ctx.joint_labels(d) if ctx.joint is not None else None
         for l in ctx.label_order(d):
@@ -1031,7 +1044,8 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         src = _write_table(out, f"composition_level{d}.csv",
                            ["label", "parent", "nuclei", "share_pct", "joint_route", "samples"],
                            csv_rows)
-        body.append(f"<h3>level {d}</h3>")
+        body.append(f"<h3>{'the L1 annotation' if d == _shown[0] else 'the scope annotation'}"
+                    f"</h3>")
         body.append(_table(["label", "parent", "nuclei", "share", "joint route", "samples"],
                            rows, source=src))
         fid = "F102" if d == 1 else "F103"

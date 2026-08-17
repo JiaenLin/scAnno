@@ -63,7 +63,7 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
 
     # ---- PREFLIGHT. Check every input BEFORE spending anything ----------------------
     #
-    # This command reads ten objects, concatenates 109,140 cells and only then normalises. A
+    # This command reads every object, concatenates the whole cohort and only then normalises. A
     # defect in input three used to surface half an hour in, inside `normalize_total`, as
     # `'NoneType' object has no attribute 'dtype'` - naming neither the object nor the cause.
     # Everything checkable is checked here, in seconds, and refuses by NAME.

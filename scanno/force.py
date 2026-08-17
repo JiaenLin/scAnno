@@ -11,7 +11,8 @@ the node descended below it — and yet some cells still stopped ON the node, be
 cluster's gap fell short where every other sample's cleared. Those cells end up carrying the
 name of a COMPARTMENT: the identical string the L1 column uses for every cell beneath it. Read
 side by side, the two delivered columns then disagree about what one word means — on the cohort
-this was written for, one animal's 961 `Endothelial` against the compartment's 26,552.
+this was written for, one animal's several hundred `Endothelial` against the tens of
+thousands the compartment holds.
 
 A seal cannot repair that. Sealing a node the cohort agreed to split would throw away the split
 for all ten samples in order to tidy up two, which is a removal paid for by every animal. So the

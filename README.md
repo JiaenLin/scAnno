@@ -67,6 +67,91 @@ classify : (query counts, store-or-corpus, declared tree) → labelled clusters
 Nothing is fitted at runtime, so a result is reproducible from the store digest plus the tree, and
 every failure is attributable to one of three inputs rather than to hidden training state.
 
+## What scAnno delivers: two annotations
+
+**Two label columns come out, and they are independent evidence about the same nuclei — not a
+coarse and a fine view of one call.**
+
+| | |
+|---|---|
+| **the L1 annotation** | an independent depth-1 walk. One decision at the root and it is done. **No seal at any depth can move it**, because it walks its own depth-1 tree rather than being derived as `path[:1]` — independent by construction, not by convention. |
+| **the scope annotation** | the standard walk, run against **the scope**. Its labels terminate at whatever depth the cohort's own evidence supports, so the set is mixed across levels. |
+
+There is no "level 2 annotation" and no "level 3 annotation". Intermediate depths are truncations
+of the scope path; a share quoted at a depth nothing was annotated at is a number with no call
+behind it.
+
+## The scope, and how it is found
+
+**The scope is the label set the annotation is aimed at.** Not a tree, not a parameter — the
+vocabulary, and a RESULT measured from the cohort. The sealed tree is how it is derived and
+applied; `scanno scope --out` reports it under `scope`, each label carrying why it terminates
+there (`leaf` — the taxonomy goes no further; `sealed` — the cohort removed its children).
+
+Finding it is a scouting pass and a vote:
+
+```
+PHASE 1  FIND THE SCOPE
+  cluster
+  pass 1     every sample walks the DECLARED tree, independently   -> evidence, not a deliverable
+  vote       scanno scope                                          -> THE SCOPE
+PHASE 2  ANNOTATE AGAINST IT
+  pass 2     the UNCHANGED walk, per sample, --scope               -> the scope annotation
+  + L1       the UNCHANGED walk, depth-1 tree                      -> the L1 annotation
+```
+
+**The walk never changes.** Same gap test, same `GAP_CORPUS`, same truncate-never-abstain,
+`classify.py` untouched between the phases. The only difference is **which tree is walked**.
+
+### The mechanism is the samples' own agreement
+
+At every internal node, per sample — one vote each, so a 16,000-cell library cannot outvote a
+7,500-cell one:
+
+```
+reached    samples with >=1 cell whose path traverses the node
+descended  samples IN reached with >=1 cell strictly below it
+support    descended / reached
+```
+
+**Only samples that reached the node vote.** A sample that never arrived casts nothing — a missing
+observation, not a vote against. Counting absence as opposition would seal every branch that is
+merely rare, and rare is not unsupported. `--min-reach` is the same guard from the other side: a
+node too few samples reached is UNVOTABLE and left open, never sealed on one animal's evidence.
+
+Then, **keep a split if and only if every sample that saw the branch took it**:
+
+| verdict | condition | effect |
+|---|---|---|
+| **SEAL** | `support < --min-support` | delete the node's **entire** child set — it becomes a leaf, and the label leaves the scope |
+| **FORCE** | support met, cells stranded on the node | tree unchanged; the stranded **cells** are pushed recursively to a leaf |
+| **KEEP** | support met, nothing stranded | nothing |
+
+Only SEAL edits the tree. Sealing rather than pruning is the whole mechanism: pruning leaves the
+node open, so `gap` is still computed over the survivors and samples can still land either side of
+the bar. Sealing makes `node_weights` return `None`, the walk breaks, and **every sample truncates
+there by construction rather than statistically** — no bar, no divergence.
+
+**A seal removes the possibility of a LABEL, never an observation.** Every cell keeps its pass-1
+path in `obs`, so it is reversible by re-running pass 2 against the declared tree.
+
+### What it is calibrated against
+
+Two animals of the same arm, same batch and same chemistry, measured:
+
+```
+animal A   11.25% Fibroblast    0.00% Matrifibrocyte
+animal B    0.00% Fibroblast   17.71% Matrifibrocyte
+```
+
+Identical biology, different depth. Downstream that is indistinguishable from a compositional
+shift and cannot be undone — abundance is conserved and merely re-labelled. So the question the
+vote asks is not *"is this subtype real?"* but **"is this split reproducible across replicates?"**
+
+It uses no gap magnitude, no corpus assertion count, no cluster size, no silhouette. Those describe
+how confident **one** walk was. The scope measures whether **independent walks agreed**, which is
+the only thing that makes a cohort-wide label column comparable across animals.
+
 ## Two ways to run it
 
 **Without an atlas** — the default, and the one most users are in. Node weights come from a curated

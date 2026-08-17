@@ -95,7 +95,7 @@ def node_votes(paths_by_sample, sep=SEP, sentinels=SENTINELS, descend_rule="any"
             # on nothing. UNRESOLVED is a TRUNCATION AT THE ROOT — the walk ran, arrived, and
             # declined to descend. Skipping both, as the first version of this did, left the
             # root with zero reaching samples and the vote structurally unable to see root-level
-            # failure. On the cohort this was written for that is 1,880 nuclei in 4 of 10
+            # failure. On the cohort this was written for that was a low-thousands count in 4 of 10
             # animals, 973 of one animal's and 613 of another's being cells the joint route
             # calls Pericyte — a whole population lost, invisible to a vote that ignores it.
             if p == excluded:
@@ -256,7 +256,7 @@ def vote(paths_by_sample, tree, min_support=MIN_SUPPORT, min_reach=MIN_REACH,
             # branch, not a call: a cell left sitting on it carries the name of a COMPARTMENT,
             # which is the same string the L1 column uses for every cell beneath it. Read side
             # by side those two columns then disagree about what the word means -- one animal's
-            # 961 `Endothelial` against the 26,552 `Endothelial` of the compartment.
+            # several hundred `Endothelial` against the tens of thousands the compartment holds.
             #
             # So the node is marked FORCE: annotation must push each stranded cell to its most
             # similar child rather than stopping. This is not a seal (the split is admissible,
@@ -274,7 +274,7 @@ def sealed_labels(verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
     The project rule is that a removal is assessed by printing its members and reading them —
     `^Rp[sl]\\d` was "ribosomal genes" until it was printed, at which point it contained a
     kinase. A scope that says it seals two nodes is not assessable; one that says it removes
-    `Matrifibrocyte` (7,187) and `Quiescent fibroblast` (2,845) is.
+    `Matrifibrocyte` and `Quiescent fibroblast` is.
     """
     sealed = [n for n, v in verdicts.items() if v["verdict"] == "SEAL"]
     counts = collections.Counter()
@@ -288,6 +288,49 @@ def sealed_labels(verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
         lost = {p: n for p, n in counts.items() if p.startswith(node + sep)}
         out[node] = dict(sorted(lost.items(), key=lambda kv: -kv[1]))
     return out
+
+
+def scope_labels(tree, verdicts=None, sep=SEP):
+    """THE SCOPE: the labels the following annotation may deliver, and why each one stops there.
+
+    THIS IS THE RESULT OF THE VOTE, and the thing the next step is aimed at. Everything else this
+    module produces — the verdicts, the sealed tree — is how it is derived and how it is applied;
+    this is what it IS. A caller that reports the rule and its costs but never states the label
+    set has described the mechanism and withheld the answer.
+
+    The leaves of the tree in force, as full paths, each carrying `why_terminal`:
+
+      leaf    the DECLARED tree gives it no children — the taxonomy goes no further
+      sealed  it HAS declared children and the cohort removed them — recoverable by re-running
+              pass 2 against the declared tree
+
+    A reader who cannot tell those apart reads a sealed compartment as the finest resolution the
+    tissue supports, which is the opposite of what it means — so the reason travels with every
+    label rather than being left to the shape of the string.
+
+    Note what this is NOT: a count of what a cohort turned out to contain. It is the vocabulary
+    the walk is permitted to use. A label here that no nucleus reaches is still in the scope, and
+    saying so is the difference between "this cohort has none" and "this run could not have said
+    so".
+    """
+    verdicts = verdicts or {}
+    scoped = seal_tree(tree, verdicts, sep=sep)
+    kids = scoped.get("children", {}) or {}
+    out, stack = [], [("root", [])]
+    while stack:
+        name, prefix = stack.pop()
+        children = list(kids.get(name) or [])
+        if not children:
+            # The root itself is never a label: with no children every nucleus is UNRESOLVED,
+            # which is a sentinel and not a call.
+            if prefix:
+                path = sep.join(prefix)
+                out.append({"label": path, "depth": len(prefix),
+                            "terminal": why_terminal(path, tree, verdicts, sep=sep)})
+            continue
+        for c in children:
+            stack.append((c, prefix + [c]))
+    return sorted(out, key=lambda r: (r["depth"], r["label"]))
 
 
 def seal_tree(tree, verdicts, sep=SEP):
@@ -372,7 +415,8 @@ def scoped_counts(verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
     """Per node of the SEALED tree: nuclei landing there, and how many samples have any.
 
     Counted through `apply_scope`, so a sealed node carries the nuclei its removed children used
-    to hold — `Stromal/Fibroblast` is 17,961, not the 7,929 that truncated there in pass 1. That
+    to hold — a sealed node's count is every cell at or below it, not only those that truncated
+    there in pass 1. That
     is the point: after the scope those are one population, and the tree must say so.
     """
     cells = collections.Counter()
@@ -456,7 +500,7 @@ def truncate_tree(tree, depth=1, sep=SEP):
 
     Truncating the deep walk's path gives an L1 that INHERITS the deep walk's failures. A cell
     the walk sent to UNRESOLVED at the root has no path to truncate, so it has no L1 either --
-    on the cohort this was written for that is 1,880 nuclei in 4 of 10 animals, and 973 of one
+    on the cohort this was written for that was a low-thousands count in 4 of 10 animals, most of it one
     animal's are a Pericyte population that simply vanishes from the L1 table.
 
     Walking a depth-1 tree instead makes L1 its own annotation, produced by the UNCHANGED walk
