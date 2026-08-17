@@ -1336,7 +1336,8 @@ def _embed(a):
 
     objs = [(Path(src).stem.replace("_annotated", ""), ad.read_h5ad(src)) for src in a.h5ad]
     print(f"{len(objs)} object(s)")
-    J = build(objs, sample_key=a.sample_key, n_hvg=a.n_hvg, n_pcs=a.n_pcs,
+    J = build(objs, sample_key=a.sample_key, keep_obs=a.keep_obs,
+              n_hvg=a.n_hvg, n_pcs=a.n_pcs,
               n_neighbors=a.n_neighbors, min_dist=a.min_dist, seed=a.seed,
               gene_key=a.gene_key)
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -1755,6 +1756,15 @@ def main(argv=None):
     s.add_argument("--out", required=True, type=Path, metavar="H5AD",
                    help="the joint object, for `scanno report --joint`")
     s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN")
+    s.add_argument("--keep-obs", dest="keep_obs", nargs="*", default=None, metavar="COLUMN",
+                   help="the ONLY obs columns carried into the joint object, besides --sample-key "
+                        "which is always kept because this module's own check for the embedding "
+                        "being joint reads it. Absent, every column travels. An annotated object "
+                        "carries a statistic per label suffix - gap, survival, support, depth, "
+                        "force_depth - and a viewer offered twenty columns cannot tell which two "
+                        "are the answer. Name the two label columns. A column that does not exist "
+                        "is REFUSED by name rather than dropped, because an absent column and an "
+                        "empty one produce the same slim object and only one is a mistake.")
     s.add_argument("--gene-key", default=None, metavar="VAR_COLUMN",
                    help="the var column holding gene symbols, used as the shared gene axis. "
                         "Two objects indexed differently concatenate to whatever they happen "

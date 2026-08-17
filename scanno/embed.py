@@ -49,7 +49,7 @@ def notable_counts(genes):
     return out
 
 
-def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
+def build(objects, *, sample_key="sample", keep_obs=None, n_hvg=2000, n_pcs=50, n_neighbors=15,
           min_dist=0.5, seed=0, gene_key=None, log=print):
     """Concatenate, normalise, select HVGs over all genes, PCA, neighbours, UMAP.
 
@@ -107,7 +107,24 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
         # `'NoneType' object has no attribute 'dtype'`, naming neither the layer nor the step
         # that removed it.
         import anndata as _ad
-        B = _ad.AnnData(X=B.X, obs=B.obs.copy(), var=B.var.copy())
+        # OBS IS SLIMMED HERE, not after concatenation. A per-sample object carries every
+        # statistic the annotation wrote — gap, survival, support, depth, force_depth, one set per
+        # label suffix — and a viewer offered twenty columns cannot tell which two are the answer.
+        # `keep_obs` names what travels; absent, everything does, so an existing caller is
+        # unchanged. The sample key is always kept: this module's own overlap check reads it, and
+        # a joint object that cannot say which library a cell came from cannot be checked for
+        # being joint at all.
+        _keep = None
+        if keep_obs:
+            _keep = [c for c in ([sample_key] + list(keep_obs)) if c in B.obs.columns]
+            _missing = [c for c in keep_obs if c not in B.obs.columns]
+            if _missing:
+                raise SystemExit(
+                    f"scanno embed: {name} has no obs column(s) {_missing}. Named rather than "
+                    f"dropped silently: a column that is absent and one that is empty produce the "
+                    f"same slim object, and only one of them is a mistake.")
+        B = _ad.AnnData(X=B.X, obs=(B.obs[_keep] if _keep else B.obs).copy(),
+                        var=B.var.copy())
         if B.X is None:
             raise SystemExit(f"scanno embed: {name} has no expression matrix (.X is None) "
                              f"after selecting counts. Nothing downstream can be computed.")
@@ -120,9 +137,14 @@ def build(objects, *, sample_key="sample", n_hvg=2000, n_pcs=50, n_neighbors=15,
         + (f"   (inner join dropped up to {max(lost):,} genes from a sample)" if max(lost) else ""))
     del parts
 
+    # RAW COUNTS KEPT. `normalize_total` writes in place, so without this the counts the whole
+    # pipeline descends from are destroyed by the step that makes the embedding — and a consumer
+    # opening the joint object has no way to get them back or to know they are gone.
+    J.layers["counts"] = J.X.copy()
     sc.pp.normalize_total(J, target_sum=1e4)
     sc.pp.log1p(J)
-    log("  normalised: counts per 10,000, log1p")
+    J.layers["lognorm"] = J.X.copy()
+    log("  raw counts in layers['counts']; .X and layers['lognorm'] are counts per 10,000, log1p")
 
     # OVER ALL GENES. Nothing is excluded; what was selected is reported.
     sc.pp.highly_variable_genes(J, n_top_genes=n_hvg, flavor="seurat")
