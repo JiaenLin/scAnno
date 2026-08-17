@@ -1203,8 +1203,12 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                     "on the call.</p>")
         if ctx.joint is not None:
             body.append(A.fig("F132"))
-        for d in ctx.panel_depths():
-            body.append(f"<h3>level {d}</h3>")
+        # THE TWO ANNOTATIONS, not every depth. The deepest panel depth is where the scope's
+        # labels live; the depths between are truncations nothing was annotated at.
+        _pd = ctx.panel_depths()
+        _shown_pd = [1, max(_pd)] if _pd and max(_pd) > 1 else list(_pd)
+        for d in _shown_pd:
+            body.append(f"<h3>{'the L1 annotation' if d == 1 else 'the scope annotation'}</h3>")
             body.append(A.fig("F130" if d == 1 else "F135",
                               name=f"{'F130' if d == 1 else 'F135'}_dotplot_level{d}",
                               **({} if d == 1 else {"depth": d})))
@@ -1430,7 +1434,10 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
     body.append(A.fig("F105", name=f"F105_{safe}_qc", sample=sample))
 
     body.append("<h2>Composition, this sample against the cohort</h2>")
-    for d in range(1, D + 1):
+    # L1 and the scope, per sample — the same two annotations the cohort page carries. The
+    # intermediate depths are truncations and are not shown here either.
+    for d in ([1, D] if D > 1 else [1]):
+        body.append(f"<h3>{'the L1 annotation' if d == 1 else 'the scope annotation'}</h3>")
         col = rows[f"L{d}"]
         tab = []
         for l in ctx.label_order(d):
