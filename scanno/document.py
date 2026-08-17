@@ -1510,6 +1510,11 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
                              "samples": ctx.animals_with(l, d)}
                             for l in ctx.label_order(d) if ctx.count(l, d)]
                         for d in ctx.levels},
+        # THE TWO ANNOTATIONS, machine-readable. `composition` above is a per-depth breakdown and
+        # stays because a consumer may want it; these are the two things that were ANNOTATED, and
+        # a consumer should not have to pick a level index to find them.
+        "annotation_l1": ctx.l1_rows(),
+        "annotation_scope": ctx.scope_rows(),
         "reliability": ctx.reliability_rows(),
         "worst_evidence": ctx.worst_evidence(),
         "joint_agreement": {d: ctx.joint_agreement(d) for d in ctx.levels}
