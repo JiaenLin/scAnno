@@ -314,7 +314,7 @@ def scope_labels(tree, verdicts=None, sep=SEP):
     so".
     """
     verdicts = verdicts or {}
-    scoped = seal_tree(tree, verdicts, sep=sep)
+    scoped, _ = seal_tree(tree, verdicts, sep=sep)   # (tree, removed) - the tree is first
     kids = scoped.get("children", {}) or {}
     out, stack = [], [("root", [])]
     while stack:
