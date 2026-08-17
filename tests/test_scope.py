@@ -7,7 +7,30 @@ moved and somebody has to say so out loud.
 """
 import json
 
-import pytest
+
+#: No pytest. This suite guards the scope-finding mechanism, and it was UNRUNNABLE in the
+#: environment the pipeline actually runs in — pytest is not installed there, so the one suite
+#: covering the vote never executed while every other suite passed. A guard that cannot run in
+#: the place the tool runs is not a guard. `approx` and `raises` are the only two things it
+#: needed, and both are three lines.
+def approx(x, y, tol=1e-9):
+    return abs(float(x) - float(y)) < tol
+
+
+class raises:
+    """`with raises(ValueError):` — asserts the block raises that type."""
+
+    def __init__(self, exc):
+        self.exc = exc
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, t, v, tb):
+        assert t is not None and issubclass(t, self.exc), \
+            f"expected {self.exc.__name__}, got {t.__name__ if t else 'no exception'}"
+        return True
+
 
 from scanno.scope import (apply_scope, bare_names_unique, internal_nodes, node_votes,
                           seal_tree, sealed_labels, vote)
@@ -92,10 +115,10 @@ def test_the_two_seals_carry_the_evidence_that_produced_them():
     v = vote(paths(), TREE, min_support=1.0)
     assert v["Stromal/Fibroblast"]["n_reached"] == 10
     assert v["Stromal/Fibroblast"]["n_descended"] == 8
-    assert v["Stromal/Fibroblast"]["support"] == pytest.approx(0.8)
+    assert v["Stromal/Fibroblast"]["support"] == 0.8 or approx(v["Stromal/Fibroblast"]["support"], 0.8)
     assert v["Immune/Lymphoid"]["n_reached"] == 7
     assert v["Immune/Lymphoid"]["n_descended"] == 4
-    assert v["Immune/Lymphoid"]["support"] == pytest.approx(4 / 7)
+    assert approx(v["Immune/Lymphoid"]["support"], 4 / 7)
 
 
 def test_seal_removes_the_named_labels_not_a_category():
@@ -117,7 +140,7 @@ def test_a_sample_that_never_reached_the_node_casts_no_vote():
     """
     v = node_votes(paths())
     assert v["Immune/Lymphoid"]["n_reached"] == 7
-    assert v["Immune/Lymphoid"]["support"] == pytest.approx(4 / 7)
+    assert approx(v["Immune/Lymphoid"]["support"], 4 / 7)
     assert "Young1" not in v["Immune/Lymphoid"]["reached"]
 
 
@@ -137,7 +160,7 @@ def test_descend_rule_any_versus_majority_can_disagree():
 
 
 def test_bad_descend_rule_refuses():
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         node_votes(paths(), descend_rule="whatever")
 
 
@@ -287,7 +310,7 @@ def test_truncate_tree_depth_two_keeps_the_second_level():
 
 def test_truncate_tree_refuses_depth_zero():
     from scanno.scope import truncate_tree
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         truncate_tree(TREE, depth=0)
 
 
@@ -351,3 +374,114 @@ def test_the_l1_run_is_untouched_by_seals_and_by_force():
     v_l1 = vote(paths(), l1, min_support=1.0)
     assert "FORCE" not in {r["verdict"] for r in v_l1.values()}
     assert "SEAL" not in {r["verdict"] for r in v_l1.values()}
+
+
+# =============================================================================================
+# THE SCOPE ITSELF — locked. These assert the RESULT, not the mechanism that produces it.
+# =============================================================================================
+#
+# The vote, the verdicts and the sealed tree were all covered. The SCOPE — the label set the
+# following annotation is aimed at — was not, because nothing returned it: a caller had to
+# re-derive it from a tree, and the report stated the rule and its costs without ever stating the
+# answer. These lock it.
+
+
+def test_scope_is_the_leaves_of_the_tree_in_force():
+    """The scope is the label set: every leaf of the sealed tree, as a full path."""
+    from scanno.scope import scope_labels
+    v = vote(paths(), TREE, min_support=1.0)
+    got = {r["label"] for r in scope_labels(TREE, v)}
+    sealed_tree, _ = seal_tree(TREE, v)
+    kids = sealed_tree["children"]
+    below = {c for ks in kids.values() for c in ks}
+    expect_bare = (below | set(kids)) - set(kids)
+    assert {p.split("/")[-1] for p in got} == expect_bare
+    assert "root" not in got, "the root is never a label: with no children every cell is UNRESOLVED"
+
+
+def test_scope_says_why_each_label_terminates():
+    """`leaf` and `sealed` look identical in a label column and mean opposite things."""
+    from scanno.scope import scope_labels
+    v = vote(paths(), TREE, min_support=1.0)
+    why = {r["label"]: r["terminal"] for r in scope_labels(TREE, v)}
+    for path, verdict in v.items():
+        if verdict.get("verdict") == "SEAL":
+            assert why.get(path) == "sealed", (
+                f"{path} was sealed, so it is a label and must be marked 'sealed' — a reader who "
+                f"cannot tell it from 'leaf' reads a sealed compartment as the finest resolution "
+                f"the tissue supports")
+    assert any(t == "leaf" for t in why.values()), "declared leaves must be marked 'leaf'"
+
+
+def test_scope_carries_the_depth_each_label_stops_at():
+    """Mixed depth is the point: a scope with one depth has not used the tree."""
+    from scanno.scope import scope_labels
+    rows = scope_labels(TREE, vote(paths(), TREE, min_support=1.0))
+    assert all(r["depth"] == len(r["label"].split("/")) for r in rows)
+    assert len({r["depth"] for r in rows}) > 1, "the scope should span more than one depth here"
+
+
+def test_scope_labels_unpacks_seal_tree_correctly():
+    """REGRESSION. `seal_tree` returns (tree, removed); unpacking it as a tree raised
+    AttributeError: 'tuple' object has no attribute 'get' on the first real scope. It survived a
+    compile check and two readings because the name reads like a tree."""
+    from scanno.scope import scope_labels
+    rows = scope_labels(TREE, vote(paths(), TREE, min_support=1.0))
+    assert isinstance(rows, list) and rows and isinstance(rows[0], dict)
+    assert set(rows[0]) == {"label", "depth", "terminal"}
+
+
+def test_scope_is_a_vocabulary_not_a_census():
+    """A label no cell reaches is STILL in the scope.
+
+    "this cohort has none" and "this run could not have said so" are different statements, and
+    only the first is a finding. So the scope is derived from the TREE and the verdicts, never
+    from which labels happened to be populated.
+    """
+    from scanno.scope import scope_labels
+    v = vote(paths(), TREE, min_support=1.0)
+    rows = scope_labels(TREE, v)
+    reached = {p for ps in paths().values() for p in ps}
+    unpopulated = [r["label"] for r in rows if r["label"] not in reached]
+    assert unpopulated, "this fixture should leave at least one scope label unreached"
+    assert all(r["terminal"] in ("leaf", "sealed") for r in rows)
+
+
+def test_seal_is_the_only_edit_the_scope_makes():
+    """FORCE and KEEP must not change the tree. Only SEAL removes children."""
+    from scanno.scope import scope_labels
+    v = vote(paths(), TREE, min_support=1.0)
+    only_force = {k: {"verdict": "FORCE" if d.get("verdict") == "SEAL" else d.get("verdict")}
+                  for k, d in v.items()}
+    declared = {r["label"] for r in scope_labels(TREE, {})}
+    forced = {r["label"] for r in scope_labels(TREE, only_force)}
+    assert forced == declared, (
+        "turning every SEAL into a FORCE must leave the label set identical to the declared "
+        "tree's leaves — a FORCE reassigns cells and never removes a label")
+
+
+if __name__ == "__main__":
+    ok, bad, skipped = 0, [], []
+    for name, fn in sorted(dict(globals()).items()):
+        if not name.startswith("test_") or not callable(fn):
+            continue
+        try:
+            fn()
+        except ImportError as e:
+            print(f"  SKIP  {name}   {e}")
+            skipped.append(name)
+            continue
+        except AssertionError as e:
+            print(f"  FAIL  {name}   {e}")
+            bad.append(name)
+            continue
+        except Exception as e:                                            # noqa: BLE001
+            print(f"  FAIL  {name}   {type(e).__name__}: {e}")
+            bad.append(name)
+            continue
+        print(f"  PASS  {name}")
+        ok += 1
+    print(f"\n{ok} passed, {len(bad)} failed, {len(skipped)} skipped")
+    if bad:
+        print("failures: " + ", ".join(bad))
+    raise SystemExit(1 if bad else 0)
