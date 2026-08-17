@@ -741,6 +741,17 @@ class Context:
             return {"error": "no --joint-key given, so the joint route's own label column is "
                              "unknown. Comparing the default key would compare the per-sample "
                              "labels with themselves and report ~100%"}
+        # The name check above stops being enough once the joint object RENAMES its label columns.
+        # A column called `cell_type` that is a copy of `scanno_path_scope` passes every check
+        # keyed on the name and then agrees with itself at ~100%. `scanno embed` records the
+        # rename in uns, so read the provenance rather than trusting the name.
+        _renamed = dict((self.joint.uns.get("scanno_embed") or {}).get("label_map") or {})
+        if _renamed.get(col) == self.path_key:
+            return {"error": f"the joint object's {col!r} is a RENAME of {self.path_key!r} - the "
+                             f"same per-sample labels under another name, recorded in "
+                             f"uns['scanno_embed']['label_map']. Comparing them would report "
+                             f"~100% agreement of the labels with themselves. A two-route "
+                             f"agreement needs the joint object annotated INDEPENDENTLY."}
         jl = self.joint_labels(depth)
         if jl is None:
             return None

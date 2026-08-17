@@ -1334,9 +1334,20 @@ def _embed(a):
     from .embed import build
     from .emit import classic_string_encoding, plain_string_labels
 
+    # OLD=NEW pairs, parsed before anything is read so a typo costs nothing. A bare column name
+    # with no `=` keeps its own name, so `--label-obs scanno_path_scope` still does the obvious
+    # thing rather than refusing on punctuation.
+    label_map = {}
+    for spec in (a.label_obs or []):
+        old, _, new = str(spec).partition("=")
+        if not old:
+            print(f"scanno embed: REFUSE - cannot parse --label-obs {spec!r}", file=sys.stderr)
+            return 2
+        label_map[old] = new or old
+
     objs = [(Path(src).stem.replace("_annotated", ""), ad.read_h5ad(src)) for src in a.h5ad]
     print(f"{len(objs)} object(s)")
-    J = build(objs, sample_key=a.sample_key, keep_obs=a.keep_obs,
+    J = build(objs, sample_key=a.sample_key, label_map=label_map or None,
               n_hvg=a.n_hvg, n_pcs=a.n_pcs,
               n_neighbors=a.n_neighbors, min_dist=a.min_dist, seed=a.seed,
               gene_key=a.gene_key)
@@ -1756,15 +1767,19 @@ def main(argv=None):
     s.add_argument("--out", required=True, type=Path, metavar="H5AD",
                    help="the joint object, for `scanno report --joint`")
     s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN")
-    s.add_argument("--keep-obs", dest="keep_obs", nargs="*", default=None, metavar="COLUMN",
-                   help="the ONLY obs columns carried into the joint object, besides --sample-key "
-                        "which is always kept because this module's own check for the embedding "
-                        "being joint reads it. Absent, every column travels. An annotated object "
-                        "carries a statistic per label suffix - gap, survival, support, depth, "
-                        "force_depth - and a viewer offered twenty columns cannot tell which two "
-                        "are the answer. Name the two label columns. A column that does not exist "
-                        "is REFUSED by name rather than dropped, because an absent column and an "
-                        "empty one produce the same slim object and only one is a mistake.")
+    s.add_argument("--label-obs", dest="label_obs", nargs="*", default=None, metavar="OLD=NEW",
+                   help="which ANNOTATION columns survive into the joint object, and what to call "
+                        "them there, e.g. `scanno_path_scope=cell_type "
+                        "scAnno_L1_scope=cell_compartment`. Every column scAnno did NOT write is "
+                        "kept untouched - the design factors, the group, and the QC statistics the "
+                        "cells arrived with all travel, because this tool did not write them and "
+                        "has no business discarding them. Of the columns it DID write it keeps "
+                        "only these, because annotation emits a statistic per label suffix per "
+                        "resolution - label, path, depth, gap, survival, support, assignment, "
+                        "force_depth, one per level - and a viewer offered twenty of them cannot "
+                        "tell which is the answer. Absent, every column travels. A column that "
+                        "does not exist is REFUSED by name, because an absent column and an empty "
+                        "one produce the same slim object and only one is a mistake.")
     s.add_argument("--gene-key", default=None, metavar="VAR_COLUMN",
                    help="the var column holding gene symbols, used as the shared gene axis. "
                         "Two objects indexed differently concatenate to whatever they happen "

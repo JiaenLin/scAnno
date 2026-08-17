@@ -49,7 +49,51 @@ def notable_counts(genes):
     return out
 
 
-def build(objects, *, sample_key="sample", keep_obs=None, n_hvg=2000, n_pcs=50, n_neighbors=15,
+#: Prefixes this tool writes into `obs`. Used to tell ITS OWN annotation output, which is
+#: droppable, from a column that arrived with the cells, which is not.
+ANNOTATION_PREFIXES = ("scanno_", "scAnno_")
+
+
+def slim_annotation_obs(obs, label_map, prefixes=ANNOTATION_PREFIXES, name="object"):
+    """Drop this tool's redundant annotation columns; keep everything else untouched.
+
+    WHY A DROP-LIST AND NOT A KEEP-LIST. The first version of this took the columns to KEEP, and
+    the result was a joint object carrying three columns: the sample key and two labels. That
+    threw away `age`, `diet`, `group` and `batch` — the design the study is about — along with
+    every QC statistic the cells arrived with, none of which this tool wrote and none of which it
+    has any business discarding. Worse, the loss is silent and looks deliberate: a downstream
+    stage opening that object cannot tell that a covariate was ever there, so it either re-joins
+    it by position, which nobody can check, or does without.
+
+    The columns that genuinely need pruning are the ones ANNOTATION generates: a statistic per
+    label suffix — label, path, depth, gap, survival, support, assignment, force_depth, and one
+    column per taxonomy level — written once per clustering resolution. Those are redundant with
+    each other by construction, and a viewer offered twenty of them cannot tell which is the
+    answer. So: keep every column scAnno did not write, and of the ones it did, keep only the
+    labels named in `label_map`, under the names given there.
+
+    `label_map` is {existing column: new name}. Returns (obs, dropped, kept_upstream).
+    """
+    cols = list(obs.columns)
+    mine = [c for c in cols if c.startswith(tuple(prefixes))]
+    missing = [c for c in label_map if c not in cols]
+    if missing:
+        raise SystemExit(
+            f"scanno embed: {name} has no obs column(s) {missing}. Named rather than dropped "
+            f"silently: an absent column and an empty one produce the same slim object and only "
+            f"one of them is a mistake. This object's annotation columns are: "
+            + ", ".join(mine))
+    clash = [v for v in label_map.values() if v in cols and v not in label_map]
+    if clash:
+        raise SystemExit(
+            f"scanno embed: {name} already has obs column(s) {clash}, so renaming onto them would "
+            f"overwrite data this tool did not write. Choose another name.")
+    upstream = [c for c in cols if c not in mine]
+    out = obs[list(label_map) + upstream].copy().rename(columns=dict(label_map))
+    return out, [c for c in mine if c not in label_map], upstream
+
+
+def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50, n_neighbors=15,
           min_dist=0.5, seed=0, gene_key=None, log=print):
     """Concatenate, normalise, select HVGs over all genes, PCA, neighbours, UMAP.
 
@@ -82,6 +126,9 @@ def build(objects, *, sample_key="sample", keep_obs=None, n_hvg=2000, n_pcs=50, 
     log(f"  preflight: {len(objects)} object(s), all carry an expression matrix")
 
     parts = []
+    # Report the obs slimming ONCE rather than per sample: ten identical paragraphs bury the one
+    # line a reader needs, which is what was kept and what went.
+    _reported = False
     for name, A in objects:
         B = A.copy()
         if "counts" in getattr(B, "layers", {}):
@@ -107,24 +154,22 @@ def build(objects, *, sample_key="sample", keep_obs=None, n_hvg=2000, n_pcs=50, 
         # `'NoneType' object has no attribute 'dtype'`, naming neither the layer nor the step
         # that removed it.
         import anndata as _ad
-        # OBS IS SLIMMED HERE, not after concatenation. A per-sample object carries every
-        # statistic the annotation wrote — gap, survival, support, depth, force_depth, one set per
-        # label suffix — and a viewer offered twenty columns cannot tell which two are the answer.
-        # `keep_obs` names what travels; absent, everything does, so an existing caller is
-        # unchanged. The sample key is always kept: this module's own overlap check reads it, and
-        # a joint object that cannot say which library a cell came from cannot be checked for
-        # being joint at all.
-        _keep = None
-        if keep_obs:
-            _keep = [c for c in ([sample_key] + list(keep_obs)) if c in B.obs.columns]
-            _missing = [c for c in keep_obs if c not in B.obs.columns]
-            if _missing:
-                raise SystemExit(
-                    f"scanno embed: {name} has no obs column(s) {_missing}. Named rather than "
-                    f"dropped silently: a column that is absent and one that is empty produce the "
-                    f"same slim object, and only one of them is a mistake.")
-        B = _ad.AnnData(X=B.X, obs=(B.obs[_keep] if _keep else B.obs).copy(),
-                        var=B.var.copy())
+        # OBS IS SLIMMED HERE, not after concatenation — and what is slimmed is THIS TOOL'S OWN
+        # annotation columns, never anything that arrived from upstream. See slim_annotation_obs:
+        # a keep-list is the wrong shape for this job, because it throws away the design factors
+        # and the QC statistics the cells arrived with, which are exactly what a downstream stage
+        # needs and cannot reconstruct.
+        _obs = B.obs
+        if label_map:
+            _obs, _dropped, _upstream = slim_annotation_obs(B.obs, label_map, name=name)
+            if not _reported:
+                log(f"  obs: kept {len(_upstream)} upstream column(s), dropped {len(_dropped)} "
+                    f"scAnno annotation column(s), renamed "
+                    + ", ".join(f"{k} -> {v}" for k, v in label_map.items()))
+                log(f"       upstream kept: {', '.join(_upstream)}")
+                log(f"       dropped: {', '.join(_dropped)}")
+                _reported = True
+        B = _ad.AnnData(X=B.X, obs=_obs.copy(), var=B.var.copy())
         if B.X is None:
             raise SystemExit(f"scanno embed: {name} has no expression matrix (.X is None) "
                              f"after selecting counts. Nothing downstream can be computed.")
@@ -185,5 +230,11 @@ def build(objects, *, sample_key="sample", keep_obs=None, n_hvg=2000, n_pcs=50, 
         "integrated": False,
         "note": "computed over the pooled cells with NO batch correction; whether integration "
                 "is needed is a separate decision with its own evidence",
+        # WHICH COLUMN IS A RENAME OF WHICH, recorded {new: old}. Not decoration: the two-route
+        # agreement statistic refuses to compare a joint label column with the per-sample column
+        # it was COPIED from, because that compares the labels with themselves and reports ~100%,
+        # which reads as a spectacular result. Renaming the column here would hide the copy from a
+        # check keyed on the name, so the provenance travels with the object instead.
+        "label_map": {v: k for k, v in dict(label_map or {}).items()},
     }
     return J
