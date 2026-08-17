@@ -201,6 +201,48 @@ class Context:
             real.sort(key=lambda k: (pos.get(self.parent_of(k), len(up)), -counts[k], k))
         return real + [s for s in SENTINELS if s in counts]
 
+    def _rows_over(self, col):
+        """(label, nuclei, share, samples, depth) over a column of DELIVERED labels.
+
+        Sentinels sort last: EXCLUDED and UNRESOLVED are not cell types and must not head a
+        composition table by size.
+        """
+        vals = self.P[col].astype(str)
+        samp = self.P["sample"].astype(str)
+        out = []
+        for label in sorted(set(vals)):
+            m = (vals == label).values
+            n = int(m.sum())
+            if not n or label == "":
+                continue
+            out.append({
+                "label": label, "nuclei": n,
+                "share": 100.0 * n / max(self.n, 1),
+                "samples": int(samp[m].nunique()),
+                "depth": 0 if label in SENTINELS
+                         else len([x for x in label.split("/") if x])})
+        return sorted(out, key=lambda r: (r["label"] in SENTINELS, -r["nuclei"]))
+
+    def scope_rows(self):
+        """THE SCOPE ANNOTATION — the delivered terminals, each at the depth it stops at.
+
+        Read from the PATH column itself, never from a truncation. `L{depth}` coincides with the
+        delivered set only when `depth` happens to be the declared tree's maximum, so a report
+        built on the deepest level index is right by accident and silently wrong on a deeper tree.
+        """
+        return self._rows_over("path")
+
+    def l1_rows(self):
+        """THE L1 ANNOTATION — the INDEPENDENT depth-1 walk, or None where it was never written.
+
+        NOT `path[:1]`. The independent walk is a separate column produced by walking a depth-1
+        tree, so no seal at any depth can move it; a truncation of the scope path inherits every
+        edit the scope made. Rendering a truncation under this name would manufacture perfect
+        agreement between the two delivered columns for exactly the objects that measured none —
+        which is the reason this class refuses to back-fill `l1` from the path in the first place.
+        """
+        return self._rows_over("l1") if self.has_l1 else None
+
     def label_order(self, depth):
         return self._order[min(max(int(depth), 1), self.depth)]
 

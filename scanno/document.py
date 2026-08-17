@@ -1008,23 +1008,58 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
 
     # ---- composition, at every level ---------------------------------------------------
     body.append("<h2>Composition</h2>")
+
+    # THE TWO ANNOTATIONS, EACH FROM ITS OWN COLUMN. scAnno delivers exactly two label columns:
+    # the INDEPENDENT depth-1 walk and the SCOPE annotation. They are independent evidence about
+    # the same nuclei, not a coarse and a fine view of one call.
+    #
+    # Neither is read from a level index. `L1` is the scope path TRUNCATED, which inherits every
+    # edit the scope made - rendering it as "the L1 annotation" would manufacture perfect
+    # agreement between the two columns for exactly the objects that measured none. And the
+    # deepest `L{n}` coincides with the delivered terminals only when n happens to be the
+    # declared tree's maximum depth, so a table built on it is right by accident.
+    for _title, _rows, _what in (
+            ("the L1 annotation", ctx.l1_rows(),
+             "an INDEPENDENT depth-1 walk - one decision at the root, and no seal at any depth "
+             "can move it"),
+            ("the scope annotation", ctx.scope_rows(),
+             "the labels the cohort's own vote left available, each at the depth it terminates "
+             "at - so the set is mixed across levels by construction")):
+        body.append(f"<h3>{_title}</h3>")
+        if _rows is None:
+            body.append(_absent_section(
+                "the independent L1 column (`scanno annotate --l1-tree`, reported with "
+                "`--l1-key`)",
+                "Without it this document cannot show the L1 annotation at all. It is NOT "
+                "substituted with the scope path truncated to depth 1: that column inherits "
+                "every seal the scope made, so the two would agree by construction and the "
+                "agreement would mean nothing."))
+            continue
+        body.append(f"<p class='lede'>{_what}.</p>")
+        _csv = [[r["label"], r["depth"], r["nuclei"], round(r["share"], 3), r["samples"]]
+                for r in _rows]
+        _src = _write_table(out, f"annotation_{'l1' if 'L1' in _title else 'scope'}.csv",
+                            ["label", "depth", "nuclei", "share_pct", "samples"], _csv)
+        body.append(_table(
+            ["label", "depth", "nuclei", "share", "samples"],
+            [[_esc(r["label"]), f"L{r['depth']}" if r["depth"] else "—", f"{r['nuclei']:,}",
+              f"{r['share']:.1f}%", f"{r['samples']}/{len(ctx.samples)}"] for r in _rows],
+            source=_src))
+
     # TWO ANNOTATIONS, AND ONLY TWO. scAnno delivers the INDEPENDENT L1 walk and the SCOPE
     # annotation; there is no "level 2 annotation" and no "level 3 annotation". The intermediate
     # depths are TRUNCATIONS of the scope path, and presenting them as sections of their own
     # invites a reader to quote a level nothing was ever annotated at — and to read a sealed
     # compartment appearing at "level 2" as a level-2 call rather than as the scope's own
     # terminal. So the first level and the delivered scope are shown, and nothing between them.
-    _levels = list(ctx.levels)
-    _shown = [_levels[0], _levels[-1]] if len(_levels) > 1 else _levels
-    body.append("<p class='lede'>Two annotations are delivered and both are shown here: the "
-                "<b>L1 annotation</b>, an independent depth-1 walk that no seal at any depth can "
-                "move, and the <b>scope annotation</b> — the labels the cohort's own vote left "
-                "available, at whatever depth each one terminates. They are independent evidence "
-                "about the same nuclei, not a coarse and a fine view of one call. Levels between "
-                "the two are truncations of the scope path and are not annotations; they are not "
-                "shown, because a share quoted at a depth nothing was annotated at is a number "
-                "with no call behind it.</p>")
-    for d in _shown:
+    body.append("<p class='lede'>Below the two annotations, the same nuclei are also counted "
+                "with the scope path truncated to each depth. <b>These are not annotations.</b> "
+                "Nothing was annotated at depth 2 or 3 as such: a truncation is where a label "
+                "would sit if the taxonomy stopped there, which is a different statement from a "
+                "call that stopped there on its own evidence. They are kept because the "
+                "composition figures are keyed by depth, and because a level-1 share can sit "
+                "still while everything underneath rearranges.</p>")
+    for d in ctx.levels:
         rows, csv_rows = [], []
         jl = ctx.joint_labels(d) if ctx.joint is not None else None
         for l in ctx.label_order(d):
@@ -1044,8 +1079,8 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         src = _write_table(out, f"composition_level{d}.csv",
                            ["label", "parent", "nuclei", "share_pct", "joint_route", "samples"],
                            csv_rows)
-        body.append(f"<h3>{'the L1 annotation' if d == _shown[0] else 'the scope annotation'}"
-                    f"</h3>")
+        # NOT an annotation, and titled so it cannot be quoted as one.
+        body.append(f"<h3>the scope path truncated to depth {d}</h3>")
         body.append(_table(["label", "parent", "nuclei", "share", "joint route", "samples"],
                            rows, source=src))
         fid = "F102" if d == 1 else "F103"
