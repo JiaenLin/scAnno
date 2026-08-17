@@ -74,8 +74,19 @@ coarse and a fine view of one call.**
 
 | | |
 |---|---|
-| **the L1 annotation** | an independent depth-1 walk. One decision at the root and it is done. **No seal at any depth can move it**, because it walks its own depth-1 tree rather than being derived as `path[:1]` — independent by construction, not by convention. |
-| **the scope annotation** | the standard walk, run against **the scope**. Its labels terminate at whatever depth the cohort's own evidence supports, so the set is mixed across levels. |
+| **the L1 annotation** | an independent depth-1 walk over the **complete** declared compartment set, against the **full** corpus. One decision at the root and it is done — it terminates because the tree ends there, not because evidence ran out. **No seal at any depth can move it**: it never consults the scope tree, and it is a real walk rather than `path[:1]`, which would inherit every edit the vote made. |
+| **the scope annotation** | the same unchanged walk, run against **the scope**. At each node only the children that survived the vote are scored, so labels terminate at whatever depth the cohort's evidence supports and the set is mixed across levels. |
+
+Because they are separate walks over different child sets, **they can disagree** — and the
+disagreement is information. A nucleus called `Immune` at L1 whose scope path went
+`Stromal/Fibroblast` is a genuine conflict between two measurements of the same cell. Were L1 a
+truncation, that conflict could not arise and an agreement table between the two would report 100%
+while measuring nothing.
+
+**The scope restricts the TREE, not the database.** The corpus is unchanged; a sealed node's
+children simply have no position left to be scored at. So a subtype absent from the scope
+annotation means *the cohort could not agree to make this split* — never *the markers were
+unavailable*.
 
 There is no "level 2 annotation" and no "level 3 annotation". Intermediate depths are truncations
 of the scope path; a share quoted at a depth nothing was annotated at is a number with no call
