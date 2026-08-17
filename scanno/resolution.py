@@ -1,4 +1,4 @@
-﻿"""Choosing a clustering resolution from the annotation, not from the geometry.
+"""Choosing a clustering resolution from the annotation, not from the geometry.
 
 WHY THIS IS DECIDED ON LABELS
 
