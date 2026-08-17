@@ -69,24 +69,21 @@ every failure is attributable to one of three inputs rather than to hidden train
 
 ## What scAnno delivers: two annotations
 
-**Two label columns come out, and they are independent evidence about the same nuclei — not a
-coarse and a fine view of one call.**
+**Two label columns, independent evidence about the same nuclei.**
 
 | | |
 |---|---|
 | **the L1 annotation** | an independent depth-1 walk over the **complete** declared compartment set, against the **full** corpus. One decision at the root and it is done — it terminates because the tree ends there, not because evidence ran out. **No seal at any depth can move it**: it never consults the scope tree, and it is a real walk rather than `path[:1]`, which would inherit every edit the vote made. |
 | **the scope annotation** | the same unchanged walk, run against **the scope**. At each node only the children that survived the vote are scored, so labels terminate at whatever depth the cohort's evidence supports and the set is mixed across levels. |
 
-Because they are separate walks over different child sets, **they can disagree** — and the
-disagreement is information. A nucleus called `Immune` at L1 whose scope path went
-`Stromal/Fibroblast` is a genuine conflict between two measurements of the same cell. Were L1 a
-truncation, that conflict could not arise and an agreement table between the two would report 100%
-while measuring nothing.
+Separate walks over different child sets, so **they can disagree — and the disagreement is
+information.** A nucleus called `Immune` at L1 whose scope path went `Stromal/Fibroblast` is a real
+conflict between two measurements of the same cell, and the report carries the agreement between the
+two columns as a result.
 
 **The scope restricts the TREE, not the database.** The corpus is unchanged; a sealed node's
-children simply have no position left to be scored at. So a subtype absent from the scope
-annotation means *the cohort could not agree to make this split* — never *the markers were
-unavailable*.
+children have no position left to be scored at. A subtype absent from the scope annotation means
+*the cohort could not agree to make this split*.
 
 There is no "level 2 annotation" and no "level 3 annotation". Intermediate depths are truncations
 of the scope path; a share quoted at a depth nothing was annotated at is a number with no call
@@ -94,10 +91,10 @@ behind it.
 
 ## The scope, and how it is found
 
-**The scope is the label set the annotation is aimed at.** Not a tree, not a parameter — the
-vocabulary, and a RESULT measured from the cohort. The sealed tree is how it is derived and
-applied; `scanno scope --out` reports it under `scope`, each label carrying why it terminates
-there (`leaf` — the taxonomy goes no further; `sealed` — the cohort removed its children).
+**The scope is the label set the annotation is aimed at** — a result measured from the cohort, and
+the primary output of this step. `scanno scope --out` reports it under `scope`, each label carrying
+why it terminates there: `leaf` where the taxonomy goes no further, `sealed` where the cohort
+removed its children. The sealed tree is how the scope is applied.
 
 Finding it is a scouting pass and a vote:
 
@@ -146,22 +143,18 @@ there by construction rather than statistically** — no bar, no divergence.
 **A seal removes the possibility of a LABEL, never an observation.** Every cell keeps its pass-1
 path in `obs`, so it is reversible by re-running pass 2 against the declared tree.
 
-### What it is calibrated against
+### The question the vote asks
 
-Two animals of the same arm, same batch and same chemistry, measured:
+Not *"is this subtype real?"* but **"is this split reproducible across replicates?"**
 
-```
-animal A   11.25% Fibroblast    0.00% Matrifibrocyte
-animal B    0.00% Fibroblast   17.71% Matrifibrocyte
-```
+Two replicates of the same arm, batch and chemistry have been measured reporting
+`11.25% Fibroblast / 0.00% Matrifibrocyte` against `0.00% / 17.71%` — identical biology, different
+depth. Downstream that is indistinguishable from a compositional shift, and abundance is conserved
+and merely re-labelled, so no later analysis can undo it.
 
-Identical biology, different depth. Downstream that is indistinguishable from a compositional
-shift and cannot be undone — abundance is conserved and merely re-labelled. So the question the
-vote asks is not *"is this subtype real?"* but **"is this split reproducible across replicates?"**
-
-It uses no gap magnitude, no corpus assertion count, no cluster size, no silhouette. Those describe
-how confident **one** walk was. The scope measures whether **independent walks agreed**, which is
-the only thing that makes a cohort-wide label column comparable across animals.
+The vote uses no gap magnitude, no corpus assertion count, no cluster size, no silhouette: those
+describe how confident **one** walk was. It measures whether **independent walks agreed**, which is
+what makes a cohort-wide label column comparable across samples.
 
 ## Two ways to run it
 
