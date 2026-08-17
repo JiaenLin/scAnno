@@ -1331,10 +1331,23 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         body.append("<h2>The samples</h2>")
         body.append("<p class='sub'>One comprehensive page per sample. Open one when a cohort "
                     "number looks wrong — everything about that sample is on its page.</p>")
-        body.append("<div class='samples'>" + "".join(
-            f'<a href="{_esc(href)}">{_esc(s)}<span class="n">'
-            f'{int((ctx.P["sample"] == s).sum()):,} nuclei</span></a>'
-            for s, href in sample_links) + "</div>")
+        # `ctx.sample_rows()`, NOT `ctx.P["sample"] == s`. `sample_links` is keyed by the OBJECT
+        # name — `<sample>.filtered` from `<sample>.filtered_annotated.h5ad` — while obs holds
+        # `<sample>`, so the direct comparison matches nothing and every card read "0 nuclei".
+        # Context carries a resolver for exactly this mismatch and the sample PAGES already use
+        # it; this call site was written without it.
+        #
+        # 0 is the worst value this could have failed to: it renders as a FACT — this sample has
+        # no nuclei — rather than as a lookup that found nothing. An unresolvable name is now an
+        # em dash, which is visibly not a count.
+        cards = []
+        for s, href in sample_links:
+            rows = ctx.sample_rows(s)
+            n = None if rows is None else len(rows)
+            cards.append(f'<a href="{_esc(href)}">{_esc(s)}<span class="n">'
+                         + (f'{n:,} nuclei' if n else '— nuclei not resolved')
+                         + '</span></a>')
+        body.append("<div class='samples'>" + "".join(cards) + "</div>")
 
     body.append(f"<h2>What this cannot show</h2><div class='warn'>{CANNOT_SHOW}</div>")
 
