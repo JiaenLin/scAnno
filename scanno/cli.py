@@ -1789,7 +1789,11 @@ def main(argv=None):
                         "gene class is excluded; notable ones are counted and reported")
     s.add_argument("--n-pcs", type=int, default=50)
     s.add_argument("--n-neighbors", type=int, default=15)
-    s.add_argument("--min-dist", type=float, default=0.5)
+    s.add_argument("--min-dist", type=float, default=0.2, metavar="D",
+                   help="UMAP min_dist (default 0.2). Lower packs each population tighter and "
+                        "separates them more clearly, which is what a cohort manifold is read "
+                        "for; it is a LAYOUT parameter and changes no label, no count and no "
+                        "metric. Recorded in uns['scanno_embed']")
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(fn=_embed)
 

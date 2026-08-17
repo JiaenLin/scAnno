@@ -65,7 +65,8 @@ from scanno.scope import why_terminal                                       # no
 
 # ------------------------------------------------------------------ fixtures
 #
-# SAMBO's real shape: a sealed node, a FORCE node stranding cells, a depth-1 declared LEAF, and a
+# A real cohort's shape: a sealed node, a FORCE node stranding cells, a depth-1 declared LEAF,
+# and a
 # three-level lineage. Real names, because a failure message reading "A/B/C" tells the next reader
 # nothing about which lineage broke.
 
@@ -165,7 +166,7 @@ def render(ctx, **kw):
     return "".join(taxonomy_section(ctx, **kw))
 
 
-def sambo():
+def reference_cohort():
     return FakeCtx(DELIVERED, TREE, VERDICTS)
 
 
@@ -215,7 +216,7 @@ def test_report_json_carries_both_columns_machine_readable():
 # ---------------------------------------------------------------- absence is NAMED
 
 def test_no_independent_column_is_a_named_absence_not_a_missing_section():
-    ctx = sambo()
+    ctx = reference_cohort()
     ctx.has_l1 = False
     h = render(ctx)
     assert "The delivered annotation" in h, "the heading must appear even with no data"
@@ -227,7 +228,7 @@ def test_no_independent_column_is_a_named_absence_not_a_missing_section():
 # ---------------------------------------------------------------- both columns, in one picture
 
 def test_the_independent_compartment_is_a_BAND_and_the_taxonomy_sits_inside_it():
-    h = render(sambo())
+    h = render(reference_cohort())
     band = rows_of(h, "class='band'")
     names = [re.sub("<.*?>", "", r) for r in band]
     assert any("Cardiomyocyte" in n for n in names), names
@@ -237,7 +238,7 @@ def test_the_independent_compartment_is_a_BAND_and_the_taxonomy_sits_inside_it()
 
 
 def test_a_terminal_row_carries_BOTH_a_count_and_why_it_stops():
-    h = render(sambo())
+    h = render(reference_cohort())
     r = rows_of(h, ">Fibroblast<")
     assert r, "the sealed label must appear"
     assert "sealed" in r[0], "a sealed node must not read as a complete call"
@@ -246,7 +247,7 @@ def test_a_terminal_row_carries_BOTH_a_count_and_why_it_stops():
 
 def test_the_four_reasons_a_branch_stops_are_distinguished_not_conflated():
     """`leaf`, `sealed`, `stranded` and `unvotable` have unrelated remedies."""
-    h = render(sambo())
+    h = render(reference_cohort())
     # a DECLARED leaf at depth 1 — complete
     assert "leaf" in rows_of(h, ">Mesothelial<")[-1]
     # a SEALED node at depth 2 — recoverable, and the same shape in the label column
@@ -274,7 +275,7 @@ def test_a_depth_one_LEAF_and_a_depth_one_STRANDED_node_are_told_apart():
 
 def test_an_intermediate_node_nothing_terminates_at_is_kept_as_a_guide_row():
     """Dropping it flattens a three-level lineage into unrelated names."""
-    h = render(sambo())
+    h = render(reference_cohort())
     guide = rows_of(h, "class='guide'")
     assert any("Mural" in re.sub("<.*?>", "", g) for g in guide), (
         "Stromal/Mural has no cells of its own and must still appear")
@@ -283,7 +284,7 @@ def test_an_intermediate_node_nothing_terminates_at_is_kept_as_a_guide_row():
 
 def test_terminal_and_subtotal_counts_are_different_columns():
     """A node with both its own cells and descendants must not report one number for both."""
-    h = render(sambo())
+    h = render(reference_cohort())
     r = rows_of(h, ">Endothelial<")
     joined = "".join(r)
     assert "6" in joined, "the 6 stranded cells terminate at Endothelial"
@@ -293,8 +294,8 @@ def test_terminal_and_subtotal_counts_are_different_columns():
 # ---------------------------------------------------------------- the concordance is MEASURED
 
 def test_perfect_agreement_is_reported_as_a_measurement_not_a_guarantee():
-    h = render(sambo())
-    con = sambo().l1_concordance()
+    h = render(reference_cohort())
+    con = reference_cohort().l1_concordance()
     assert con["n_disagree"] == 0
     assert "measured here rather than assumed" in h
     assert "nothing in the pipeline constrains them to" in h
@@ -320,7 +321,7 @@ def test_a_disagreement_is_shown_and_NEITHER_column_is_corrected():
 def test_a_named_but_absent_column_is_not_perfect_agreement():
     """An l1 column of empty strings must not read as a walk that agreed everywhere."""
     from scanno.context import Context
-    ctx = sambo()
+    ctx = reference_cohort()
     ctx.P["l1"] = ""
     ctx.has_l1 = bool((ctx.P["l1"].astype(str) != "").any())
     assert ctx.has_l1 is False
@@ -378,7 +379,7 @@ def test_the_guard_does_not_refuse_the_good_outcome():
 # ---------------------------------------------------------------- what it cannot show
 
 def test_the_cannot_show_note_names_the_three_different_remedies():
-    h = render(sambo())
+    h = render(reference_cohort())
     assert "cannot tell you why a branch stopped" in h
     assert "the remedy differs completely" in h
     assert "no truth set" in h
@@ -387,7 +388,7 @@ def test_the_cannot_show_note_names_the_three_different_remedies():
 
 
 def test_sentinels_are_marked_as_not_cell_types():
-    h = render(sambo())
+    h = render(reference_cohort())
     assert "not a cell type" in h
     ex = rows_of(h, "EXCLUDED")
     assert ex, "EXCLUDED must still appear - a silently dropped sentinel loses 4 nuclei"

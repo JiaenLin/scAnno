@@ -94,7 +94,7 @@ def slim_annotation_obs(obs, label_map, prefixes=ANNOTATION_PREFIXES, name="obje
 
 
 def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50, n_neighbors=15,
-          min_dist=0.5, seed=0, gene_key=None, log=print):
+          min_dist=0.2, seed=0, gene_key=None, log=print):
     """Concatenate, normalise, select HVGs over all genes, PCA, neighbours, UMAP.
 
     `objects` is [(name, AnnData), ...] with raw counts in `layers['counts']` or in `.X`.

@@ -1,6 +1,6 @@
 """The common scope: does the vote reproduce a scope a human derived by reading the table?
 
-The SAMBO fixture below is not invented. It is that cohort's real reach/descend pattern at every
+The fixture below is not invented. It is a real ten-library cohort's reach/descend pattern at every
 internal node, transcribed from the ten pass-1 objects, and the expected verdicts are the scope
 the PI approved after reading it. If a change to `scope.py` stops reproducing it, the rule has
 moved and somebody has to say so out loud.
@@ -35,8 +35,8 @@ class raises:
 from scanno.scope import (apply_scope, bare_names_unique, internal_nodes, node_votes,
                           seal_tree, sealed_labels, vote)
 
-A = ["Aging1", "Aging2", "Aging3", "Aging_HFD1", "Aging_HFD2", "Aging_HFD3",
-     "Young1", "Young2", "Young_HFD1", "Young_HFD2"]
+A = ["L01", "L02", "L03", "L04", "L05", "L06",
+     "L07", "L08", "L09", "L10"]
 
 TREE = {
     "children": {
@@ -60,35 +60,35 @@ TREE = {
     "members": {},
 }
 
-#: SAMBO's real terminal paths, per animal. Transcribed from the ten pass-1 objects.
-SAMBO = {
+#: the reference cohort's real terminal paths, per animal. Transcribed from the ten pass-1 objects.
+COHORT = {
     "Cardiomyocyte/Working cardiomyocyte": A,
     "Endothelial/Vascular endothelial": A,
     "Endothelial/Lymphatic endothelial": A,
     "Immune/Myeloid/Macrophage": A,
-    "Endothelial/Endocardial": [s for s in A if s != "Aging_HFD1"],
-    "Mesothelial": [s for s in A if s != "Aging1"],
-    "Stromal/Mural/Smooth muscle": [s for s in A if s != "Young2"],
-    "Stromal/Mural/Pericyte": [s for s in A if s not in ("Aging2", "Young1")],
-    "Stromal/Fibroblast/Matrifibrocyte": ["Aging3", "Aging_HFD1", "Aging_HFD2", "Aging_HFD3",
-                                          "Young2", "Young_HFD1", "Young_HFD2"],
-    "Stromal/Fibroblast": ["Aging2", "Aging_HFD1", "Aging_HFD3", "Young1", "Young_HFD1",
-                           "Young_HFD2"],
-    "Stromal/Fibroblast/Quiescent fibroblast": ["Aging1", "Aging3"],
-    "Immune/Lymphoid": ["Aging1", "Aging2", "Aging3", "Aging_HFD2", "Aging_HFD3"],
-    "Immune/Lymphoid/B cell": ["Aging1", "Aging_HFD3"],
-    "Immune/Lymphoid/NK cell": ["Aging_HFD1", "Young_HFD2"],
-    "Adipocyte": ["Aging_HFD1", "Aging_HFD2", "Aging_HFD3", "Young_HFD1", "Young_HFD2"],
-    "Neural": ["Young1", "Young2", "Young_HFD1", "Young_HFD2"],
-    "Endothelial": ["Aging_HFD1", "Young_HFD1"],
-    "Stromal": ["Young2"],
+    "Endothelial/Endocardial": [s for s in A if s != "L04"],
+    "Mesothelial": [s for s in A if s != "L01"],
+    "Stromal/Mural/Smooth muscle": [s for s in A if s != "L08"],
+    "Stromal/Mural/Pericyte": [s for s in A if s not in ("L02", "L07")],
+    "Stromal/Fibroblast/Matrifibrocyte": ["L03", "L04", "L05", "L06",
+                                          "L08", "L09", "L10"],
+    "Stromal/Fibroblast": ["L02", "L04", "L06", "L07", "L09",
+                           "L10"],
+    "Stromal/Fibroblast/Quiescent fibroblast": ["L01", "L03"],
+    "Immune/Lymphoid": ["L01", "L02", "L03", "L05", "L06"],
+    "Immune/Lymphoid/B cell": ["L01", "L06"],
+    "Immune/Lymphoid/NK cell": ["L04", "L10"],
+    "Adipocyte": ["L04", "L05", "L06", "L09", "L10"],
+    "Neural": ["L07", "L08", "L09", "L10"],
+    "Endothelial": ["L04", "L09"],
+    "Stromal": ["L08"],
 }
 
 
 def paths():
     """{sample: [path, ...]} — one cell per (path, sample) pair is enough to vote."""
     out = {s: [] for s in A}
-    for path, samples in SAMBO.items():
+    for path, samples in COHORT.items():
         for s in samples:
             out[s].append(path)
     return out
@@ -96,7 +96,7 @@ def paths():
 
 # ---------------------------------------------------------------- the reproduction test
 
-def test_unanimity_reproduces_the_approved_sambo_scope():
+def test_unanimity_reproduces_the_approved_reference_scope():
     v = vote(paths(), TREE, min_support=1.0)
     sealed = sorted(n for n, r in v.items() if r["verdict"] == "SEAL")
     assert sealed == ["Immune/Lymphoid", "Stromal/Fibroblast"], sealed
@@ -141,7 +141,7 @@ def test_a_sample_that_never_reached_the_node_casts_no_vote():
     v = node_votes(paths())
     assert v["Immune/Lymphoid"]["n_reached"] == 7
     assert approx(v["Immune/Lymphoid"]["support"], 4 / 7)
-    assert "Young1" not in v["Immune/Lymphoid"]["reached"]
+    assert "L07" not in v["Immune/Lymphoid"]["reached"]
 
 
 def test_sentinels_are_not_votes():

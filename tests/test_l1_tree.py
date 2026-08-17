@@ -64,7 +64,8 @@ from scanno.scope import (root_child_diff, seal_tree, truncate_tree,  # noqa: E4
 
 # --------------------------------------------------------------------- the fixture tree
 #
-# SAMBO's declared tree, trimmed to the branches that matter here. Real names, because a test
+# A real declared tree, trimmed to the branches that matter here. Real CELL-TYPE names,
+# because a test
 # whose failure message says "A/B/C" tells the next reader nothing about which lineage broke.
 TREE = {
     "children": {

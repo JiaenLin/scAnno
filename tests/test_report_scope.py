@@ -12,7 +12,7 @@ than one that raises: nothing anywhere says it is missing.
 So `test_the_section_is_on_the_live_path` asserts the WIRING, and every other test renders the
 section and looks for a value that could only have come from the scope JSON.
 
-The fixture is SAMBO's real reach/descend pattern, shared with `test_scope.py`. The last group
+The fixture is the reference cohort's real reach/descend pattern, shared with `test_scope.py`. The last group
 of tests re-runs the section on a THREE-sample cohort with unrelated node names, because the one
 failure a human will not notice is the section quoting a number that belongs to the cohort it
 was written for.
@@ -23,7 +23,28 @@ import re
 import sys
 from pathlib import Path
 
-import pytest
+
+# No pytest. A suite that needs a package installed in order to tell you the package layer is
+# broken is a suite you cannot run when you most need it. `test_scope.py` already carries this
+# shim; this file imported the real thing and so could not run at all on a plain install.
+class _P:
+    @staticmethod
+    def approx(v, rel=1e-6, abs=1e-9):
+        class _A:
+            def __eq__(s, o): return abs_diff(o, v) <= max(abs, rel * max(1.0, abs_diff(v, 0)))
+        return _A()
+
+    class raises:
+        def __init__(self, exc): self.exc = exc
+        def __enter__(self): return self
+        def __exit__(self, t, v, tb): return t is not None and issubclass(t, self.exc)
+
+
+def abs_diff(a, b):
+    return (a - b) if a > b else (b - a)
+
+
+pytest = _P()
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
@@ -69,13 +90,13 @@ def rows_of(h, needle):
     return [r for r in re.findall(r"<tr>.*?</tr>", h, re.S) if needle in r]
 
 
-_SAMBO = {}
+_COHORT = {}
 
 
-def sambo():
-    if "s" not in _SAMBO:
-        _SAMBO["s"] = scope_json(paths(), TREE)
-    return _SAMBO["s"]
+def reference_cohort():
+    if "s" not in _COHORT:
+        _COHORT["s"] = scope_json(paths(), TREE)
+    return _COHORT["s"]
 
 
 # ---------------------------------------------------------------- the wiring, not the rendering
@@ -129,7 +150,7 @@ def test_a_missing_scope_is_a_NAMED_absence_not_a_missing_section():
 
 
 def test_the_rule_is_stated_in_words_with_the_values_actually_used():
-    h = render(sambo())
+    h = render(reference_cohort())
     assert "min-support 1.0" in h
     assert "min-reach 2" in h
     assert "descend-rule <code>any</code>" in h
@@ -148,7 +169,7 @@ def test_the_descend_rule_words_follow_the_rule_that_was_used():
 
 
 def test_the_drawn_tree_is_rendered_preformatted_and_escaped():
-    s = sambo()
+    s = reference_cohort()
     h = render(s)
     assert "<pre class='tree'>" in h
     assert "Working cardiomyocyte" in h and "SEALED" in h
@@ -160,7 +181,7 @@ def test_the_drawn_tree_is_rendered_preformatted_and_escaped():
 
 
 def test_the_per_node_table_carries_reach_descend_support_and_verdict():
-    h = render(sambo())
+    h = render(reference_cohort())
     fib = rows_of(h, "Stromal/Fibroblast</span>")
     assert fib, "no row for the sealed node"
     assert "10/10" in fib[0] and "0.800" in fib[0] and "SEAL" in fib[0], fib[0]
@@ -174,7 +195,7 @@ def test_the_per_node_table_carries_reach_descend_support_and_verdict():
 
 def test_the_denominator_is_the_cohort_not_the_reach():
     """4/7 and 4/10 are different statements. `reached` must show which one is on the page."""
-    h = render(sambo())
+    h = render(reference_cohort())
     lym = [r for r in rows_of(h, "Immune/Lymphoid</span>") if "0.571" in r]
     assert lym, "no vote row for Immune/Lymphoid"
     assert "7/10" in lym[0], lym[0]              # reached by 7, of a cohort of 10
@@ -184,7 +205,7 @@ def test_the_denominator_is_the_cohort_not_the_reach():
 def test_each_seal_is_reported_BY_LABEL_with_counts_not_as_a_category():
     """The project rule: a removal is stated as its members and read, never described."""
     p = paths()
-    p["Aging3"] += ["Stromal/Fibroblast/Matrifibrocyte"] * 6      # so counts are not all 1
+    p["L03"] += ["Stromal/Fibroblast/Matrifibrocyte"] * 6      # so counts are not all 1
     s = scope_json(p, TREE)
     h = render(s)
     for label in ("Matrifibrocyte", "Quiescent fibroblast", "B cell", "NK cell"):
@@ -214,7 +235,7 @@ def test_nothing_sealed_says_so_rather_than_rendering_an_empty_table():
 
 
 def test_the_cannot_show_note_is_present_and_says_the_three_things():
-    h = render(sambo()).lower()
+    h = render(reference_cohort()).lower()
     assert "never an observation" in h
     assert "reversible" in h
     assert "cannot distinguish a split the data cannot make" in h
@@ -229,10 +250,10 @@ def test_stranded_nuclei_at_an_open_node_are_cross_checked_from_the_vote():
     the residual disagreement a unanimous vote cannot see. Whatever the drawing says, the
     section computes the number from the vote and puts it on the page.
     """
-    h = render(sambo())
+    h = render(reference_cohort())
     m = re.search(r"Cross-check[^<]*</b>\s*([\d,]+) nuclei are stranded at (\d+)", h)
     assert m, h[max(0, h.find("Cross-check") - 200):h.find("Cross-check") + 400]
-    s = sambo()
+    s = reference_cohort()
     want = sum(sum(v["cells"].values()) - sum(v["cells_below"].values())
                for n, v in s["nodes"].items()
                if n != "root" and v["verdict"] != "SEAL")
@@ -242,7 +263,7 @@ def test_stranded_nuclei_at_an_open_node_are_cross_checked_from_the_vote():
 
 def test_root_truncation_is_reported_separately_from_stranding():
     p = paths()
-    p["Young1"] += ["UNRESOLVED"] * 5
+    p["L07"] += ["UNRESOLVED"] * 5
     h = render(scope_json(p, TREE))
     assert "truncated at the <b>root</b>" in h and "UNRESOLVED" in h
     assert "<b>5</b> nuclei truncated" in h
@@ -250,7 +271,7 @@ def test_root_truncation_is_reported_separately_from_stranding():
 
 
 def test_a_scope_json_without_tree_lines_names_the_absence():
-    s = json.loads(json.dumps(sambo()))
+    s = json.loads(json.dumps(reference_cohort()))
     s.pop("tree_lines")
     h = render(s)
     assert "tree_lines" in h and "predates" in h
@@ -259,7 +280,7 @@ def test_a_scope_json_without_tree_lines_names_the_absence():
 
 
 def test_it_writes_the_tables_as_csv_when_given_an_output_directory(tmp_path):
-    h = render(sambo(), out_dir=tmp_path)
+    h = render(reference_cohort(), out_dir=tmp_path)
     assert (tmp_path / "tables" / "scope_nodes.csv").exists()
     assert (tmp_path / "tables" / "scope_removed_labels.csv").exists()
     assert "tables/scope_nodes.csv" in h and "tables/scope_removed_labels.csv" in h
@@ -289,7 +310,7 @@ def test_a_three_sample_cohort_never_prints_a_ten():
     assert "/10" not in h
     assert "3/3" in h                                  # root, reached by all three
     assert "Beta1" in h
-    for leaked in ("Fibroblast", "Cardiomyocyte", "Matrifibrocyte", "Lymphoid", "SAMBO",
+    for leaked in ("Fibroblast", "Cardiomyocyte", "Matrifibrocyte", "Lymphoid", "COHORT",
                    "Aging", "Young"):
         assert leaked not in h, f"{leaked} belongs to another cohort"
 
@@ -376,4 +397,16 @@ def test_an_unvotable_node_is_reported_as_such_and_not_sealed():
 
 
 if __name__ == "__main__":                                            # pragma: no cover
-    raise SystemExit(pytest.main([__file__, "-q"]))
+    # Standalone runner: collect every test_* in this module and report like the sibling suites.
+    _fails = []
+    for _n, _f in sorted(globals().items()):
+        if _n.startswith("test_") and callable(_f):
+            try:
+                _f()
+                print(f"  PASS  {_n}")
+            except Exception as _e:                                       # noqa: BLE001
+                print(f"  FAIL  {_n}: {type(_e).__name__}: {_e}")
+                _fails.append(_n)
+    print("")
+    print(f"{len(_fails)} failed" if _fails else "report scope OK")
+    raise SystemExit(1 if _fails else 0)

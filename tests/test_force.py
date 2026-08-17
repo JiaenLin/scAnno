@@ -513,7 +513,9 @@ def test_the_library_names_no_node_no_sample_and_no_cohort_size():
     cohort = ("Cardiomyocyte", "Endothelial", "Fibroblast", "Matrifibrocyte", "Pericyte",
               "Macrophage", "Mesothelial", "Endocardial", "Lymphoid", "Aging", "Young",
               "SAMBO", "mouse_heart")
-    for mod in ("force.py", "scope.py", "emit.py", "step.py"):
+    # EVERY module, not a list of four. A guard naming its own files stops covering the package
+    # the moment a module is added, and the newest module is the likeliest to carry a leak.
+    for mod in sorted(x.name for x in (ROOT / "scanno").glob("*.py")):
         for s in _code_strings(ROOT / "scanno" / mod):
             hit = [w for w in cohort if w in s]
             assert not hit, f"scanno/{mod} encodes {hit} in a code string: {s!r}"
