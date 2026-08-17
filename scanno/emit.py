@@ -257,11 +257,13 @@ def plain_string_labels(adata):
     Older anndata refuses to write StringDtype at all, so the same object is unwritable on one
     version and unreadable-by-others on the next. Neither is a good place to leave a deliverable.
 
-    Object-backed is lossless - the same `str` objects, a different array behind them - and is
-    preferred over `anndata.settings.allow_write_nullable_strings`, which is global: flipping it
-    changes how every object written anywhere in the process is stored.
+    Object-backed is lossless - the same `str` objects, a different array behind them - and it
+    takes on pandas 2. On pandas 3 it does NOT: the assignment is coerced back to `str`, measured
+    `str` in and `str` out. There `classic_string_encoding` carries the guarantee, and every writer
+    in this package holds it, so the file is a plain-string dataset on both stacks.
 
-    Returns what it converted, so a run can say so rather than doing it invisibly.
+    Returns only what actually LANDED, verified after the assignment. Reporting a conversion that
+    was coerced away would announce a fix that did not happen, on the one stack where it cannot.
     """
     import numpy as np
     import pandas as pd
@@ -274,15 +276,21 @@ def plain_string_labels(adata):
             new = pd.Index(np.array([str(v) for v in idx], dtype=object), name=idx.name)
             if axis == "obs":
                 adata.obs.index = new
-                changed["obs_index"] = True
             else:
                 adata.var.index = new
-                changed["var_index"] = True
+            # ONLY REPORT WHAT ACTUALLY TOOK. On pandas >= 3 the assignment above is coerced
+            # straight back to `str` - measured: `str` in, `str` out - so claiming the conversion
+            # happened would announce a fix that did not occur, on the one stack where it cannot.
+            # `classic_string_encoding` is what makes the file readable there; this stays because
+            # it is still the right thing on older pandas, where it does take.
+            landed = str((adata.obs if axis == "obs" else adata.var).index.dtype) == "object"
+            changed[f"{axis}_index"] = landed
         for col in list(frame.columns):
             if str(frame[col].dtype) in ("string", "str"):
                 frame[col] = np.array([None if pd.isna(v) else str(v) for v in frame[col]],
                                       dtype=object)
-                changed[f"{axis}_columns"].append(str(col))
+                if str(frame[col].dtype) == "object":
+                    changed[f"{axis}_columns"].append(str(col))
     return changed
 
 

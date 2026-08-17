@@ -258,6 +258,21 @@ the object is for.
 
 ### Where it goes next
 
+**The output opens in [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab) and visualises in
+[scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio)** — the per-sample annotated objects
+and the joint embedding alike.
+
+Every writer in this package holds `classic_string_encoding`, so labels and indices land as HDF5
+string **datasets** rather than nullable-string groups. That is what a reader outside anndata needs:
+a group where `obs/_index` should be makes the index come back undefined and the first `.map` over
+it throw, and the viewer reports a property access that points nowhere near the cause.
+`tests/test_emit.py` asserts it by opening the written file with `h5py` and checking the type of
+`obs/_index`, `var/_index` and a string column.
+
+The joint embedding carries what a viewer draws from: raw counts in `layers['counts']`, log-normalised
+counts in `.X` and `layers['lognorm']`, `X_pca` and `X_umap` in `obsm`, and — with `--keep-obs` — just
+the label columns you name.
+
 The annotated `.h5ad` is what [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab) opens.
 The lab converts it to the bundle that [scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio)
 reads, and **scAnno deliberately does not write that bundle** — one job each, and the bundle

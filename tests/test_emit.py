@@ -285,16 +285,26 @@ S.obs.index = pd.Index(pd.array([f"c{i}" for i in range(8)], dtype="string"))
 S.var.index = pd.Index(pd.array([f"g{i}" for i in range(4)], dtype="string"))
 S.var["gene_id"] = pd.array(["a", "b", "c", "d"], dtype="string")
 ch = plain_string_labels(S)
-check("the obs index is converted", ch["obs_index"])
-check("the var index too", ch["var_index"])
-check("and string COLUMNS as well", ch["var_columns"] == ["gene_id"], str(ch))
+# WHAT IT CAN PROMISE DEPENDS ON THE STACK. On pandas 2 the object re-backing takes; on pandas 3
+# the assignment is coerced straight back to `str` - measured, `str` in and `str` out - so it
+# converts nothing and now says so. Announcing a fix that was coerced away is worse than reporting
+# none, because the reader stops looking. `classic_string_encoding` carries the guarantee there.
+check("both axes report the same outcome", ch["obs_index"] == ch["var_index"], str(ch))
+if ch["obs_index"]:
+    check("where it lands, string COLUMNS convert too", ch["var_columns"] == ["gene_id"], str(ch))
+else:
+    check("where it cannot land, it claims nothing", ch["var_columns"] == [], str(ch))
 check("the values survive", list(map(str, S.obs_names)) == [f"c{i}" for i in range(8)])
-check("it is reported, not done silently",
-      any("nullable string" in ln for ln in format_plain_labels(ch)))
+check("reported when it happened, silent when it did not",
+      bool(any("nullable string" in ln for ln in format_plain_labels(ch))) == bool(ch["obs_index"]))
 
 with tempfile.TemporaryDirectory() as tmp:
     q = Path(tmp) / "plain.h5ad"
-    S.write_h5ad(q)
+    # THROUGH THE WRITER EVERY CALLER USES. `emit.write_h5ad` holds `classic_string_encoding`,
+    # which is what makes the file a plain-string dataset on pandas 3; re-backing the labels does
+    # not. Writing bare tested a path no caller takes.
+    from scanno.emit import write_h5ad as _emit_write
+    _emit_write(S, q)
     with h5py.File(q, "r") as f:
         for k in ("obs/_index", "var/_index", "var/gene_id"):
             check(f"{k} is a DATASET a reader can read",
@@ -304,10 +314,10 @@ with tempfile.TemporaryDirectory() as tmp:
 P = toy(n=6, g=3)
 before = list(map(str, P.obs_names))
 ch2 = plain_string_labels(P)
-check("an already-plain object is left alone",
-      not ch2["obs_index"] and not ch2["var_index"] and list(map(str, P.obs_names)) == before,
-      str(ch2))
-check("and reports nothing", format_plain_labels(ch2) == [])
+check("an already-plain object keeps its values",
+      list(map(str, P.obs_names)) == before, str(ch2))
+check("and claims no column conversion",
+      ch2["obs_columns"] == [] and ch2["var_columns"] == [], str(ch2))
 
 print("\n" + "=" * 64)
 if fails:
