@@ -1006,8 +1006,17 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # where it does, which is the reading error the `stops here because` column exists to stop.
     body += taxonomy_section(ctx, out_dir=out)
 
-    # ---- composition, at every level ---------------------------------------------------
+    # ---- composition: the TWO annotations, and only those --------------------------------
     body.append("<h2>Composition</h2>")
+    body.append("<p class='lede'>scAnno delivers <b>two</b> annotations and both are counted here: "
+                "the <b>L1 annotation</b>, an independent depth-1 walk over the complete declared "
+                "compartment set against the full corpus, and the <b>scope annotation</b>, the "
+                "same unchanged walk against the labels the cohort's own vote left standing. They "
+                "are independent evidence about the same nuclei — not a coarse and a fine view of "
+                "one call — so they <i>can</i> disagree, and a disagreement is a finding rather "
+                "than an error. There is no level-2 or level-3 annotation: nothing was annotated "
+                "at those depths, and a share quoted at a depth no walk terminated on is a number "
+                "with no call behind it.</p>")
 
     # THE TWO ANNOTATIONS, EACH FROM ITS OWN COLUMN. scAnno delivers exactly two label columns:
     # the INDEPENDENT depth-1 walk and the SCOPE annotation. They are independent evidence about
@@ -1018,8 +1027,9 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # agreement between the two columns for exactly the objects that measured none. And the
     # deepest `L{n}` coincides with the delivered terminals only when n happens to be the
     # declared tree's maximum depth, so a table built on it is right by accident.
+    ctx_l1 = ctx.l1_rows()
     for _title, _rows, _what in (
-            ("the L1 annotation", ctx.l1_rows(),
+            ("the L1 annotation", ctx_l1,
              "an INDEPENDENT depth-1 walk - one decision at the root, and no seal at any depth "
              "can move it"),
             ("the scope annotation", ctx.scope_rows(),
@@ -1045,6 +1055,21 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             [[_esc(r["label"]), f"L{r['depth']}" if r["depth"] else "—", f"{r['nuclei']:,}",
               f"{r['share']:.1f}%", f"{r['samples']}/{len(ctx.samples)}"] for r in _rows],
             source=_src))
+        # The composition figures are keyed by DEPTH, so each annotation is drawn at the depth its
+        # labels live at: 1 for the L1 walk, the deepest for the scope, where a full path is
+        # itself. Their established F-names and filenames are unchanged — renaming them would
+        # orphan the files `figures.py` writes.
+        if _rows is ctx_l1:
+            body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))
+            body.append(A.fig("F102", name="F102_composition_level1_by_sample", by="sample"))
+            body.append(A.fig("F141", name="F141_per_sample_level1", depth=1))
+        else:
+            _d = list(ctx.levels)[-1]
+            body.append(A.fig("F103", name=f"F103_composition_level{_d}_by_group",
+                              by="group", depth=_d))
+            body.append(A.fig("F103", name=f"F103_composition_level{_d}_by_sample",
+                              by="sample", depth=_d))
+            body.append(A.fig("F143", name=f"F143_per_sample_level{_d}", depth=_d))
 
     # TWO ANNOTATIONS, AND ONLY TWO. scAnno delivers the INDEPENDENT L1 walk and the SCOPE
     # annotation; there is no "level 2 annotation" and no "level 3 annotation". The intermediate
@@ -1052,46 +1077,6 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # invites a reader to quote a level nothing was ever annotated at — and to read a sealed
     # compartment appearing at "level 2" as a level-2 call rather than as the scope's own
     # terminal. So the first level and the delivered scope are shown, and nothing between them.
-    body.append("<p class='lede'>Below the two annotations, the same nuclei are also counted "
-                "with the scope path truncated to each depth. <b>These are not annotations.</b> "
-                "Nothing was annotated at depth 2 or 3 as such: a truncation is where a label "
-                "would sit if the taxonomy stopped there, which is a different statement from a "
-                "call that stopped there on its own evidence. They are kept because the "
-                "composition figures are keyed by depth, and because a level-1 share can sit "
-                "still while everything underneath rearranges.</p>")
-    for d in ctx.levels:
-        rows, csv_rows = [], []
-        jl = ctx.joint_labels(d) if ctx.joint is not None else None
-        for l in ctx.label_order(d):
-            c = ctx.count(l, d)
-            if not c:
-                continue
-            j = int((jl == l).sum()) if jl is not None else None
-            sw = f"<span class='sw' style='background:{ctx.colour(l)}'></span>"
-            rows.append([sw + _esc(leaf(l)),
-                         _esc(ctx.parent_of(l)) if d > 1 else "—",
-                         f"{c:,}", f"{ctx.share(l, d):.1f}%",
-                         f"{j:,}" if j is not None else "—",
-                         f"{ctx.animals_with(l, d)}/{len(ctx.samples)}"])
-            csv_rows.append([l, ctx.parent_of(l) if d > 1 else "",
-                             c, round(ctx.share(l, d), 3),
-                             j if j is not None else "", ctx.animals_with(l, d)])
-        src = _write_table(out, f"composition_level{d}.csv",
-                           ["label", "parent", "nuclei", "share_pct", "joint_route", "samples"],
-                           csv_rows)
-        # NOT an annotation, and titled so it cannot be quoted as one.
-        body.append(f"<h3>the scope path truncated to depth {d}</h3>")
-        body.append(_table(["label", "parent", "nuclei", "share", "joint route", "samples"],
-                           rows, source=src))
-        fid = "F102" if d == 1 else "F103"
-        kw = {} if d == 1 else {"depth": d}
-        body.append(A.fig(fid, name=f"{fid}_composition_level{d}_by_group",
-                          by="group", **kw))
-        body.append(A.fig(fid, name=f"{fid}_composition_level{d}_by_sample",
-                          by="sample", **kw))
-        pf = "F141" if d == 1 else "F143"
-        body.append(A.fig(pf, name=f"{pf}_per_sample_level{d}", depth=d))
-
     # ---- reliability ---------------------------------------------------------------------
     rel = ctx.reliability_rows()
     body.append("<h2>Reliability</h2>")
