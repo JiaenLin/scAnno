@@ -188,10 +188,10 @@ def test_an_internal_frame_key_is_translated_to_the_real_obs_column():
 def test_an_all_zero_dotplot_is_refused_rather_than_drawn():
     """It rendered once: every row, every gene column, every bracket, and no dots. That reads as
     'these markers are not expressed' when nothing was measured at all."""
-    src = (ROOT / "scanno" / "figures.py").read_text()
+    src = (ROOT_DIR / "scanno" / "figures.py").read_text()
     assert "AN ALL-ZERO GRID IS NOT A FIGURE" in src
     assert "nothing was measured" in src
-    ctxsrc = (ROOT / "scanno" / "context.py").read_text()
+    ctxsrc = (ROOT_DIR / "scanno" / "context.py").read_text()
     assert "no object carries the obs column" in ctxsrc
 
 
