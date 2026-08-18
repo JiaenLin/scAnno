@@ -133,7 +133,23 @@ check("it is a 5x5 grid = 25 layouts", md.count("0.05, 0.1, 0.3, 0.5, 0.8") == 1
 check("neighbours are computed ONCE per row, not 25 times",
       "once per row" in md)
 check("every layout is kept, so picking one is a rename not a re-run",
-      "X_umap_nn" in md and "keep every layout" in md)
+      "X_umap_nn" in md)
+# The sweep must use scanpy's own plotting, not a hand-rolled scatter: only sc.pl.umap handles a
+# categorical label, a cluster id and a GENE with one call, and keeps colours stable across
+# panels. The hand-rolled version did `obs[COLOR_BY].astype(str)` and broke on a gene.
+_sweep = md.split("### Sweep the UMAP")[1].split("### How does your clustering")[0]
+check("the sweep draws with sc.pl.umap, not raw matplotlib scatter",
+      "sc.pl.umap(" in _sweep)
+check("and does NOT hand-roll a scatter over obs, which breaks on a gene",
+      "ax.scatter(" not in _sweep and ".astype(str)" not in _sweep)
+check("it passes ax= and show=False, which is what makes it a grid",
+      "ax=axes[i][j]" in md and "show=False" in md)
+check("one legend for the grid, not 25", "legend_loc=None" in md or "legend_loc\"" in md
+      or "mostly legend" in md)
+check("it says a gene works as the colour, and shows it",
+      'COLOR_BY = "Ttn"' in md)
+check("it names which arguments are NOT scanpy defaults",
+      "not scanpy defaults" in md)
 check("the choice is RECORDED or it is unreproducible", "umap_choice" in md)
 check("it says a prettier UMAP is not a better result",
       "not a better result" in md)

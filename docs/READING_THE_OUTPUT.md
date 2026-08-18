@@ -363,35 +363,51 @@ SEED        = 0
 Neighbours are recomputed once per `n_neighbors` (the expensive step), then each `min_dist` is a
 cheap re-layout on the same graph — 5 graphs and 25 layouts rather than 25 of each.
 
-```python
-import itertools, time
+Each panel is drawn by **`sc.pl.umap` itself**, into a supplied axis. That matters for more than
+tidiness: scanpy handles a categorical label, a cluster id and a **gene** identically, keeps the
+category colours stable across all 25 panels via `uns[f"{key}_colors"]`, and gives you the same
+picture as every other UMAP in this playbook. A hand-rolled scatter would need its own colour map
+and would break the moment `COLOR_BY` is a gene.
 
-vals = B.obs[COLOR_BY].astype(str)
-cats = sorted(set(vals))
-cmap = {c: plt.cm.tab20(i % 20) for i, c in enumerate(cats)}
-colors = np.array([cmap[v] for v in vals])
+```python
+import time
 
 fig, axes = plt.subplots(len(N_NEIGHBORS), len(MIN_DISTS),
-                         figsize=(3.1 * len(MIN_DISTS), 3.1 * len(N_NEIGHBORS)))
+                         figsize=(3.2 * len(MIN_DISTS), 3.2 * len(N_NEIGHBORS)),
+                         squeeze=False)
 t0 = time.time()
 for i, nn in enumerate(N_NEIGHBORS):
     sc.pp.neighbors(B, n_neighbors=nn, n_pcs=N_NEIGHBORS_PCS, random_state=SEED)  # once per row
     for j, md in enumerate(MIN_DISTS):
         sc.tl.umap(B, min_dist=md, spread=SPREAD, random_state=SEED)
-        xy = B.obsm["X_umap"]
-        ax = axes[i, j]
-        ax.scatter(xy[:, 0], xy[:, 1], s=POINT_SIZE, c=colors, linewidths=0, rasterized=True)
-        ax.set_xticks([]); ax.set_yticks([])
-        if i == 0:
-            ax.set_title(f"min_dist={md}", fontsize=10)
-        if j == 0:
-            ax.set_ylabel(f"n_neighbors={nn}", fontsize=10)
-        B.obsm[f"X_umap_nn{nn}_md{str(md).replace('.', 'p')}"] = xy.copy()   # keep every layout
+        sc.pl.umap(
+            B, color=COLOR_BY, ax=axes[i][j], show=False,
+            size=POINT_SIZE, frameon=False,
+            title=f"min_dist={md}" if i == 0 else "",
+            # ONE legend for the whole grid, on the last panel of the first row. Left at its
+            # default every panel draws its own and the figure is mostly legend.
+            legend_loc="right margin" if (i == 0 and j == len(MIN_DISTS) - 1) else None,
+        )
+        axes[i][j].set_ylabel(f"n_neighbors={nn}" if j == 0 else "", fontsize=10)
+        B.obsm[f"X_umap_nn{nn}_md{str(md).replace('.', 'p')}"] = B.obsm["X_umap"].copy()
     print(f"  n_neighbors={nn} done  ({time.time() - t0:.0f}s)", flush=True)
 
 fig.suptitle(f"UMAP sweep, coloured by {COLOR_BY} — 25 layouts of the SAME data",
              fontsize=13, y=1.002)
 plt.tight_layout(); plt.savefig("umap_sweep.png", dpi=130, bbox_inches="tight"); plt.show()
+```
+
+The only two arguments that are not scanpy defaults are `ax=` and `show=False`, which are what
+put the panels in one grid, plus `legend_loc=None` on 24 of the 25 so the figure is not mostly
+legend. Everything else — colours, categorical handling, the point rendering — is scanpy's own.
+
+`COLOR_BY` can be any of these, and nothing else changes:
+
+```python
+COLOR_BY = LABEL          # the delivered annotation
+COLOR_BY = "my_leiden"    # your clustering
+COLOR_BY = "Ttn"          # a GENE — continuous colour, handled by the same call
+COLOR_BY = BATCH          # the library, to see whether a layout hides a batch effect
 ```
 
 Every layout is kept in `obsm` as `X_umap_nn<N>_md<M>`, so choosing one is a rename, not a re-run:
