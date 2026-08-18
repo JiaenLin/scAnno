@@ -1099,12 +1099,16 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             else:
                 body.append("<p class='sub'>No nucleus moved: the walk resolved every one it "
                             "annotated, so this column equals the one above it.</p>")
-            body.append(_absent_section(
-                "composition FIGURES for the forced columns",
-                "The composition figures are keyed by taxonomy DEPTH and drawn from the level "
-                "columns, so there is no forced variant of them. Reusing the unforced figure "
-                "here would show the unforced numbers under a forced heading, which is worse "
-                "than showing none. The tables above are the forced numbers."))
+            # Drawn from the FORCED column itself, never the unforced figure reused under a
+            # forced heading. Same palette as the pair above, so a cell type keeps its colour and
+            # the two are comparable by eye.
+            _c = "forced_l1" if "L1" in _title else "forced"
+            _w = "the L1 annotation" if "L1" in _title else "the scope annotation"
+            _s = "l1" if "L1" in _title else "scope"
+            body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_group",
+                              col=_c, by="group", what=_w))
+            body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_sample",
+                              col=_c, by="sample", what=_w))
             continue
         if _rows is ctx_l1:
             body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))

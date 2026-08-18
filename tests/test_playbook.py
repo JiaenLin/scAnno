@@ -126,6 +126,20 @@ check("a skipped cell type in the DE loop is NAMED", "NAMED, not silently droppe
 check("it says activity is inferred, not measured", "not measured, it is inferred" in md)
 check("it gives an offline path for prior knowledge", "read_gmt" in md and "Offline" in md)
 
+print("\nE3. the UMAP sweep")
+check("it sweeps both parameters", "MIN_DISTS" in md and "N_NEIGHBORS = [" in md)
+check("it is a 5x5 grid = 25 layouts", md.count("0.05, 0.1, 0.3, 0.5, 0.8") == 1
+      and "5, 15, 30, 50, 100" in md and "25 layouts" in md)
+check("neighbours are computed ONCE per row, not 25 times",
+      "once per row" in md)
+check("every layout is kept, so picking one is a rename not a re-run",
+      "X_umap_nn" in md and "keep every layout" in md)
+check("the choice is RECORDED or it is unreproducible", "umap_choice" in md)
+check("it says a prettier UMAP is not a better result",
+      "not a better result" in md)
+check("it says a claim should survive all 25 panels", "survive in all 25" in md)
+check("it warns this one is worth batching", "batch job" in md)
+
 print("\nF. it tells the reader to ask the object rather than assume")
 check("it prints the obs columns before using them", "for c in A.obs.columns" in md)
 check("it reads the embedding provenance from uns", "scanno_embed" in md)

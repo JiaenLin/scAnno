@@ -346,6 +346,82 @@ sc.pl.umap(B, color=[f"leiden_{r}" for r in (0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0)]
            legend_loc="on data", legend_fontsize=4, ncols=4)
 ```
 
+### Sweep the UMAP: 25 layouts, and pick the one you can read
+
+`min_dist` and `n_neighbors` change the **picture**, not the data. Neither one makes an embedding
+more correct — they trade local detail against global shape — so the honest way to set them is to
+look at a grid and choose, rather than to accept a default you never saw an alternative to.
+
+```python
+MIN_DISTS   = [0.05, 0.1, 0.3, 0.5, 0.8]        # tight clumps  ->  even spread
+N_NEIGHBORS = [5, 15, 30, 50, 100]              # local detail  ->  global structure
+COLOR_BY    = LABEL                             # or "my_leiden", or a gene
+POINT_SIZE  = 1.5
+SEED        = 0
+```
+
+Neighbours are recomputed once per `n_neighbors` (the expensive step), then each `min_dist` is a
+cheap re-layout on the same graph — 5 graphs and 25 layouts rather than 25 of each.
+
+```python
+import itertools, time
+
+vals = B.obs[COLOR_BY].astype(str)
+cats = sorted(set(vals))
+cmap = {c: plt.cm.tab20(i % 20) for i, c in enumerate(cats)}
+colors = np.array([cmap[v] for v in vals])
+
+fig, axes = plt.subplots(len(N_NEIGHBORS), len(MIN_DISTS),
+                         figsize=(3.1 * len(MIN_DISTS), 3.1 * len(N_NEIGHBORS)))
+t0 = time.time()
+for i, nn in enumerate(N_NEIGHBORS):
+    sc.pp.neighbors(B, n_neighbors=nn, n_pcs=N_NEIGHBORS_PCS, random_state=SEED)  # once per row
+    for j, md in enumerate(MIN_DISTS):
+        sc.tl.umap(B, min_dist=md, spread=SPREAD, random_state=SEED)
+        xy = B.obsm["X_umap"]
+        ax = axes[i, j]
+        ax.scatter(xy[:, 0], xy[:, 1], s=POINT_SIZE, c=colors, linewidths=0, rasterized=True)
+        ax.set_xticks([]); ax.set_yticks([])
+        if i == 0:
+            ax.set_title(f"min_dist={md}", fontsize=10)
+        if j == 0:
+            ax.set_ylabel(f"n_neighbors={nn}", fontsize=10)
+        B.obsm[f"X_umap_nn{nn}_md{str(md).replace('.', 'p')}"] = xy.copy()   # keep every layout
+    print(f"  n_neighbors={nn} done  ({time.time() - t0:.0f}s)", flush=True)
+
+fig.suptitle(f"UMAP sweep, coloured by {COLOR_BY} — 25 layouts of the SAME data",
+             fontsize=13, y=1.002)
+plt.tight_layout(); plt.savefig("umap_sweep.png", dpi=130, bbox_inches="tight"); plt.show()
+```
+
+Every layout is kept in `obsm` as `X_umap_nn<N>_md<M>`, so choosing one is a rename, not a re-run:
+
+```python
+PICK_NN, PICK_MD = 15, 0.3                       # <- the one you liked
+B.obsm["X_umap"] = B.obsm[f"X_umap_nn{PICK_NN}_md{str(PICK_MD).replace('.', 'p')}"].copy()
+B.uns["umap_choice"] = {"n_neighbors": PICK_NN, "min_dist": PICK_MD, "seed": SEED,
+                        "n_pcs": N_NEIGHBORS_PCS}      # record it, or it is unreproducible
+```
+
+| you want | reach for |
+|---|---|
+| tight, well-separated blobs | low `min_dist` (0.05–0.1) |
+| an even, space-filling cloud | high `min_dist` (0.5–0.8) |
+| fine local structure, more fragments | low `n_neighbors` (5–15) |
+| global relationships, fewer islands | high `n_neighbors` (50–100) |
+
+**On 100k cells this is 25 UMAPs and will take a while** — it is the one block in this playbook
+worth running as a batch job rather than interactively. Shrink the grid to 3×3 first, or subsample:
+
+```python
+# Bsub = B[np.random.default_rng(0).choice(B.n_obs, 20000, replace=False)].copy()
+```
+
+> **A prettier UMAP is not a better result.** Distances between clusters carry little meaning and
+> cluster sizes carry none; the sweep is for choosing something legible, not something true. Any
+> claim you can make from one panel of this grid should survive in all 25 — if it does not, it is
+> a property of the layout.
+
 ### How does your clustering relate to the delivered labels?
 
 ```python

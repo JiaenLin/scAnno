@@ -218,6 +218,40 @@ def F102(ctx, by="group"):
     return _composition(ctx, 1, by)
 
 
+def F106(ctx, col="forced", by="group", what="the scope annotation"):
+    """Composition over a FORCED label column — the same figure as F102/F103, on the column in
+    which nothing is left UNRESOLVED.
+
+    It exists so the forced blocks of the report are not a table with a blank space where their
+    figure should be. It reuses `composition_rows` rather than copying the averaging rule, and it
+    takes its colours from the SAME palette as the unforced figure, so a cell type keeps its
+    colour across the pair — without that the two are not comparable by eye, which is the only
+    reason to draw them together.
+    """
+    order = ctx.label_order_for(col)
+    if not order:
+        raise NotDrawable(f"no forced label column {col!r} on these objects "
+                          f"(`scanno annotate --resolve` writes it)")
+    rows = ctx.composition_rows(1, by=by, col=col, order=order)
+    if not rows:
+        raise NotDrawable(f"no '{by}' column to group composition by")
+    n_cols = len(order)
+    floor = 3.0 if n_cols <= 10 else min(8.0, 3.0 + 0.3 * (n_cols - 10))
+    width = min(22.0, 12.0 + 0.35 * max(0, n_cols - 9))
+    fig, ax = plt().subplots(figsize=(width, 0.62 * len(rows) + 3.0))
+    cols = ctx.colours_for(col)
+    stacked_rows(ax, rows=rows, order=order, colours=cols, label_floor=floor)
+    swatch_legend(fig, order, cols, ncol=8 if n_cols <= 10 else 6,
+                  fontsize=8.5 if n_cols <= 10 else 7.5)
+    ax.set_title(
+        (f"FORCED composition of {what}, per {by}. Every walked nucleus is on a leaf: the "
+         f"UNRESOLVED share has been redistributed onto calls the walk DECLINED to make.\n"
+         f"Read it against the unforced figure above — the difference is exactly those "
+         f"nuclei, and their margin was below the gap bar by construction."),
+        fontsize=9.5, loc="left")
+    return fig, None
+
+
 def F103(ctx, depth=2, by="group"):
     """The same at any deeper level.
 
@@ -824,6 +858,7 @@ def F155(ctx, depth=1):
 FIGURES = {
     "F102": (F102, "cohort", "composition"),
     "F103": (F103, "cohort", "composition, deeper"),
+    "F106": (F106, "cohort", "composition, forced"),
     "F141": (F141, "cohort", "composition per sample"),
     "F143": (F143, "cohort", "composition per sample, deeper"),
     "F140": (F140, "cohort", "reliability by depth"),

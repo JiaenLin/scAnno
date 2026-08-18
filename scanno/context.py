@@ -310,14 +310,40 @@ class Context:
         return s not in SENTINELS and len(s.split("/")) < depth
 
     # ------------------------------------------------------------------ composition
-    def composition_rows(self, depth, by="group"):
+    def label_order_for(self, col):
+        """Abundance order over an arbitrary label column, sentinels last.
+
+        The depth-keyed `label_order` cannot serve a forced column: those hold full paths at mixed
+        depths and are not a level of the taxonomy.
+        """
+        if col not in self.P:
+            return []
+        v = self.P[col].astype(str)
+        counts = {}
+        for lab in v:
+            if lab != "":
+                counts[lab] = counts.get(lab, 0) + 1
+        return sorted(counts, key=lambda l: (l in SENTINELS, -counts[l], l))
+
+    def colours_for(self, col):
+        """One colour per label of `col`, from the SAME palette the depth figures use — so a cell
+        type keeps its colour between a figure and its forced twin, which is the only way the
+        pair can be read against each other."""
+        return {l: self.palette.of(l) for l in self.label_order_for(col)}
+
+    def composition_rows(self, depth, by="group", col=None, order=None):
         """One row per group or per sample, as percentages WITHIN that row.
 
         Computed per sample and averaged for a group row, never pooled before division - pooling
         lets the largest library set the group's composition.
+
+        `col`/`order` override the depth-derived label column, which is what lets the forced
+        columns reuse this rather than growing a second, drifting copy of the averaging rule.
         """
+        lab_col = col or f"L{depth}"
+        lab_order = order if order is not None else self.label_order(depth)
         key = "group" if by == "group" else "sample"
-        if key not in self.P:
+        if key not in self.P or lab_col not in self.P:
             return []
         rows = []
         for name in self._levels(key):
@@ -325,15 +351,15 @@ class Context:
             if by == "group":
                 pcts = {}
                 sams = sorted(set(self.P.loc[m, "sample"]))
-                for lab in self.label_order(depth):
+                for lab in lab_order:
                     vals = [100.0 * float(((self.P["sample"] == s) & m &
-                                           (self.P[f"L{depth}"] == lab)).sum())
+                                           (self.P[lab_col] == lab)).sum())
                             / max(int((self.P["sample"] == s).sum()), 1) for s in sams]
                     pcts[lab] = float(np.mean(vals)) if vals else 0.0
             else:
                 tot = max(int(m.sum()), 1)
-                pcts = {lab: 100.0 * float((m & (self.P[f"L{depth}"] == lab)).sum()) / tot
-                        for lab in self.label_order(depth)}
+                pcts = {lab: 100.0 * float((m & (self.P[lab_col] == lab)).sum()) / tot
+                        for lab in lab_order}
             rows.append({"name": str(name), "n": int(m.sum()), "pct": pcts})
         return rows
 
