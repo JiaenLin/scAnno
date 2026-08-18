@@ -39,7 +39,7 @@ from __future__ import annotations
 import numpy as np
 
 from .exclude import EXCLUDED
-from .force import BY_GAP
+from .force import BY_GAP, FROM_WALK
 
 #: The default column-name stem. `scanno_cell_type` is not arbitrary: a downstream reader has to
 #: GUESS which column holds the annotation, and every convention for that guess keys on the
@@ -91,6 +91,24 @@ def per_cell(res, y, flag=None):
         # alike, which is what `assignment` is there to tell apart.
         "force_depth": np.array([int(by_cluster[int(c)].get("force_depth", 0)) for c in y],
                                 dtype=np.int16),
+        # THE RESOLVED LABEL: every walked cell on a leaf, in a column of its own.
+        #
+        # Defaulted to the walk's OWN answer, so a run that never called `resolve_to_leaf` gets a
+        # resolved column identical to the label column rather than an empty one. `origin` is
+        # what tells the two apart, and it is why these three are never written separately: a
+        # column mixing reached leaves with assigned ones, and not saying which is which, is
+        # worse than no column, because every consumer reads the assignments as calls.
+        "resolved": np.array([by_cluster[int(c)].get("resolved_label",
+                                                     by_cluster[int(c)]["label"]) for c in y],
+                             dtype=object),
+        "resolved_path": np.array([by_cluster[int(c)].get("resolved_path",
+                                                          by_cluster[int(c)]["path"]) for c in y],
+                                  dtype=object),
+        # FROM_WALK, not BY_GAP: `assignment` and `resolved_origin` are different vocabularies
+        # and defaulting one to the other's value would put "gap" in a column whose declared
+        # values never include it.
+        "resolved_origin": np.array([str(by_cluster[int(c)].get("resolved_origin", FROM_WALK))
+                                     for c in y], dtype=object),
     }
     if flag is not None:
         flag = np.asarray(flag, dtype=bool)
@@ -105,6 +123,12 @@ def per_cell(res, y, flag=None):
         # took no part in that decision, and `forced` here would claim it did.
         out["assignment"][flag] = EXCLUDED
         out["force_depth"][flag] = 0
+        # Withheld before the walk, so there is no trace to descend and nothing to resolve.
+        # Forcing a leaf onto a nucleus that was never annotated would be inventing the one
+        # thing this column exists to make visible.
+        out["resolved"][flag] = EXCLUDED
+        out["resolved_path"][flag] = EXCLUDED
+        out["resolved_origin"][flag] = EXCLUDED
     return out
 
 
@@ -119,7 +143,7 @@ def support_per_cell(cell_type, support):
 
 
 def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, suffix="",
-                 assignment=False):
+                 assignment=False, resolved=False):
     """Write the per-cell annotation into `adata.obs`. Returns the column names written.
 
     `suffix` goes on the END of each column name, which is where a sweep needs it:
@@ -165,6 +189,15 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
         # cell was forced, `force_depth` says through how many steps outside the walk, and a
         # reader given only the first has no way to tell one decision from two.
         put("force_depth", cols["force_depth"])
+    if resolved:
+        # THREE columns, one statement, never written apart. `resolved` is a leaf for every
+        # walked cell; `resolved_path` is the whole lineage so it can be truncated to any depth;
+        # `resolved_origin` says whether that leaf was REACHED by the walk or ASSIGNED to it.
+        # Without the third a reader cannot tell a confident call from a root-level guess, and
+        # the guesses are exactly the cells this column adds.
+        put("resolved", cols["resolved"], categorical=True)
+        put("resolved_path", cols["resolved_path"], categorical=True)
+        put("resolved_origin", cols["resolved_origin"], categorical=True)
     if support:
         s = support_per_cell(cols["cell_type"], support)
         if flag is not None:

@@ -525,12 +525,13 @@ def _annotate(a):
     # the descent repeats until a leaf. No bar is moved and classify.py is not touched. Applied
     # to `res` ONLY: `res_l1` below is the independent L1 and no verdict of the scope reaches it.
     force_rec = None
+    _scorer = None
     if force_paths:
         from .force import BY_FORCE, apply_force, bare_force, format_force, internal_terminals
         from .step import node_scorer
+        _scorer = node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr)
         res, force_rec = apply_force(
-            res, force_paths, counts=counts, tree=tree,
-            scorer=node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr))
+            res, force_paths, counts=counts, tree=tree, scorer=_scorer)
         # Both post-conditions read the FINISHED rows rather than trusting the function that
         # produced them. A bare FORCE-node label is the original defect; a FORCED row on any
         # other internal node is a recursion that stopped short, which delivers the same kind of
@@ -653,6 +654,29 @@ def _annotate(a):
                 fh.write("\t".join(row) + "\n")
         print(f"wrote {a.out}")
 
+    # --- RESOLVED: a second label column with no holes in it ---
+    #
+    # Runs AFTER the FORCE post-conditions above, never before: those refuse a run that would
+    # deliver a compartment name where the scope says a subtype belongs, and that refusal must
+    # fire on the principled columns rather than be masked by a resolved column that has quietly
+    # filled the same gap.
+    #
+    # Additive and reversible. `<prefix>_cell_type` and `<prefix>_path` are untouched, so the
+    # decision NOT to guess is still in the object; `<prefix>_resolved*` sits beside them for the
+    # consumers that need a column with no holes - a composition table, a viewer colour-by, a
+    # label handed to a semi-supervised model - and `<prefix>_resolved_origin` says, per cell,
+    # whether its leaf was reached or assigned.
+    resolve_rec = None
+    if a.resolve:
+        from .force import format_resolved, resolve_to_leaf
+        from .step import node_scorer
+        if _scorer is None:
+            _scorer = node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr)
+        res, resolve_rec = resolve_to_leaf(res, tree=tree, scorer=_scorer, counts=counts)
+        print("")
+        for line in format_resolved(resolve_rec):
+            print(line)
+
     # The annotated object. Everything above is per CLUSTER; this is the only place the labels
     # become per CELL, which is the form every consumer of an annotation actually wants.
     # Imported here, not inside `if a.out_h5ad`, because --report uses it too: a run with
@@ -672,7 +696,8 @@ def _annotate(a):
         """
         w = annotate_obs(A, res, y, flag=flag, prefix=a.label_prefix,
                          support=support or None, suffix=a.label_suffix,
-                         assignment=force_rec is not None)
+                         assignment=force_rec is not None,
+                         resolved=resolve_rec is not None)
         if force_rec is not None:
             # WRITTEN EVEN WHEN NOTHING WAS FORCED. An all-`gap` column on a scoped run is the
             # statement "this scope was honoured and stranded nobody here", which is a result;
@@ -1574,6 +1599,23 @@ def main(argv=None):
     s.add_argument("--h5ad", required=True, type=Path)
     s.add_argument("--cluster-key", required=True)
     s.add_argument("--tree", required=True, type=Path)
+    s.add_argument("--resolve", action="store_true",
+                   help="ALSO write a label column with no holes in it. Every walked cell gets a "
+                        "LEAF in `<prefix>_resolved`, `<prefix>_resolved_path` and "
+                        "`<prefix>_resolved_origin`; the ordinary label columns are untouched, so "
+                        "the decision not to guess is still in the object beside it. A cell the "
+                        "walk left UNRESOLVED is pushed from the ROOT down to a leaf, and one "
+                        "stranded on an internal node is pushed from there - by the same descent "
+                        "the FORCE pass uses, over the argmax the walk ALREADY recorded, so "
+                        "nothing is scored that was not scored anyway and nothing is invented. "
+                        "Where a chain cannot reach a leaf the cell stays UNRESOLVED and the "
+                        "reason is recorded. EXCLUDED cells are never resolved: they were "
+                        "withheld before the walk, so there is no trace to descend. "
+                        "`<prefix>_resolved_origin` is the column that matters - it says per "
+                        "cell whether the leaf was REACHED (`walk`) or ASSIGNED (`forced`, "
+                        "`root_forced`), and a root-forced margin is below the gap bar by "
+                        "construction, which is why the walk stopped there in the first place.")
+
     s.add_argument("--scope", type=Path, metavar="JSON",
                    help="the DECIDED scope - `scanno scope --out`. Drives the whole annotation "
                         "from the vote instead of from a hand-sealed tree: every SEAL is applied "

@@ -504,6 +504,152 @@ def test_which_nodes_are_forced_is_read_from_the_scope_and_from_nowhere_else():
     assert sealed_nodes(scope(**{"Stromal/Mural": "SEAL"})["nodes"]) == ["Stromal/Mural"]
 
 
+# ================================= 10. --resolve: a label column with no holes, and no invention
+#
+# The walk truncates rather than guessing, so a cohort carries UNRESOLVED cells and cells
+# labelled with a compartment. That is the answer. `--resolve` writes a SECOND set of columns in
+# which every walked cell sits on a leaf, and the whole of its honesty is the origin column: a
+# reader must be able to tell a leaf that was REACHED from one that was ASSIGNED.
+
+def _scorer_for(tree):
+    """A scorer that always prefers the FIRST declared child, so the descent is predictable."""
+    def score(cid, node):
+        kids = tree["children"].get(node)
+        if not kids:
+            return None
+        return at(node, kids[0], 0.11)
+    return score
+
+
+def test_an_unresolved_cluster_is_pushed_from_the_root_to_a_leaf():
+    from scanno.force import FROM_ROOT, resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Cardiomyocyte", 0.02)]})
+    rows, rec = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    r = rows[0]
+    assert r["resolved_origin"] == FROM_ROOT, r["resolved_origin"]
+    assert r["resolved_path"] == "Cardiomyocyte/Working cardiomyocyte", r["resolved_path"]
+    assert r["resolved_label"] == "Working cardiomyocyte"
+    # and the path carries NO leading root, which is what joining from the root name invites
+    assert not r["resolved_path"].startswith("root")
+
+
+def test_the_first_step_is_the_argmax_the_walk_already_recorded_at_the_root():
+    # Nothing is re-scored to choose the root's child: trace[0]["top"] IS the measurement, and
+    # a resolution that picked differently would be inventing a destination.
+    from scanno.force import resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Endothelial", 0.03)]})
+    rows, _ = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    assert rows[0]["resolved_path"].split("/")[0] == "Endothelial"
+
+
+def test_the_principled_label_is_left_exactly_as_it_was():
+    from scanno.force import resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Stromal", 0.02)]})
+    rows, _ = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    assert rows[0]["label"] == "UNRESOLVED", "the decision NOT to guess must survive"
+    assert rows[0]["path"] == "UNRESOLVED"
+    assert rows[0]["depth"] == 0
+
+
+def test_a_cluster_already_on_a_leaf_is_not_touched_and_says_so():
+    from scanno.force import FROM_WALK, resolve_to_leaf
+    rows, _ = resolve_to_leaf(calls("Stromal/Mural/Pericyte"), tree=TREE,
+                              scorer=_scorer_for(TREE))
+    assert rows[0]["resolved_origin"] == FROM_WALK
+    assert rows[0]["resolved_path"] == "Stromal/Mural/Pericyte"
+
+
+def test_a_cluster_stranded_on_an_internal_node_is_pushed_from_there():
+    from scanno.force import FROM_INTERNAL, resolve_to_leaf
+    res = calls("Stromal/Mural", trace={0: [at("root", "Stromal", 0.9),
+                                            at("Stromal", "Mural", 0.8),
+                                            at("Mural", "Pericyte", 0.05)]})
+    rows, _ = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    assert rows[0]["resolved_origin"] == FROM_INTERNAL
+    assert rows[0]["resolved_path"] == "Stromal/Mural/Pericyte"
+
+
+def test_an_excluded_cluster_is_never_resolved():
+    # Withheld BEFORE the walk: no trace to descend, and a leaf here would be pure invention.
+    from scanno.force import EXCLUDED, resolve_to_leaf
+    rows, _ = resolve_to_leaf(calls("EXCLUDED"), tree=TREE, scorer=_scorer_for(TREE))
+    assert rows[0]["resolved_label"] == EXCLUDED
+    assert rows[0]["resolved_origin"] == EXCLUDED
+
+
+def test_a_cluster_the_walk_never_scored_stays_unresolved_and_is_named():
+    from scanno.force import UNRESOLVED, resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: []})
+    rows, rec = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    assert rows[0]["resolved_label"] == UNRESOLVED
+    assert "0" in rec["unresolvable"], rec["unresolvable"]
+    assert "no most-similar child" in rec["unresolvable"]["0"]["why"]
+
+
+def test_a_descent_that_cannot_reach_a_leaf_invents_nothing():
+    from scanno.force import UNRESOLVED, resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Cardiomyocyte", 0.02)]})
+    # internal node, and no scorer to take the next step
+    rows, rec = resolve_to_leaf(res, tree=TREE, scorer=None)
+    assert rows[0]["resolved_label"] == UNRESOLVED
+    assert rec["unresolvable"], "the refusal must be recorded, not silently dropped"
+
+
+def test_the_record_counts_cells_not_only_clusters():
+    from scanno.force import FROM_ROOT, resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Cardiomyocyte", 0.02)]})
+    _, rec = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE), counts={0: 4321})
+    assert rec["cells_by_origin"][FROM_ROOT] == 4321
+
+
+def test_resolve_does_not_mutate_the_rows_it_was_given():
+    from scanno.force import resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Cardiomyocyte", 0.02)]})
+    before = dict(res[0])
+    resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    assert res[0] == before, "apply-style functions here return new rows and touch nothing"
+
+
+def test_every_cell_says_whether_its_leaf_was_reached_or_assigned():
+    # The three columns are ONE statement. Without the origin, a consumer reads a root-level
+    # guess as a call, which is the whole reason the walk declined to make it.
+    import numpy as np
+    from scanno.emit import per_cell
+    from scanno.force import FROM_ROOT, FROM_WALK, resolve_to_leaf
+    res = calls("Stromal/Mural/Pericyte", "UNRESOLVED",
+                trace={1: [at("root", "Cardiomyocyte", 0.02)]})
+    rows, _ = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    cols = per_cell(rows, np.array([0, 0, 1]))
+    assert list(cols["resolved_origin"]) == [FROM_WALK, FROM_WALK, FROM_ROOT]
+    assert cols["resolved"][2] == "Working cardiomyocyte"
+    # the ordinary column still holds the refusal
+    assert cols["cell_type"][2] == "UNRESOLVED"
+
+
+def test_a_flagged_nucleus_is_excluded_in_the_resolved_column_too():
+    import numpy as np
+    from scanno.emit import per_cell
+    from scanno.force import EXCLUDED, resolve_to_leaf
+    res = calls("UNRESOLVED", trace={0: [at("root", "Cardiomyocyte", 0.02)]})
+    rows, _ = resolve_to_leaf(res, tree=TREE, scorer=_scorer_for(TREE))
+    cols = per_cell(rows, np.array([0, 0]), flag=np.array([False, True]))
+    assert cols["resolved"][1] == EXCLUDED
+    assert cols["resolved_origin"][1] == EXCLUDED
+    assert cols["resolved"][0] == "Working cardiomyocyte"
+
+
+def test_per_cell_defaults_the_resolved_column_to_the_walks_own_answer():
+    # A run that never called resolve_to_leaf must still produce the columns, equal to the label
+    # columns - not empty ones, and not a crash.
+    import numpy as np
+    from scanno.emit import per_cell
+    from scanno.force import FROM_WALK
+    cols = per_cell(calls("Stromal/Fibroblast"), np.array([0]))
+    assert cols["resolved"][0] == "Fibroblast"
+    assert cols["resolved_path"][0] == "Stromal/Fibroblast"
+    assert cols["resolved_origin"][0] == FROM_WALK
+
+
 def test_the_library_names_no_node_no_sample_and_no_cohort_size():
     """Docstrings may cite the cohort this was written for. CODE may not encode it.
 

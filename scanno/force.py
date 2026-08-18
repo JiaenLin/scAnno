@@ -412,6 +412,140 @@ def apply_force(res, force_paths, counts=None, tree=None, scorer=None, sep=SEP):
     return out, record
 
 
+#: Values of the `<prefix>_resolved_origin` column — HOW each cell got its resolved leaf.
+#: A column that mixes confident calls with root-level guesses and does not say which is which
+#: is worse than no column, because every consumer will read the guesses as calls.
+FROM_WALK = "walk"            # the walk reached a leaf on its own; nothing was forced
+FROM_INTERNAL = "forced"      # pushed down from an internal node the walk stopped on
+FROM_ROOT = "root_forced"     # was UNRESOLVED: pushed from the root itself
+UNRESOLVED = "UNRESOLVED"     # could not be pushed, and nothing was invented
+RESOLVED_ORIGINS = (FROM_WALK, FROM_INTERNAL, FROM_ROOT, UNRESOLVED, EXCLUDED)
+
+
+def resolve_to_leaf(res, tree=None, scorer=None, counts=None, sep=SEP):
+    """Give every walked cluster a LEAF label, in columns of its own. Returns `(rows, record)`.
+
+    WHAT THIS IS FOR. The walk truncates rather than guessing, so a cohort carries cells labelled
+    `UNRESOLVED` — the root's children could not be told apart for them — and cells labelled with
+    a compartment, where an internal node's children could not. That is the honest answer and it
+    stays the answer. But a great deal of downstream work needs a column with no holes in it: a
+    composition table, a colour-by in a viewer, a label handed to a semi-supervised model. Those
+    consumers otherwise invent their own rule for the gaps, off the record and differently each
+    time.
+
+    So this writes a SECOND set of columns in which every walked cell sits on a leaf, and leaves
+    the first set untouched. **It is additive and reversible**: nothing is overwritten, the
+    principled label is still there beside it, and the origin column says for every cell whether
+    its leaf was reached or assigned.
+
+    NOTHING IS INVENTED. The descent is the same `push_to_leaf` the FORCE pass uses, over the
+    same trace the walk already wrote — for an `UNRESOLVED` cluster the root's argmax is
+    `trace[0]`, which was scored during the walk and cost nothing to keep. Where a chain cannot
+    reach a leaf — a tree that loops, a node with no scorer, children the weights cannot
+    represent — the cell stays `UNRESOLVED` in the resolved column too and the reason is
+    recorded. A classifier that truncates must not acquire a destination it never measured.
+
+    EXCLUDED cells are never resolved. They were withheld before the walk, so there is no trace
+    to descend and no measurement to descend it with.
+
+    The margin of a root-forced call is below the gap bar BY CONSTRUCTION — that is why it was
+    unresolved — and it is already in `<prefix>_gap` for those rows. These are the least certain
+    labels in the object and the origin column is how a reader finds them.
+    """
+    out, record = [], {"by_origin": {k: 0 for k in RESOLVED_ORIGINS},
+                       "cells_by_origin": {k: 0 for k in RESOLVED_ORIGINS},
+                       "unresolvable": {}, "pushed": {}}
+
+    for r in res:
+        row = dict(r)
+        cid = int(row.get("cluster", len(out)))
+        n = _count(counts, cid)
+        path = str(row.get("path", ""))
+
+        def settle(origin, label, full, depth):
+            row["resolved_label"] = label
+            row["resolved_path"] = full
+            row["resolved_origin"] = origin
+            row["resolved_depth"] = int(depth)
+            record["by_origin"][origin] += 1
+            record["cells_by_origin"][origin] += n
+            out.append(row)
+
+        if row.get("excluded") or path == EXCLUDED:
+            settle(EXCLUDED, EXCLUDED, EXCLUDED, 0)
+            continue
+
+        trace = row.get("trace") or []
+        unresolved = (path == UNRESOLVED or not path)
+
+        if unresolved:
+            # Start AT THE ROOT. `push_to_leaf` builds a path by joining, so it is given the
+            # literal root name and the prefix is stripped afterwards — the alternative, an empty
+            # starting path, yields a leading separator on every result.
+            first = trace[0] if trace else None
+            start, strip = ROOT, True
+            origin = FROM_ROOT
+        else:
+            here = path.split(sep)[-1]
+            if not _children(tree, here, sep=sep) if tree is not None else True:
+                # Already a leaf, or leafness is unknowable without a tree. Either way the walk's
+                # own answer stands and nothing is forced.
+                settle(FROM_WALK, str(row.get("label", here)), path, int(row.get("depth", 0)))
+                continue
+            first = next((e for e in reversed(trace) if str(e.get("at")) == here), None)
+            start, strip = path, False
+            origin = FROM_INTERNAL
+
+        if first is None:
+            # The walk never scored this node's children, so there is no measured most-similar
+            # child. Recorded, not guessed.
+            record["unresolvable"][str(cid)] = {
+                "from": path, "n_cells": n,
+                "why": "the walk recorded no argmax here, so no most-similar child was measured"}
+            settle(UNRESOLVED, UNRESOLVED, UNRESOLVED, 0)
+            continue
+
+        steps, refusal = push_to_leaf(cid, start, first, tree=tree, scorer=scorer, sep=sep)
+        if refusal or not steps:
+            record["unresolvable"][str(cid)] = {
+                "from": path, "n_cells": n,
+                "why": refusal or "the descent took no step"}
+            settle(UNRESOLVED, UNRESOLVED, UNRESOLVED, 0)
+            continue
+
+        full = steps[-1]["path"]
+        if strip:
+            full = full[len(ROOT) + len(sep):] if full.startswith(ROOT + sep) else full
+        record["pushed"][str(cid)] = {
+            "from": path, "to": full, "n_steps": len(steps), "n_cells": n,
+            "margins": [s["margin"] for s in steps]}
+        settle(origin, steps[-1]["to"], full, full.count(sep) + 1)
+
+    return out, record
+
+
+def format_resolved(record, sep=SEP):
+    """The resolved-label summary, as report lines. Says what was ASSIGNED, not merely what is."""
+    if not record:
+        return []
+    by, cells = record["by_origin"], record["cells_by_origin"]
+    L = [f"resolved labels: every walked cell carries a leaf in `<prefix>_resolved`, and "
+         f"`<prefix>_resolved_origin` says how it got there."]
+    for k in RESOLVED_ORIGINS:
+        if by.get(k):
+            L.append(f"    {k:<12} {by[k]:>4} cluster(s), {cells[k]:>8,} cell(s)")
+    if by.get(FROM_ROOT):
+        L.append(f"    {cells[FROM_ROOT]:,} cell(s) were UNRESOLVED and are now labelled. Their "
+                 f"margin is below the gap bar BY CONSTRUCTION - that is why the walk stopped - "
+                 f"so these are the least certain labels in the object.")
+    if record.get("unresolvable"):
+        L.append(f"    {len(record['unresolvable'])} cluster(s) could NOT be resolved and stay "
+                 f"UNRESOLVED; nothing was invented for them:")
+        for cid, d in sorted(record["unresolvable"].items())[:6]:
+            L.append(f"      cluster {cid} from {d['from']!r}: {d['why']}")
+    return L
+
+
 def internal_terminals(res, tree, sep=SEP):
     """Clusters whose delivered path is a node the tree still gives CHILDREN to.
 
