@@ -650,6 +650,51 @@ def test_per_cell_defaults_the_resolved_column_to_the_walks_own_answer():
     assert cols["resolved_origin"][0] == FROM_WALK
 
 
+def test_a_depth_one_tree_resolves_in_exactly_one_step_and_needs_no_scorer():
+    # The independent L1 walk is depth 1, so the root's argmax IS a leaf. The push must finish
+    # without a scorer - if it asked for one, every L1 resolution would refuse.
+    from scanno.force import FROM_ROOT, resolve_to_leaf
+    l1 = {"children": {"root": ["Cardiomyocyte", "Stromal", "Endothelial"]},
+          "patterns": {}, "members": {}}
+    res = calls("UNRESOLVED", trace={0: [at("root", "Stromal", 0.04)]})
+    rows, rec = resolve_to_leaf(res, tree=l1, scorer=None)
+    assert rows[0]["resolved_origin"] == FROM_ROOT, rows[0]["resolved_origin"]
+    assert rows[0]["resolved_path"] == "Stromal"
+    assert rows[0]["resolved_depth"] == 1
+    assert not rec["unresolvable"]
+
+
+def test_the_forced_l1_column_is_written_beside_the_honest_one_never_over_it():
+    import numpy as np
+    from scanno.emit import independent_l1
+    from scanno.force import resolve_to_leaf
+    import anndata as ad
+    l1 = {"children": {"root": ["Cardiomyocyte", "Stromal"]}, "patterns": {}, "members": {}}
+    res = calls("Cardiomyocyte", "UNRESOLVED",
+                trace={0: [at("root", "Cardiomyocyte", 0.9)],
+                       1: [at("root", "Stromal", 0.03)]})
+    rows, _ = resolve_to_leaf(res, tree=l1, scorer=None)
+    A = ad.AnnData(X=np.zeros((3, 2), dtype="float32"))
+    col, rec = independent_l1(A, rows, np.array([0, 1, 1]), suffix="_scope", resolved=True)
+    assert col == "scAnno_L1_scope"
+    assert list(A.obs[col].astype(str)) == ["Cardiomyocyte", "UNRESOLVED", "UNRESOLVED"], \
+        "the honest L1 must be untouched"
+    assert "scAnno_L1_resolved_scope" in A.obs, list(A.obs.columns)
+    assert list(A.obs["scAnno_L1_resolved_scope"].astype(str)) == \
+        ["Cardiomyocyte", "Stromal", "Stromal"]
+    assert rec["resolved_column"] == "scAnno_L1_resolved_scope"
+    assert rec["n_resolved_from_unresolved"] == 2, rec["n_resolved_from_unresolved"]
+    assert "UNRESOLVED -> Stromal" in rec["resolved_moves"]
+
+
+def test_no_forced_column_without_the_flag():
+    import numpy as np, anndata as ad
+    from scanno.emit import independent_l1
+    A = ad.AnnData(X=np.zeros((2, 2), dtype="float32"))
+    independent_l1(A, calls("Cardiomyocyte", "Stromal"), np.array([0, 1]), suffix="_scope")
+    assert not [c for c in A.obs.columns if "resolved" in c], list(A.obs.columns)
+
+
 def test_the_library_names_no_node_no_sample_and_no_cohort_size():
     """Docstrings may cite the cohort this was written for. CODE may not encode it.
 

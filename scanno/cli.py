@@ -676,6 +676,20 @@ def _annotate(a):
         print("")
         for line in format_resolved(resolve_rec):
             print(line)
+        # THE INDEPENDENT L1 IS RESOLVED SEPARATELY, against its OWN depth-1 tree. Resolving it
+        # from the deep tree would push an L1 cell to a subtype, which is not an L1 answer; and
+        # the scope's verdicts must not reach this walk at all. Depth 1 means the root's argmax
+        # is already a leaf, so the push is one step and the scorer is never needed - it is
+        # passed anyway so a deeper --l1-tree would descend rather than stop short.
+        if res_l1 is not None:
+            res_l1, resolve_l1_rec = resolve_to_leaf(
+                res_l1, tree=l1_tree, counts=counts,
+                scorer=node_scorer(Z, usable, l1_tree,
+                                   store=None if asr else store, assertions=asr))
+            print("")
+            print("  independent L1:")
+            for line in format_resolved(resolve_l1_rec):
+                print("  " + line)
 
     # The annotated object. Everything above is per CLUSTER; this is the only place the labels
     # become per CELL, which is the form every consumer of an annotation actually wants.
@@ -713,7 +727,8 @@ def _annotate(a):
                   f"margin of EACH step, per cluster")
         if res_l1 is not None:
             col, rec = independent_l1(A, res_l1, y, flag=flag, suffix=a.label_suffix,
-                                      tree=str(a.l1_tree))
+                                      tree=str(a.l1_tree),
+                                      resolved=resolve_rec is not None)
             print("")
             for line in format_independent_l1(rec):
                 print(line)
@@ -1302,6 +1317,7 @@ def _report(a):
                   tree_path=str(a.tree or ""), species=a.species, tissue=a.tissue,
                   factors=a.factor, pinned_colours=Palette.load(a.palette),
                   gene_key=a.gene_key, joint_key=a.joint_key,
+                  forced_key=a.forced_key, forced_l1_key=a.forced_l1_key,
                   group_order=a.group_order, scope=scope, l1_key=a.l1_key,
                   tree=declared_tree)
     print(f"  taxonomy depth {ctx.depth}; "
@@ -1742,6 +1758,17 @@ def main(argv=None):
                         "interleaves the factors of a 2x2 so that no two adjacent rows are a "
                         "comparison. A group not named here is appended and reported, never "
                         "dropped")
+    s.add_argument("--forced-key", default=None, metavar="OBS_COLUMN",
+                   help="the FORCED scope column - `scanno annotate --resolve` writes "
+                        "`<prefix>_resolved_path<suffix>`. With it the report shows the scope "
+                        "annotation twice: as the walk delivered it, and with every walked "
+                        "nucleus pushed to a leaf, plus what moved between them. Absent, the "
+                        "forced block is a NAMED absence rather than the unresolved share "
+                        "redistributed by the document, which would be this report inventing a "
+                        "measurement the walk declined to make")
+    s.add_argument("--forced-l1-key", default=None, metavar="OBS_COLUMN",
+                   help="the FORCED L1 column, `scAnno_L1_resolved<suffix>`. Same treatment for "
+                        "the independent depth-1 walk")
     s.add_argument("--joint-key", default=None, metavar="OBS_COLUMN",
                    help="the JOINT route's own label column. Required for the two-route "
                         "agreement: a joint object assembled from the per-sample annotations "

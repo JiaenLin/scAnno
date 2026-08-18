@@ -695,7 +695,7 @@ L1_INDEPENDENT = "independent"
 
 
 def independent_l1(adata, res, y, flag=None, level_prefix="scAnno_L", suffix="", sep="/",
-                   sentinels=(EXCLUDED, UNRESOLVED), tree=""):
+                   sentinels=(EXCLUDED, UNRESOLVED), tree="", resolved=False):
     """Replace the DERIVED L1 column with a second, independent walk's result. Returns (col, rec).
 
     `res` is `classify()`'s output for the DEPTH-1 tree — the same unchanged walk, the same Z,
@@ -746,6 +746,17 @@ def independent_l1(adata, res, y, flag=None, level_prefix="scAnno_L", suffix="",
     before = [str(v) for v in adata.obs[col]] if col in adata.obs else None
     adata.obs[col] = pd.Categorical(vals)
 
+    # The RESOLVED L1, in a column of its own and never over the top of the honest one. The L1
+    # tree is depth 1, so a cell the walk left UNRESOLVED is pushed exactly one step - onto the
+    # root's argmax, which the walk already recorded and which is a leaf by construction. Same
+    # rule as the deep walk: additive, EXCLUDED untouched, and the origin column says which.
+    rcol = ""
+    if resolved:
+        rcol = f"{level_prefix}1_resolved{suffix}"
+        adata.obs[rcol] = pd.Categorical([str(v) for v in cols["resolved_path"]])
+        adata.obs[f"{rcol}_origin"] = pd.Categorical(
+            [str(v) for v in cols["resolved_origin"]])
+
     counts = {}
     for v in vals:
         counts[v] = counts.get(v, 0) + 1
@@ -767,6 +778,16 @@ def independent_l1(adata, res, y, flag=None, level_prefix="scAnno_L", suffix="",
             if a != b:
                 d[f"{a} -> {b}"] = d.get(f"{a} -> {b}", 0) + 1
         rec["disagreements"] = dict(sorted(d.items(), key=lambda kv: -kv[1]))
+    if rcol:
+        rv = [str(v) for v in cols["resolved_path"]]
+        rec["resolved_column"] = rcol
+        rec["n_resolved_from_unresolved"] = int(
+            sum(1 for a, b in zip(vals, rv) if a == UNRESOLVED and b != UNRESOLVED))
+        moved = {}
+        for a, b in zip(vals, rv):
+            if a != b:
+                moved[f"{a} -> {b}"] = moved.get(f"{a} -> {b}", 0) + 1
+        rec["resolved_moves"] = dict(sorted(moved.items(), key=lambda kv: -kv[1]))
     adata.uns[f"{col}_provenance"] = rec
     return col, rec
 

@@ -1028,14 +1028,37 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # deepest `L{n}` coincides with the delivered terminals only when n happens to be the
     # declared tree's maximum depth, so a table built on it is right by accident.
     ctx_l1 = ctx.l1_rows()
+    ctx_fl1 = ctx.forced_l1_rows()
+    ctx_fsc = ctx.forced_scope_rows()
+    # FOUR BLOCKS, IN PAIRS. Each annotation is shown as the walk delivered it and again with
+    # every walked nucleus pushed to a leaf. The forced pair is NOT a better version of the
+    # honest one - it is the same annotation with the calls the walk declined made on the
+    # reader's behalf, and it is placed next to its own original so the difference is the thing
+    # on the page rather than a footnote.
     for _title, _rows, _what in (
             ("the L1 annotation", ctx_l1,
              "an INDEPENDENT depth-1 walk - one decision at the root, and no seal at any depth "
              "can move it"),
+            ("the L1 annotation, FORCED", ctx_fl1,
+             "the same independent walk with every UNRESOLVED nucleus pushed onto the root's "
+             "argmax - a child the walk already scored and then declined, because the margin "
+             "was below the bar"),
             ("the scope annotation", ctx.scope_rows(),
              "the labels the cohort's own vote left available, each at the depth it terminates "
-             "at - so the set is mixed across levels by construction")):
+             "at - so the set is mixed across levels by construction"),
+            ("the scope annotation, FORCED", ctx_fsc,
+             "the same walk with nothing left UNRESOLVED: each such nucleus descends from where "
+             "it stopped to a leaf, by the argmax already recorded at every step")):
         body.append(f"<h3>{_title}</h3>")
+        if _rows is None and "FORCED" in _title:
+            body.append(_absent_section(
+                "a forced label column (`scanno annotate --resolve`, reported with "
+                "`--forced-key` / `--forced-l1-key`)",
+                "Without it this document cannot show what the annotation looks like with "
+                "nothing left UNRESOLVED. It is NOT substituted by redistributing the "
+                "unresolved share here: which leaf each nucleus would take is a measurement "
+                "the walk makes, not an assumption this document may make for it."))
+            continue
         if _rows is None:
             body.append(_absent_section(
                 "the independent L1 column (`scanno annotate --l1-tree`, reported with "
@@ -1048,7 +1071,8 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         body.append(f"<p class='lede'>{_what}.</p>")
         _csv = [[r["label"], r["depth"], r["nuclei"], round(r["share"], 3), r["samples"]]
                 for r in _rows]
-        _src = _write_table(out, f"annotation_{'l1' if 'L1' in _title else 'scope'}.csv",
+        _stem = ("l1" if "L1" in _title else "scope") + ("_forced" if "FORCED" in _title else "")
+        _src = _write_table(out, f"annotation_{_stem}.csv",
                             ["label", "depth", "nuclei", "share_pct", "samples"], _csv)
         body.append(_table(
             ["label", "depth", "nuclei", "share", "samples"],
@@ -1059,6 +1083,29 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         # labels live at: 1 for the L1 walk, the deepest for the scope, where a full path is
         # itself. Their established F-names and filenames are unchanged — renaming them would
         # orphan the files `figures.py` writes.
+        if "FORCED" in _title:
+            # WHAT MOVED, which is the only thing this block adds over the one above it.
+            _mv = ctx.forced_moved("forced_l1" if "L1" in _title else "forced",
+                                   "l1" if "L1" in _title else "path")
+            if _mv["n"]:
+                body.append(_table(
+                    ["from -> to", "nuclei"],
+                    [[_esc(k), f"{v:,}"] for k, v in list(_mv["moves"].items())[:15]]))
+                body.append(f"<p class='sub'><b>{_mv['n']:,} nuclei moved</b> "
+                            f"({100.0 * _mv['n'] / max(ctx.n, 1):.2f}% of the cohort). Every one "
+                            f"of them is a call the walk declined to make; their margin was below "
+                            f"the gap bar BY CONSTRUCTION, which is why it stopped. These are the "
+                            f"least certain labels in the column.</p>")
+            else:
+                body.append("<p class='sub'>No nucleus moved: the walk resolved every one it "
+                            "annotated, so this column equals the one above it.</p>")
+            body.append(_absent_section(
+                "composition FIGURES for the forced columns",
+                "The composition figures are keyed by taxonomy DEPTH and drawn from the level "
+                "columns, so there is no forced variant of them. Reusing the unforced figure "
+                "here would show the unforced numbers under a forced heading, which is worse "
+                "than showing none. The tables above are the forced numbers."))
+            continue
         if _rows is ctx_l1:
             body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))
             body.append(A.fig("F102", name="F102_composition_level1_by_sample", by="sample"))

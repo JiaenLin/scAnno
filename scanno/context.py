@@ -54,7 +54,8 @@ class Context:
                  sweep_pick=None, sweep_reason=None, flag_column=None, declaration=None,
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
-                 joint_key=None, group_order=None, scope=None, l1_key=None):
+                 joint_key=None, group_order=None, scope=None, l1_key=None,
+                 forced_key=None, forced_l1_key=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -84,6 +85,10 @@ class Context:
         # the deep label would be showing one column twice. This is a second walk's own answer,
         # and whether the two agree is a MEASUREMENT — `l1_concordance()` — not a guarantee.
         self.l1_key = l1_key or None
+        # The FORCED columns: the same two annotations with every walked nucleus pushed to a
+        # leaf. Optional, and absent unless `scanno annotate --resolve` wrote them.
+        self.forced_key = forced_key or None
+        self.forced_l1_key = forced_l1_key or None
         self._group_order = [str(g) for g in (group_order or [])]
 
         frames = []
@@ -101,6 +106,14 @@ class Context:
             if self.l1_key:
                 d["l1"] = (obs[self.l1_key].astype(str) if self.l1_key in obs
                            else np.full(A.n_obs, ""))
+            # Empty where absent, exactly as `l1` is, and for the same reason: a column that was
+            # NAMED and not found must not read as "nothing needed forcing".
+            if self.forced_key:
+                d["forced"] = (obs[self.forced_key].astype(str) if self.forced_key in obs
+                               else np.full(A.n_obs, ""))
+            if self.forced_l1_key:
+                d["forced_l1"] = (obs[self.forced_l1_key].astype(str)
+                                  if self.forced_l1_key in obs else np.full(A.n_obs, ""))
             if group_key and group_key in obs:
                 d["group"] = obs[group_key].astype(str)
             # Derived from the PATH KEY, not the label key: an annotation swept over several
@@ -146,6 +159,9 @@ class Context:
         # An l1 column of empty strings is a column that was NAMED and not found in any object,
         # which must not read as "the independent walk agreed everywhere".
         self.has_l1 = "l1" in self.P and bool((self.P["l1"].astype(str) != "").any())
+        self.has_forced = "forced" in self.P and bool((self.P["forced"].astype(str) != "").any())
+        self.has_forced_l1 = ("forced_l1" in self.P
+                              and bool((self.P["forced_l1"].astype(str) != "").any()))
         self._order = {}
         for dpt in self.levels:
             self._order[dpt] = self._order_for(dpt)
@@ -231,6 +247,32 @@ class Context:
         built on the deepest level index is right by accident and silently wrong on a deeper tree.
         """
         return self._rows_over("path")
+
+    def forced_scope_rows(self):
+        """THE SCOPE ANNOTATION, FORCED — every walked nucleus pushed to a leaf.
+
+        The same rows as `scope_rows`, with the UNRESOLVED share redistributed onto the leaves the
+        walk declined to choose between. Read the two together: the difference IS the set of calls
+        that were made for the reader rather than by the walk.
+        """
+        return self._rows_over("forced") if self.has_forced else None
+
+    def forced_l1_rows(self):
+        """THE L1 ANNOTATION, FORCED — the independent depth-1 walk with nothing left unresolved."""
+        return self._rows_over("forced_l1") if self.has_forced_l1 else None
+
+    def forced_moved(self, col="forced", against="path"):
+        """How many nuclei the forcing moved, and where to. The number the block is really about."""
+        if col not in self.P or against not in self.P:
+            return {"n": 0, "moves": {}}
+        a = self.P[against].astype(str)
+        b = self.P[col].astype(str)
+        m = (a != b) & (b != "")
+        moves = {}
+        for x, y in zip(a[m], b[m]):
+            moves[f"{x} -> {y}"] = moves.get(f"{x} -> {y}", 0) + 1
+        return {"n": int(m.sum()),
+                "moves": dict(sorted(moves.items(), key=lambda kv: -kv[1]))}
 
     def l1_rows(self):
         """THE L1 ANNOTATION — the INDEPENDENT depth-1 walk, or None where it was never written.
