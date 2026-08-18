@@ -166,6 +166,26 @@ def render(ctx, **kw):
     return "".join(taxonomy_section(ctx, **kw))
 
 
+def test_an_internal_frame_key_is_translated_to_the_real_obs_column():
+    """`P` uses short keys; `A.obs` uses whatever the annotation wrote. Anything reading the
+    OBJECTS must translate, or it finds nothing, measures nothing, and draws an empty grid."""
+    ctx = reference_cohort()
+    assert ctx.obs_column_for("path") == ctx.path_key
+    assert ctx.obs_column_for("nonsense") == "nonsense"      # unknown keys pass through
+
+
+def test_a_column_no_object_carries_RAISES_rather_than_returning_zeros():
+    ctx = reference_cohort()
+    genes = list(ctx._gene_index())[:2] if hasattr(ctx, "_gene_index") else []
+    if not genes:
+        return
+    try:
+        ctx.expression_by_label(genes, 1, ["x"], col="a_column_nothing_has")
+        assert False, "returned zeros instead of raising"
+    except KeyError as e:
+        assert "no object carries" in str(e), str(e)
+
+
 def reference_cohort():
     return FakeCtx(DELIVERED, TREE, VERDICTS)
 

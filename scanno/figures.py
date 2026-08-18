@@ -279,6 +279,14 @@ def F108(ctx, col=None, what="the scope annotation", panel_labels=None):
     if not genes:
         raise NotDrawable("none of the panel genes for these labels are in this object")
     frac, mean = ctx.expression_by_label(genes, 1, rows, col=col)
+    # AN ALL-ZERO GRID IS NOT A FIGURE. It renders with every row, every gene column and every
+    # bracket in place, and reads as "none of these markers are expressed" when what happened is
+    # that the label column was not found and nothing was measured at all. This exact figure
+    # shipped empty once. A named absence is recoverable; a plausible empty grid is not.
+    if not float(np.nanmax(frac)) > 0:
+        raise NotDrawable(
+            f"every value is zero for column {col!r}: nothing was measured, which is a lookup "
+            f"failure rather than an expression result")
     longest = max((len(str(n)) for _a, _b, n in spans), default=8)
     top_pad = 0.10 * longest + 0.8
     height = 0.45 * len(rows) + top_pad + 1.6

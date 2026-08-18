@@ -691,6 +691,19 @@ class Context:
     def panel_depths(self):
         return sorted(d for d in self._panels if self._panels[d])
 
+    def obs_column_for(self, key):
+        """Internal frame key -> the column name on the ACTUAL objects.
+
+        `self.P` uses short internal names - `path`, `l1`, `forced`, `forced_l1` - while `A.obs`
+        carries whatever the annotation wrote: `scanno_path_scope`, `scAnno_L1_resolved_scope`
+        and so on. Anything that reads the objects rather than `P` must translate, and a lookup
+        that fails silently produces an all-zero matrix and a figure that renders EMPTY.
+        """
+        return {"path": self.path_key,
+                "l1": self.l1_key,
+                "forced": self.forced_key,
+                "forced_l1": self.forced_l1_key}.get(key, key)
+
     def expression_by_label(self, genes, depth, labels, col=None):
         """(fraction detecting, mean among all) per label x gene, pooled over objects.
 
@@ -701,6 +714,7 @@ class Context:
         import scipy.sparse as sp
         gi = self._gene_index()
         cols = [gi[str(g).upper()] for g in genes]
+        missing_in = []
         frac = np.zeros((len(labels), len(genes)))
         mean = np.zeros((len(labels), len(genes)))
         tot = np.zeros(len(labels))
@@ -709,9 +723,11 @@ class Context:
             # `depth`, which is right for a level figure and wrong for the scope, whose labels
             # live at mixed depths and are not a truncation of anything.
             if col:
-                if col not in A.obs:
+                ocol = self.obs_column_for(col)
+                if ocol not in A.obs:
+                    missing_in.append(name)
                     continue
-                lab = A.obs[col].astype(str).values
+                lab = A.obs[ocol].astype(str).values
             else:
                 lab = self._trunc(A.obs[self.path_key].astype(str), depth)
             X = A.layers["counts"] if "counts" in getattr(A, "layers", {}) else A.X
@@ -726,6 +742,13 @@ class Context:
                 frac[li] += (sub > 0).sum(axis=0)
                 mean[li] += sub.sum(axis=0)
                 tot[li] += m.sum()
+        if col and len(missing_in) == len(self.objects):
+            # EVERY object lacked the column. Returning zeros here renders a complete-looking
+            # dotplot with no dots in it, which is worse than an error: it reads as "these genes
+            # are not expressed" rather than "this figure asked for a column that is not there".
+            raise KeyError(
+                f"no object carries the obs column {self.obs_column_for(col)!r} (internal key "
+                f"{col!r}); the first object has: {list(self.objects[0][1].obs.columns)[:12]}")
         nz = np.where(tot == 0, 1, tot)[:, None]
         return frac / nz, mean / nz
 
