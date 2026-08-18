@@ -418,6 +418,21 @@ and, since 0.3.0, its companion:
 > exactly the per-cell flag it was given. A capability that is merely defaulted-off is one
 > argument away from running — see `docs/PRINCIPLES.md` §5.
 
+## Reading the output
+
+`docs/READING_THE_OUTPUT.md` is a playbook for the joint object: read it, QC it, normalise,
+cluster, and every common figure — dotplot, feature plot, violin, matrixplot, heatmap,
+composition bars — with every parameter you would want to change named and explained.
+
+It runs in **two tracks**. Track A uses what shipped and matches the report in seconds. Track B
+recomputes the whole chain from raw counts for full customization, and says plainly what that
+costs: a new clustering has no correspondence to the delivered labels.
+
+`docs/reading_the_output.ipynb` is the same playbook as runnable cells. It is **generated** from
+the markdown by `docs/make_notebook.py`, and `tests/test_playbook.py` fails if the two drift —
+two copies of the same instructions diverge silently, and the notebook goes on teaching a
+parameter the document no longer recommends.
+
 ## Install
 
 ```bash
