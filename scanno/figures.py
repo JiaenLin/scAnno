@@ -693,7 +693,7 @@ def _featureplot(ctx, depth, per_node):
         ax.title.set_color(ctx.colour(l))
     note = (f"   {len(missing)} node(s) had no usable panel and contribute nothing: "
             f"{', '.join(leaf(m) for m in missing[:6])}" if missing else "")
-    return fig, (f"Level-{depth} markers on the joint embedding — is expression WHERE the label "
+    return fig, (f"{_annotation_name(ctx, depth)} markers on the joint embedding — is expression WHERE the label "
                  f"is, or scattered through it?\nTitles are coloured by the label the gene was "
                  f"listed for. Each panel autoscales to its own gene, so panels are NOT "
                  f"comparable.{note}")
@@ -957,21 +957,21 @@ def F155(ctx, depth=1):
 #: KIND of figure rather than one per level.
 FIGURES = {
     "F102": (F102, "cohort", "composition"),
-    "F103": (F103, "cohort", "composition, deeper"),
+    "F103": (F103, "cohort", "composition, the scope annotation"),
     "F106": (F106, "cohort", "composition, forced"),
     "F107": (F107, "cohort", "composition per sample, forced"),
     "F108": (F108, "cohort", "marker dotplot over a delivered label column"),
     "F141": (F141, "cohort", "composition per sample"),
-    "F143": (F143, "cohort", "composition per sample, deeper"),
+    "F143": (F143, "cohort", "composition per sample, the scope annotation"),
     "F140": (F140, "cohort", "reliability by depth"),
     "F133": (F133, "cohort", "survival against gap"),
     "F142": (F142, "cohort", "neighbourhood agreement"),
     "F160": (F160, "cohort", "the chosen resolution"),
     "F132": (F132, "cohort", "label and library"),
     "F130": (F130, "cohort", "marker dotplot"),
-    "F135": (F135, "cohort", "marker dotplot, deeper"),
+    "F135": (F135, "cohort", "marker dotplot, by level"),
     "F131": (F131, "cohort", "feature plots"),
-    "F136": (F136, "cohort", "feature plots, deeper"),
+    "F136": (F136, "cohort", "feature plots, the scope annotation"),
     "F134": (F134, "cohort", "marker breadth"),
     "F150": (F150, "cohort", "where the withheld nuclei sit"),
     "F151": (F151, "cohort", "what they express"),

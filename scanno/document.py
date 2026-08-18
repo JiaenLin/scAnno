@@ -1297,10 +1297,15 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             else:
                 body.append(A.fig("F136", name="F136_featureplot_scope",
                                   depth=max(ctx.panel_depths()) if ctx.panel_depths() else 1))
-        for d in ({1, max(ctx.panel_depths())} if ctx.panel_depths() else {1}):
+        # SORTED, and each figure under its own heading. This was a set literal, so the two
+        # F134 panels came out in arbitrary order with one shared heading between them - which
+        # reads as a stray figure rather than as one per annotation.
+        for d in (sorted({1, max(ctx.panel_depths())}) if ctx.panel_depths() else [1]):
             b = ctx.marker_breadth(d)
             if not b:
                 continue
+            body.append(f"<h3>marker breadth — "
+                        f"{'the L1 annotation' if d <= 1 else 'the scope annotation'}</h3>")
             body.append(A.fig("F134", name=f"F134_breadth_level{d}", depth=d))
             src = _write_table(out, f"marker_breadth_level{d}.csv",
                                ["gene", "plotted_for", "own", "best_other", "overall",
