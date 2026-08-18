@@ -613,6 +613,386 @@ D.write_h5ad("my_analysis.h5ad")           # your version; the delivered file is
 
 ---
 
+---
+
+# DIFFERENTIAL EXPRESSION
+
+```python
+# pip install pydeseq2
+```
+
+## D1 — which question are you asking?
+
+These are different questions and they need different tests.
+
+| question | unit | tool |
+|---|---|---|
+| what marks cluster X against the others? | the **cell** | `sc.tl.rank_genes_groups` — Block P6 |
+| does gene G differ between conditions? | the **sample** | pseudobulk + DESeq2 — below |
+
+Running a per-cell test between conditions treats every cell as an independent replicate. It is
+not: cells from one animal share that animal. The p-values come out spectacular and do not
+replicate. **Aggregate to one profile per sample first.**
+
+## D2 — pseudobulk
+
+```python
+import decoupler as dc
+
+SAMPLE_COL = BATCH          # one value per biological replicate
+GROUPS_COL = LABEL          # aggregate WITHIN cell type, so each type is tested separately
+MODE       = "sum"          # "sum" for DESeq2 · "mean" · a callable
+
+pdata = dc.pp.pseudobulk(D, sample_col=SAMPLE_COL, groups_col=GROUPS_COL,
+                         layer=COUNTS,          # RAW COUNTS. DESeq2 models counts.
+                         mode=MODE)
+print(pdata)
+print(pdata.obs[["psbulk_cells", "psbulk_counts"]].describe())
+```
+
+`pseudobulk` adds `psbulk_cells` (how many cells went into each profile) and `psbulk_counts`.
+**A profile built from 12 cells is not the equal of one built from 4,000** — drop the thin ones:
+
+```python
+MIN_CELLS_PER_PROFILE = 30
+pdata = pdata[pdata.obs["psbulk_cells"] >= MIN_CELLS_PER_PROFILE].copy()
+print(pd.crosstab(pdata.obs[GROUPS_COL], pdata.obs[FACTORS[0] if FACTORS else SAMPLE_COL]))
+```
+
+That table is the one to read before believing any result below: a cell type with two samples in
+one arm and five in the other is not a comparison, whatever p-value comes out.
+
+## D3 — DESeq2, one cell type at a time
+
+```python
+from pydeseq2.dds import DeseqDataSet
+from pydeseq2.ds import DeseqStats
+from pydeseq2.default_inference import DefaultInference
+
+CONDITION = FACTORS[0] if FACTORS else None     # the obs column to contrast
+TEST, REF = "trt", "ctrl"                       # <- EDIT: the two levels, test first
+CELLTYPE  = "Fibroblast"                        # <- EDIT: which population
+N_CPUS    = 4
+
+sub = pdata[(pdata.obs[GROUPS_COL].astype(str) == CELLTYPE)].copy()
+sub = sub[sub.obs[CONDITION].astype(str).isin([TEST, REF])].copy()
+print(f"{sub.n_obs} samples: {dict(sub.obs[CONDITION].value_counts())}")
+
+dc.pp.filter_by_expr(sub, group=CONDITION, min_count=10, min_total_count=15)
+print(f"{sub.n_vars:,} genes kept")
+
+sub.X = np.rint(np.asarray(sub.X)).astype(int)     # DESeq2 requires INTEGER counts
+inf = DefaultInference(n_cpus=N_CPUS)
+dds = DeseqDataSet(adata=sub, design=f"~{CONDITION}", refit_cooks=True, inference=inf, quiet=True)
+dds.deseq2()
+stat = DeseqStats(dds, contrast=[CONDITION, TEST, REF], inference=inf, quiet=True)
+stat.summary()
+res = stat.results_df.sort_values("stat", ascending=False)
+res.head(10).round(4)
+```
+
+`results_df` columns: `baseMean`, `log2FoldChange`, `lfcSE`, `stat`, `pvalue`, `padj`.
+
+| parameter | effect |
+|---|---|
+| `design` | `"~group"`, or `"~batch + group"` to control for a covariate — the term of interest goes **last** |
+| `contrast` | `[column, test, reference]` — the sign follows this order |
+| `refit_cooks` | re-fit after removing outliers |
+| `min_count` / `min_total_count` | `filter_by_expr` thresholds; raise for noisier data |
+| `alpha` | on `DeseqStats`, the FDR level used for independent filtering |
+
+```python
+SIG_PADJ, SIG_LFC = 0.05, 1.0
+sig = res[(res["padj"] < SIG_PADJ) & (res["log2FoldChange"].abs() > SIG_LFC)]
+print(f"{len(sig)} genes at padj<{SIG_PADJ}, |log2FC|>{SIG_LFC}")
+res.to_csv(f"de_{CELLTYPE}_{TEST}_vs_{REF}.csv")
+```
+
+### Volcano
+
+```python
+plt.figure(figsize=(6, 5))
+x = res["log2FoldChange"]; y = -np.log10(res["padj"].clip(lower=1e-300))
+plt.scatter(x, y, s=6, c="lightgrey", linewidths=0)
+m = (res["padj"] < SIG_PADJ) & (x.abs() > SIG_LFC)
+plt.scatter(x[m], y[m], s=8, c=np.where(x[m] > 0, "#D62728", "#1F77B4"), linewidths=0)
+for g in res[m].head(10).index:
+    plt.annotate(g, (x[g], y[g]), fontsize=7)
+plt.axhline(-np.log10(SIG_PADJ), ls="--", lw=0.8, c="k")
+plt.axvline(SIG_LFC, ls="--", lw=0.8, c="k"); plt.axvline(-SIG_LFC, ls="--", lw=0.8, c="k")
+plt.xlabel(f"log2FC  ({TEST} vs {REF})"); plt.ylabel("-log10 padj")
+plt.title(f"{CELLTYPE}"); plt.tight_layout(); plt.show()
+```
+
+### Every cell type in a loop
+
+```python
+de = {}
+for ct in pdata.obs[GROUPS_COL].astype(str).unique():
+    s = pdata[(pdata.obs[GROUPS_COL].astype(str) == ct)
+              & pdata.obs[CONDITION].astype(str).isin([TEST, REF])].copy()
+    if s.n_obs < 4 or s.obs[CONDITION].nunique() < 2:
+        print(f"skip {ct}: {s.n_obs} samples")           # NAMED, not silently dropped
+        continue
+    try:
+        dc.pp.filter_by_expr(s, group=CONDITION, min_count=10, min_total_count=15)
+        s.X = np.rint(np.asarray(s.X)).astype(int)
+        d = DeseqDataSet(adata=s, design=f"~{CONDITION}", inference=inf, quiet=True)
+        d.deseq2()
+        st = DeseqStats(d, contrast=[CONDITION, TEST, REF], inference=inf, quiet=True)
+        st.summary()
+        de[ct] = st.results_df
+        print(f"{ct}: {(st.results_df['padj'] < 0.05).sum()} genes at padj<0.05")
+    except Exception as e:
+        print(f"FAILED {ct}: {type(e).__name__}: {e}")
+```
+
+---
+
+# ENRICHMENT
+
+Two libraries, for two different shapes of question.
+
+| | **gseapy** | **decoupler** |
+|---|---|---|
+| input | one ranked gene list, or a gene list | a whole **matrix** |
+| gives you | enriched terms for **one contrast** | a score **per observation** |
+| use it for | "what is up in my DE result?" | "what is this cell's TF/pathway activity?" |
+| gene sets | Enrichr libraries, MSigDB, `.gmt` | CollecTRI, DoRothEA, PROGENy, hallmark, `.gmt` |
+
+**Both fetch prior knowledge over the network.** On an offline machine, download a `.gmt` once
+and read it locally — see the offline note in E4.
+
+## E1 — gseapy: preranked GSEA on a DE result
+
+Uses the **whole ranking**, so it needs no significance cutoff — the right choice when few genes
+survive FDR.
+
+```python
+import gseapy as gp
+
+rnk = res["stat"].dropna().sort_values(ascending=False)      # the DESeq2 Wald statistic
+print(rnk.head(3)); print(rnk.tail(3))
+
+pre = gp.prerank(rnk=rnk,
+                 gene_sets="MSigDB_Hallmark_2020",   # a name, a .gmt path, or a dict
+                 organism="Mouse",
+                 min_size=15, max_size=500,
+                 permutation_num=1000,
+                 threads=4, seed=0, outdir=None)
+gsea_res = pre.res2d.sort_values("NES", ascending=False)
+gsea_res[["Term", "NES", "NOM p-val", "FDR q-val", "Tag %"]].head(10)
+```
+
+| column | meaning |
+|---|---|
+| `NES` | normalised enrichment score — sign gives direction |
+| `NOM p-val` | nominal permutation p |
+| `FDR q-val` | **use this**, not the nominal p |
+| `Lead_genes` | the genes driving it |
+
+```python
+gp.dotplot(gsea_res, column="FDR q-val", title="GSEA", cmap="viridis_r",
+           size=5, top_term=15, figsize=(4, 6))
+```
+
+```python
+# the classic running-enrichment curve for one term
+term = gsea_res["Term"].iloc[0]
+gp.gseaplot(term=term, **pre.results[term], rank_metric=pre.ranking, figsize=(6, 5.5))
+```
+
+### Which libraries exist
+
+```python
+libs = gp.get_library_name(organism="Mouse")
+print(len(libs), "libraries")
+print([l for l in libs if "Hallmark" in l or "GO_Biological" in l or "KEGG" in l][:10])
+```
+
+## E2 — gseapy: over-representation on a gene LIST
+
+```python
+up   = sig[sig["log2FoldChange"] > 0].index.tolist()
+down = sig[sig["log2FoldChange"] < 0].index.tolist()
+background = res.index.tolist()          # every TESTED gene — not the whole genome
+print(f"{len(up)} up, {len(down)} down, background {len(background):,}")
+
+enr = gp.enrichr(gene_list=up,
+                 gene_sets=["MSigDB_Hallmark_2020", "GO_Biological_Process_2023"],
+                 organism="Mouse",
+                 background=background,
+                 outdir=None)
+enr.results.sort_values("Adjusted P-value").head(10)[
+    ["Gene_set", "Term", "Overlap", "Adjusted P-value", "Genes"]]
+```
+
+> **The background matters more than people expect.** ORA asks whether your list is enriched
+> *relative to what could have been picked*. Using the whole genome when you only tested 12,000
+> genes inflates every p-value. Pass the genes you actually tested.
+
+```python
+gp.barplot(enr.results, column="Adjusted P-value", top_term=15, figsize=(5, 6),
+           color="salmon", title="up in " + TEST)
+```
+
+Offline equivalent, with a local `.gmt` and no network:
+
+```python
+# enr = gp.enrich(gene_list=up, gene_sets="path/to/sets.gmt", background=background, outdir=None)
+```
+
+## E3 — decoupler: an activity score for every cell
+
+This is the part that is not just "enrichment of a list". It scores **each observation**, so you
+can put TF or pathway activity on the UMAP.
+
+### Get a network
+
+```python
+ORGANISM = "mouse"          # or "human"
+
+tf_net   = dc.op.collectri(organism=ORGANISM)                 # weighted, ~1,165 TFs
+pw_net   = dc.op.progeny(organism=ORGANISM, top=500)          # weighted, 14 pathways
+hall_net = dc.op.hallmark(organism=ORGANISM)                  # UNWEIGHTED, 50 sets
+
+for nm, n in (("collectri", tf_net), ("progeny", pw_net), ("hallmark", hall_net)):
+    print(f"{nm:10s} {n.shape[0]:>7,} rows  {n['source'].nunique():>4} sources  "
+          f"weighted={'weight' in n.columns}  columns={list(n.columns)}")
+```
+
+> **Weighted or not decides the method.** `ulm` and `mlm` use the weights, so they need a
+> weighted net. `ora`, `gsea` and `aucell` do not. Handing hallmark to `ulm` is a category error.
+
+| net | sources | weighted | pair with |
+|---|---|---|---|
+| `collectri` | TF regulons | **yes** | `ulm`, `mlm` |
+| `dorothea` | TF regulons, confidence levels | **yes** | `ulm`, `mlm` |
+| `progeny` | 14 signalling pathways | **yes** | `ulm`, `mlm` |
+| `hallmark` | 50 MSigDB sets | **no** | `ora`, `gsea`, `aucell` |
+| `dc.pp.read_gmt(path)` | your own | no | `ora`, `gsea`, `aucell` |
+
+### Score every cell
+
+```python
+# INPUT MUST BE NORMALISED (log1p), NOT raw counts. D.X already is.
+dc.mt.ulm(D, tf_net, tmin=5, verbose=True)          # returns None; writes into D.obsm
+print([k for k in D.obsm if k.startswith(("score_", "padj_"))])
+```
+
+> **The single most-missed thing about this library.** With an **AnnData** it returns `None` and
+> writes `D.obsm["score_ulm"]` / `D.obsm["padj_ulm"]` **in place**. With a **DataFrame** it
+> returns an `(es, pv)` tuple instead. `es = dc.mt.ulm(adata, net)` silently gives you `None`.
+
+```python
+acts = dc.pp.get_obsm(D, key="score_ulm")     # an AnnData: cells x sources
+print(acts)                                    # var_names are the TFs
+```
+
+`verbose=True` prints how many sources survived `tmin`. **`tmin` silently drops sources with
+fewer than that many targets present in your data** — on a small net, lower it (`tmin=3`).
+
+### Plot activity like any other feature
+
+```python
+acts.obs = D.obs.copy()
+acts.obsm["X_umap"] = D.obsm[EMB]
+TFS = acts.var_names[:4].tolist()
+sc.pl.umap(acts, color=TFS, cmap="RdBu_r", vcenter=0, ncols=2, size=3, frameon=False)
+sc.pl.violin(acts, TFS[:2], groupby=LABEL, rotation=90, stripplot=False)
+```
+
+### Which TFs mark which cell type
+
+```python
+ranked = dc.tl.rankby_group(acts, groupby=LABEL, reference="rest",
+                            method="t-test_overestim_var")
+ranked.head(10)
+```
+
+```python
+dc.pl.dotplot(ranked, x="group", y="name", c="stat", s="meanchange", top=5,
+              cmap="RdBu_r", vcenter=0, figsize=(9, 7))
+```
+
+### Pathway activity
+
+```python
+dc.mt.mlm(D, pw_net, tmin=5, verbose=True)
+pw = dc.pp.get_obsm(D, key="score_mlm")
+pw.obs = D.obs.copy(); pw.obsm["X_umap"] = D.obsm[EMB]
+sc.pl.umap(pw, color=list(pw.var_names)[:6], cmap="RdBu_r", vcenter=0, ncols=3, size=3)
+sc.pl.matrixplot(pw, list(pw.var_names), groupby=LABEL, cmap="RdBu_r",
+                 vcenter=0, dendrogram=True, colorbar_title="pathway activity")
+```
+
+## E4 — decoupler on a DE result, several methods, and consensus
+
+`decoupler` also takes a **contrast**: one row of statistics indexed by gene, which is exactly
+what `results_df["stat"]` is.
+
+```python
+mat = res[["stat"]].dropna().T
+mat.index = [f"{TEST}_vs_{REF}"]
+print(mat.shape)                       # 1 x n_genes
+
+es, pv = dc.mt.ora(mat, hall_net, tmin=5)      # DataFrame in -> (es, pv) OUT
+out = (es.T.join(pv.T, lsuffix="_score", rsuffix="_padj")
+         .set_axis(["score", "padj"], axis=1).sort_values("score", ascending=False))
+out.head(10).round(4)
+```
+
+```python
+dc.pl.barplot(es, name=mat.index[0], top=20, vertical=True, cmap="RdBu_r", figsize=(5, 7))
+```
+
+Run several methods and combine them — no method is best on every dataset:
+
+```python
+scores = dc.mt.decouple(mat, hall_net, methods=["ora", "gsea", "zscore"], tmin=5, cons=True)
+print(list(scores))          # score_ora, padj_ora, ..., score_consensus, padj_consensus
+scores["score_consensus"].T.sort_values(mat.index[0], ascending=False).head(10).round(3)
+```
+
+`consensus` is the mean of the per-method z-scores, so it is only as good as the methods in it.
+Adding a method that fails on your data drags it.
+
+### Offline, and non-matching gene names
+
+```python
+# Offline: download a .gmt once (MSigDB / Enrichr), then
+# net = dc.pp.read_gmt("mh.all.v2024.1.Mm.symbols.gmt")     # -> source/target long format
+# gp.prerank(rnk=rnk, gene_sets="mh.all.v2024.1.Mm.symbols.gmt", ...)
+```
+
+If your object is indexed by Ensembl IDs, or your net is human and your data mouse, **nothing
+overlaps and decoupler refuses**:
+
+```text
+AssertionError: No sources with more than tmin=5 targets after
+    filtering by shared features in mat.
+```
+
+That message means gene names, not `tmin`. Check first, convert second:
+
+```python
+print("overlap:", len(set(D.var_names) & set(tf_net["target"])), "of", D.n_vars)
+# human net -> mouse symbols
+# tf_net = dc.op.translate(tf_net, columns="target", target_organism="mouse")
+```
+
+## E5 — what enrichment cannot tell you
+
+- **A gene set is a hypothesis someone else wrote down.** Terms are redundant, unevenly curated,
+  and biased toward what has been studied. An enriched term is a pointer, not a conclusion.
+- **ORA throws away the ranking**; GSEA keeps it. If few genes clear FDR, prefer preranked GSEA
+  over ORA on a short list.
+- **Activity is not measured, it is inferred** from the targets' expression under an assumed
+  regulon. A TF with a wrong or incomplete regulon gets a confident, wrong score.
+- **The background decides the p-value** in ORA. Use the genes you tested.
+- **Nothing here fixes the design.** If a contrast is confounded, the enrichment of it is
+  confounded too, and it will read as clean biology.
+
 ## Common problems
 
 | symptom | cause |

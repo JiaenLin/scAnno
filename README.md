@@ -428,6 +428,11 @@ It runs in **two tracks**. Track A uses what shipped and matches the report in s
 recomputes the whole chain from raw counts for full customization, and says plainly what that
 costs: a new clustering has no correspondence to the delivered labels.
 
+It also covers **differential expression and enrichment**: pseudobulk with `decoupler` and
+DESeq2 on the unit that is actually replicated — the sample, not the cell — then `gseapy` for
+preranked GSEA and over-representation on a contrast, and `decoupler` for a TF or pathway
+activity score on **every cell**, which can then be plotted like any other feature.
+
 `docs/reading_the_output.ipynb` is the same playbook as runnable cells. It is **generated** from
 the markdown by `docs/make_notebook.py`, and `tests/test_playbook.py` fails if the two drift —
 two copies of the same instructions diverge silently, and the notebook goes on teaching a

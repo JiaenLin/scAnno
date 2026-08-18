@@ -94,6 +94,38 @@ check("it warns that cluster markers are not condition DE",
 check("it insists shared axis limits when splitting a UMAP by group",
       "SAME limits" in md or "Share the limits" in md)
 
+print("\nE2. the DEG and enrichment blocks, and the API facts that were MEASURED not recalled")
+for step in ("dc.pp.pseudobulk", "dc.pp.filter_by_expr", "DeseqDataSet", "DeseqStats",
+             "results_df", "gp.prerank", "gp.enrichr", "gp.dotplot", "gp.gseaplot",
+             "dc.mt.ulm", "dc.mt.mlm", "dc.mt.ora", "dc.mt.decouple", "dc.pp.get_obsm",
+             "dc.tl.rankby_group", "dc.pl.barplot", "dc.pl.dotplot", "dc.op.collectri",
+             "dc.op.progeny", "dc.op.hallmark", "dc.pp.read_gmt", "dc.op.translate"):
+    check(f"covers {step}", step in md)
+check("the DESeq2 result columns are named exactly as the library returns them",
+      "`baseMean`, `log2FoldChange`, `lfcSE`, `stat`, `pvalue`, `padj`" in md)
+check("THE decoupler footgun: AnnData writes in place and returns None",
+      "returns `None` and" in md and "in place" in md)
+check("...and DataFrame returns a tuple instead",
+      "returns an `(es, pv)` tuple" in md)
+check("it says the input must be normalised, not raw counts",
+      "NOT raw counts" in md)
+check("it says which nets are weighted, because that decides the method",
+      "Weighted or not decides the method" in md)
+check("it warns tmin silently drops sources", "silently drops sources" in md)
+check("it explains the no-overlap assertion is about GENE NAMES, not tmin",
+      "That message means gene names, not `tmin`" in md)
+check("it insists on a real ORA background", "background decides the p-value" in md.lower()
+      or "background matters more" in md)
+check("it separates cluster markers from condition DE by the UNIT of replication",
+      "the **cell**" in md and "the **sample**" in md)
+check("it makes the reader check the per-arm sample table before believing a DE result",
+      "is not a comparison" in md)
+check("it drops thin pseudobulk profiles rather than averaging them in",
+      "psbulk_cells" in md)
+check("a skipped cell type in the DE loop is NAMED", "NAMED, not silently dropped" in md)
+check("it says activity is inferred, not measured", "not measured, it is inferred" in md)
+check("it gives an offline path for prior knowledge", "read_gmt" in md and "Offline" in md)
+
 print("\nF. it tells the reader to ask the object rather than assume")
 check("it prints the obs columns before using them", "for c in A.obs.columns" in md)
 check("it reads the embedding provenance from uns", "scanno_embed" in md)
