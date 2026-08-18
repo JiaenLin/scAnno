@@ -694,8 +694,26 @@ def test_force_declares_no_threshold_at_all():
 
     top = [t.id for s in mod.body if isinstance(s, ast.Assign) for t in s.targets
            if isinstance(t, ast.Name)]
+    # A WHITELIST, extended deliberately and never loosened. Its job is that a tunable bar
+    # cannot arrive as a new module-level name; the RESOLVED_* entries are the vocabulary of the
+    # `resolved_origin` column, so the check below asserts they are strings rather than numbers,
+    # which is the property that actually matters.
     assert set(top) == {"SEP", "ROOT", "FORCE", "SEAL", "BY_GAP", "BY_FORCE", "EXCLUDED",
-                        "ASSIGNMENTS"}, top
+                        "ASSIGNMENTS", "FROM_WALK", "FROM_INTERNAL", "FROM_ROOT", "UNRESOLVED",
+                        "RESOLVED_ORIGINS"}, top
+    for s in mod.body:
+        if not isinstance(s, ast.Assign):
+            continue
+        for tgt in s.targets:
+            if isinstance(tgt, ast.Name):
+                flat = ([s.value] if isinstance(s.value, ast.Constant)
+                        else list(getattr(s.value, "elts", [])))
+                for v in flat:
+                    assert not (isinstance(v, ast.Constant)
+                                and isinstance(v.value, (int, float))
+                                and not isinstance(v.value, bool)), \
+                        f"{tgt.id} declares a number; every value this module acts on comes " \
+                        f"out of the scope file"
 
 
 def test_a_scope_that_is_not_a_scope_is_refused():
