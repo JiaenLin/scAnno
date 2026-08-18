@@ -399,17 +399,25 @@ class Context:
                 out.append(c)
         return out
 
-    def per_animal_points(self, depth):
-        """{(group, label): [one % per animal]} and the group order. The points of F141/F143."""
+    def per_animal_points(self, depth, col=None, order=None):
+        """{(group, label): [one % per animal]} and the group order. The points of F141/F143.
+
+        `col`/`order` override the depth-derived label column, so a forced column gets the same
+        per-animal figure rather than a block with one figure fewer than the block above it.
+        """
         if "group" not in self.P:
+            return {}, []
+        lab_col = col or f"L{depth}"
+        lab_order = order if order is not None else self.label_order(depth)
+        if lab_col not in self.P:
             return {}, []
         pts, groups = {}, self._levels("group")
         for s in self._levels("sample"):
             ms = self.P["sample"] == s
             g = str(self.P.loc[ms, "group"].iloc[0])
             tot = max(int(ms.sum()), 1)
-            for lab in self.label_order(depth):
-                v = 100.0 * float((ms & (self.P[f"L{depth}"] == lab)).sum()) / tot
+            for lab in lab_order:
+                v = 100.0 * float((ms & (self.P[lab_col] == lab)).sum()) / tot
                 pts.setdefault((g, lab), []).append(v)
         return pts, groups
 
@@ -651,10 +659,39 @@ class Context:
     def panels(self, depth):
         return self._panels.get(int(depth)) or {}
 
+    def panels_for(self, labels, sep="/"):
+        """{label: [genes]} taking each label's panel from the depth it TERMINATES at.
+
+        WHY THIS IS NOT `panels(depth)`. The marker panels are keyed by depth, and the scope
+        annotation is MIXED across depths by construction - a sealed node terminates at 2 while
+        its cousins reach 3. Asking for the panels of the deepest level therefore returns nothing
+        for every label that stops short, and those labels appear in the dotplot as rows with no
+        gene columns: the figure looks complete and silently omits the evidence for exactly the
+        labels the cohort's vote created.
+
+        So the panel is looked up per LABEL, at its own depth, falling back to any depth that
+        declares it. A label the corpus has no panel for is simply absent from the result, and
+        the caller reports it rather than drawing an empty block.
+        """
+        out = {}
+        for l in labels:
+            if l in SENTINELS:
+                continue
+            d = len([x for x in str(l).split(sep) if x])
+            g = (self._panels.get(d) or {}).get(l)
+            if not g:
+                for dd in sorted(self._panels):
+                    if l in (self._panels[dd] or {}):
+                        g = self._panels[dd][l]
+                        break
+            if g:
+                out[l] = list(g)
+        return out
+
     def panel_depths(self):
         return sorted(d for d in self._panels if self._panels[d])
 
-    def expression_by_label(self, genes, depth, labels):
+    def expression_by_label(self, genes, depth, labels, col=None):
         """(fraction detecting, mean among all) per label x gene, pooled over objects.
 
         Values are log1p(CP10K) computed here from counts if a counts layer is present, so a
@@ -668,7 +705,15 @@ class Context:
         mean = np.zeros((len(labels), len(genes)))
         tot = np.zeros(len(labels))
         for name, A in self.objects:
-            lab = self._trunc(A.obs[self.path_key].astype(str), depth)
+            # `col` reads a DELIVERED column verbatim; without it the path is truncated to
+            # `depth`, which is right for a level figure and wrong for the scope, whose labels
+            # live at mixed depths and are not a truncation of anything.
+            if col:
+                if col not in A.obs:
+                    continue
+                lab = A.obs[col].astype(str).values
+            else:
+                lab = self._trunc(A.obs[self.path_key].astype(str), depth)
             X = A.layers["counts"] if "counts" in getattr(A, "layers", {}) else A.X
             for li, l in enumerate(labels):
                 m = lab == l

@@ -202,7 +202,8 @@ def _composition(ctx, depth, by):
     swatch_legend(fig, order, ctx.colours(depth), ncol=8 if n_cols <= 10 else 6,
                   fontsize=8.5 if n_cols <= 10 else 7.5)
     ax.set_title(
-        (f"Level {depth} composition, per {by}. Bars sum to 100%; percentages are within a row, "
+        (f"{_annotation_name(ctx, depth)} composition, per {by}. Bars sum to 100%; percentages "
+         f"are within a row, "
          f"and segments below {floor:g}% are unlabelled.\n"
          + ("Computed per sample and averaged, never pooled before division — pooling lets the "
             "largest library set the group's composition." if by == "group"
@@ -216,6 +217,85 @@ def _composition(ctx, depth, by):
 def F102(ctx, by="group"):
     """Level-1 composition, 100% stacked. The figure composition is read in."""
     return _composition(ctx, 1, by)
+
+
+def F107(ctx, col="forced", min_share=0.5, what="the scope annotation"):
+    """Group means as bars with ONE POINT PER SAMPLE, over an arbitrary label column.
+
+    F141 for a column that is not a level. Without it a forced block carries one figure fewer
+    than the block it sits beside, and the pair stops being comparable at a glance - which is the
+    only reason to place them together.
+    """
+    order = ctx.label_order_for(col)
+    if not order:
+        raise NotDrawable(f"no label column {col!r} on these objects")
+    pts, groups = ctx.per_animal_points(1, col=col, order=order)
+    if not pts:
+        raise NotDrawable("no group column: per-sample points need a design to sit in")
+    labels = [l for l in order
+              if np.mean([np.mean(pts.get((g, l), [0.0])) for g in groups]) >= min_share]
+    if not labels:
+        raise NotDrawable(f"no label reaches {min_share}% mean share")
+    return _per_animal_figure(
+        ctx, pts, groups, labels,
+        f"FORCED composition of {what}, group means with one point per sample.\n"
+        f"The threshold is on the mean of the per-sample percentages. Labels below "
+        f"{min_share:g}% are omitted; nothing is pooled before division.")
+
+
+def F108(ctx, col=None, what="the scope annotation", panel_labels=None):
+    """Marker dotplot over a DELIVERED label column, each label's panel taken from ITS OWN depth.
+
+    WHY THIS REPLACES A LEVEL DOTPLOT FOR THE SCOPE ANNOTATION. `_dotplot_figure(ctx, depth)`
+    reads the panels of ONE depth and rows truncated to it. The scope's labels are mixed across
+    depths by construction - a sealed node terminates at 2 while its cousins reach 3 - so at the
+    deepest level every label that stopped short has no panel and contributes NO GENE COLUMNS.
+    The figure renders, looks complete, and silently omits the evidence for exactly the labels
+    the cohort's vote produced. Its rows were also a truncation of the path rather than the
+    delivered column, so it was not independent of the level machinery either.
+
+    Here the rows are the delivered labels and each one's panel comes from the depth it
+    terminates at. Labels the corpus has no panel for are NAMED in the caption, not dropped
+    silently.
+    """
+    order = ctx.label_order_for(col)
+    if not order:
+        raise NotDrawable(f"no label column {col!r} on these objects")
+    panels = panel_labels if panel_labels is not None else ctx.panels_for(order)
+    if not panels:
+        raise NotDrawable("no marker panel matches any delivered label — pass --panels")
+    rows = list(order)
+    genes, spans, no_panel = [], [], []
+    for l in [x for x in rows if x not in SENTINELS]:
+        start = len(genes)
+        for g in (panels.get(l) or []):
+            gu = str(g).upper()
+            if ctx.has_gene(gu) and gu not in genes:
+                genes.append(gu)
+        if len(genes) > start:
+            spans.append((start, len(genes) - 1, l))
+        else:
+            no_panel.append(l)
+    if not genes:
+        raise NotDrawable("none of the panel genes for these labels are in this object")
+    frac, mean = ctx.expression_by_label(genes, 1, rows, col=col)
+    longest = max((len(str(n)) for _a, _b, n in spans), default=8)
+    top_pad = 0.10 * longest + 0.8
+    height = 0.45 * len(rows) + top_pad + 1.6
+    width = max(9.0, 0.26 * len(genes) + 3.2) + 3.4
+    fig, ax = plt().subplots(figsize=(width, height))
+    spec = dotplot(ax, rows=rows, cols=genes, frac=frac, mean_scaled=scale_per_column(mean),
+                   col_group_spans=spans)
+    ax.set_yticklabels(unique_ticks(rows)[::-1], fontsize=9)
+    dotplot_key(fig, ax, spec)
+    fig.subplots_adjust(left=0.16, right=0.72, top=1 - (top_pad / height), bottom=0.22)
+    fig.scanno_no_tight = True
+    note = (f"  {len(no_panel)} label(s) have no corpus panel and contribute no columns: "
+            + ", ".join(leaf(x) for x in no_panel[:6]) if no_panel else "")
+    return fig, (f"Corpus markers against {what} — each label's panel taken from the depth that "
+                 f"label TERMINATES at, so a sealed terminal is not left without evidence.\n"
+                 f"Read exclusivity, not intensity: a gene lit across every row supports no "
+                 f"call.{note}")
 
 
 def F106(ctx, col="forced", by="group", what="the scope annotation"):
@@ -280,17 +360,37 @@ def F141(ctx, depth=1, min_share=0.5):
               if np.mean([np.mean(pts.get((g, l), [0.0])) for g in groups]) >= min_share]
     if not labels:
         raise NotDrawable(f"no level-{depth} label averages {min_share}% of a sample")
-    per_label = max(0.6, 1.5 - 0.28 * (depth - 1))
+    return _per_animal_figure(
+        ctx, pts, groups, labels,
+        f"{_annotation_name(ctx, depth)}. Bars are group means; each point is one sample "
+        f"(threshold: mean per-sample share \u2265 {min_share:g}%).\n"
+        f"A bar difference smaller than the spread of points within a group is not a group "
+        f"difference.", tight=depth == 1)
+
+
+def _annotation_name(ctx, depth):
+    """What a level figure is SHOWING, in the vocabulary the report uses.
+
+    The report presents two annotations, not a stack of levels, so a figure captioned "Level 3"
+    sitting under the heading "the scope annotation" contradicts the heading above it and invites
+    a reader to quote an L3 result that nothing was annotated at.
+    """
+    if depth <= 1:
+        return "The L1 annotation"
+    return "The scope annotation" if depth >= ctx.depth else f"Level {depth}"
+
+
+def _per_animal_figure(ctx, pts, groups, labels, title, tight=True):
+    """The shared drawing for F141/F143 and F107. One routine, so a forced figure cannot drift
+    from the figure it is meant to be compared against."""
+    per_label = 1.5 if tight else 0.9
     fig, ax = plt().subplots(figsize=(max(per_label * len(labels) + 3.5, 7.0), 4.9))
     points_over_bars(ax, categories=labels, groups=groups, point_values=pts,
                      group_colours=_group_colours(len(groups)),
                      ylabel="% of the sample's nuclei", ticks=unique_ticks(labels),
-                     tick_rotation=35, tick_fontsize=9 if depth == 1 else 8.5,
-                     point_size=22 if depth == 1 else 20)
-    ax.set_title(f"Level {depth}. Bars are group means; each point is one sample "
-                 f"(threshold: mean per-sample share ≥ {min_share:g}%).\n"
-                 f"A bar difference smaller than the spread of points within a group is not a "
-                 f"group difference.", fontsize=9.5, loc="left")
+                     tick_rotation=35, tick_fontsize=9 if tight else 8.5,
+                     point_size=22 if tight else 20)
+    ax.set_title(title, fontsize=9.5, loc="left")
     return fig, None
 
 
@@ -859,6 +959,8 @@ FIGURES = {
     "F102": (F102, "cohort", "composition"),
     "F103": (F103, "cohort", "composition, deeper"),
     "F106": (F106, "cohort", "composition, forced"),
+    "F107": (F107, "cohort", "composition per sample, forced"),
+    "F108": (F108, "cohort", "marker dotplot over a delivered label column"),
     "F141": (F141, "cohort", "composition per sample"),
     "F143": (F143, "cohort", "composition per sample, deeper"),
     "F140": (F140, "cohort", "reliability by depth"),

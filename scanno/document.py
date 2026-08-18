@@ -1109,6 +1109,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                               col=_c, by="group", what=_w))
             body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_sample",
                               col=_c, by="sample", what=_w))
+            body.append(A.fig("F107", name=f"F107_per_sample_forced_{_s}", col=_c, what=_w))
             continue
         if _rows is ctx_l1:
             body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))
@@ -1256,16 +1257,46 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             body.append(A.fig("F132"))
         # THE TWO ANNOTATIONS, not every depth. The deepest panel depth is where the scope's
         # labels live; the depths between are truncations nothing was annotated at.
-        _pd = ctx.panel_depths()
-        _shown_pd = [1, max(_pd)] if _pd and max(_pd) > 1 else list(_pd)
-        for d in _shown_pd:
-            body.append(f"<h3>{'the L1 annotation' if d == 1 else 'the scope annotation'}</h3>")
-            body.append(A.fig("F130" if d == 1 else "F135",
-                              name=f"{'F130' if d == 1 else 'F135'}_dotplot_level{d}",
-                              **({} if d == 1 else {"depth": d})))
-            body.append(A.fig("F131" if d == 1 else "F136",
-                              name=f"{'F131' if d == 1 else 'F136'}_featureplot_level{d}",
-                              **({} if d == 1 else {"depth": d})))
+        # FOUR BLOCKS, matching the composition section, and NOT one per taxonomy level.
+        #
+        # The L1 block keeps F130/F131: L1 is a single level, its panels are the depth-1 panels,
+        # and the level figure is exactly right for it.
+        #
+        # The SCOPE block does NOT use the deepest level dotplot any more. That figure read the
+        # panels of ONE depth and rows truncated to it, so every scope label that terminates
+        # SHORT of the deepest level - which is what a seal produces - had no panel there and
+        # contributed no gene columns. The figure rendered, looked complete, and omitted the
+        # evidence for precisely the labels the cohort's vote created. F108 reads the delivered
+        # column and takes each label's panel from the depth that label terminates at.
+        body.append("<h3>the L1 annotation</h3>")
+        body.append(A.fig("F130", name="F130_dotplot_level1"))
+        body.append(A.fig("F131", name="F131_featureplot_level1"))
+
+        _marker_blocks = [("the L1 annotation, FORCED", "forced_l1", ctx.has_forced_l1),
+                          ("the scope annotation", ctx.path_key, True),
+                          ("the scope annotation, FORCED", "forced", ctx.has_forced)]
+        for _t2, _c2, _have in _marker_blocks:
+            body.append(f"<h3>{_t2}</h3>")
+            if not _have:
+                body.append(_absent_section(
+                    "a forced label column (`scanno annotate --resolve`)",
+                    "Without it the forced marker figure cannot be drawn. It is NOT substituted "
+                    "with the unforced dotplot, which would show the unforced rows under a "
+                    "forced heading."))
+                continue
+            _key = "forced" if _c2 == "forced" else ("forced_l1" if _c2 == "forced_l1" else "path")
+            _stem = {"forced": "scope_forced", "forced_l1": "l1_forced"}.get(_c2, "scope")
+            body.append(A.fig("F108", name=f"F108_dotplot_{_stem}", col=_key, what=_t2))
+            if "FORCED" in _t2:
+                # The FEATURE plot is expression on the embedding, coloured by gene, and does not
+                # read the label column at all - a forced version is byte-identical. Saying so
+                # beats drawing the same picture twice under a heading that implies a difference.
+                body.append("<p class='sub'>The feature plots are not repeated here: they show "
+                            "gene expression on the embedding and do not read the label column, "
+                            "so the forced version is the same figure as the one above.</p>")
+            else:
+                body.append(A.fig("F136", name="F136_featureplot_scope",
+                                  depth=max(ctx.panel_depths()) if ctx.panel_depths() else 1))
         for d in ({1, max(ctx.panel_depths())} if ctx.panel_depths() else {1}):
             b = ctx.marker_breadth(d)
             if not b:
@@ -1279,7 +1310,8 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                                  r["labels_over_25"]] for r in b])
             broad = [r for r in b if r["labels_over_25"] >= 4]
             if broad:
-                body.append(f"<h3>genes that carry no identity information at level {d}</h3>")
+                _an = ("the L1 annotation" if d <= 1 else "the scope annotation")
+                body.append(f"<h3>genes that carry no identity information for {_an}</h3>")
                 body.append(_table(
                     ["gene", "plotted for", "own label", "best other", "overall", "labels ≥25%"],
                     [[f"<span class='mono'>{_esc(r['gene'])}</span>", _esc(leaf(r["plotted_for"])),
