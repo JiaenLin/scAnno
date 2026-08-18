@@ -1532,19 +1532,38 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
     body.append("<h2>Composition, this sample against the cohort</h2>")
     # L1 and the scope, per sample — the same two annotations the cohort page carries. The
     # intermediate depths are truncations and are not shown here either.
-    for d in ([1, D] if D > 1 else [1]):
-        body.append(f"<h3>{'the L1 annotation' if d == 1 else 'the scope annotation'}</h3>")
-        col = rows[f"L{d}"]
+    # The two DELIVERED annotations, plus their forced twins where the run wrote them - the same
+    # four blocks the cohort page shows, so a reader moving between the two pages is not asked to
+    # match different structures.
+    #
+    # The scope block reads the DELIVERED column, not `L{D}`. The deepest level index coincides
+    # with the delivered set only when the tree's maximum depth happens to equal it, so a table
+    # built on the index is right by accident and silently wrong on a deeper tree.
+    _blocks = [("the L1 annotation", "l1" if ctx.has_l1 else "L1", 1)]
+    if ctx.has_forced_l1:
+        _blocks.append(("the L1 annotation, FORCED", "forced_l1", 1))
+    _blocks.append(("the scope annotation", "path", D))
+    if ctx.has_forced:
+        _blocks.append(("the scope annotation, FORCED", "forced", D))
+    for _title2, _col2, d in _blocks:
+        body.append(f"<h3>{_title2}</h3>")
+        if _col2 not in rows:
+            body.append(_absent_section(f"the {_col2!r} column on this object",
+                                        "so this block cannot be shown for this sample."))
+            continue
+        col = rows[_col2]
+        order = (ctx.label_order_for(_col2) if _col2 in ("forced", "forced_l1", "path", "l1")
+                 else ctx.label_order(d))
         tab = []
-        for l in ctx.label_order(d):
+        for l in order:
             c = int((col == l).sum())
             if not c:
                 continue
-            here, coh = 100.0 * c / max(n, 1), ctx.share(l, d)
+            here = 100.0 * c / max(n, 1)
+            coh = 100.0 * int((ctx.P[_col2] == l).sum()) / max(ctx.n, 1)
             tab.append([f"<span class='sw' style='background:{ctx.colour(l)}'></span>"
                         + _esc(leaf(l)), f"{c:,}", f"{here:.1f}%", f"{coh:.1f}%",
                         f"{here - coh:+.1f} pp"])
-        body.append(f"<h3>level {d}</h3>")
         body.append(_table(["label", "nuclei", "this sample", "cohort", "difference"], tab))
     body.append("<p class='sub'>The last column is this sample minus the cohort. A large "
                 "difference is not by itself a finding — read it against the per-sample points "
