@@ -168,22 +168,31 @@ def render(ctx, **kw):
 
 def test_an_internal_frame_key_is_translated_to_the_real_obs_column():
     """`P` uses short keys; `A.obs` uses whatever the annotation wrote. Anything reading the
-    OBJECTS must translate, or it finds nothing, measures nothing, and draws an empty grid."""
-    ctx = reference_cohort()
-    assert ctx.obs_column_for("path") == ctx.path_key
-    assert ctx.obs_column_for("nonsense") == "nonsense"      # unknown keys pass through
+    OBJECTS must translate, or it finds nothing, measures nothing, and draws an EMPTY grid.
+
+    Tested on the real Context, not the FakeCtx fixture, because the translation is a property of
+    the real class - and it is exactly the kind of thing a stub would answer correctly by
+    accident.
+    """
+    from scanno.context import Context
+    c = Context.__new__(Context)                      # no anndata needed for a pure mapping
+    c.path_key, c.l1_key = "scanno_path_scope", "scAnno_L1_scope"
+    c.forced_key, c.forced_l1_key = "scanno_resolved_path_scope", "scAnno_L1_resolved_scope"
+    assert c.obs_column_for("path") == "scanno_path_scope"
+    assert c.obs_column_for("l1") == "scAnno_L1_scope"
+    assert c.obs_column_for("forced") == "scanno_resolved_path_scope"
+    assert c.obs_column_for("forced_l1") == "scAnno_L1_resolved_scope"
+    assert c.obs_column_for("already_an_obs_name") == "already_an_obs_name"
 
 
-def test_a_column_no_object_carries_RAISES_rather_than_returning_zeros():
-    ctx = reference_cohort()
-    genes = list(ctx._gene_index())[:2] if hasattr(ctx, "_gene_index") else []
-    if not genes:
-        return
-    try:
-        ctx.expression_by_label(genes, 1, ["x"], col="a_column_nothing_has")
-        assert False, "returned zeros instead of raising"
-    except KeyError as e:
-        assert "no object carries" in str(e), str(e)
+def test_an_all_zero_dotplot_is_refused_rather_than_drawn():
+    """It rendered once: every row, every gene column, every bracket, and no dots. That reads as
+    'these markers are not expressed' when nothing was measured at all."""
+    src = (ROOT / "scanno" / "figures.py").read_text()
+    assert "AN ALL-ZERO GRID IS NOT A FIGURE" in src
+    assert "nothing was measured" in src
+    ctxsrc = (ROOT / "scanno" / "context.py").read_text()
+    assert "no object carries the obs column" in ctxsrc
 
 
 def reference_cohort():
