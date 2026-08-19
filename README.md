@@ -5,531 +5,184 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-0.10.0-blue.svg)](#status)
 
-Most annotators return a label for every cluster. scAnno returns a label **at the deepest level
-the evidence supports, and no deeper** — `Lymphoid` when it cannot separate T from NK, and
-`Lymphoid/T cell` when it can. A truncated label is a true statement; a confident wrong one is not.
+scAnno returns a label at the deepest level the evidence supports and no deeper — `Lymphoid` when
+it cannot separate T from NK, `Lymphoid/T cell` when it can.
 
-> **Read [Status](#status) before planning anything.** At `0.9.0` this is a classifier, not a
-> pipeline. `annotate`, `calibrate`, `resolution` and `agent` work and are tested,
-> `--out-h5ad` writes the annotation back into the object **per cell** — the form anything
-> downstream can actually read — `--report` writes a self-contained document beside it, and an
-> object carrying scQC's declaration arms the exclusion itself. `scanno cluster` produces the
-> partition and `scanno compare` checks it against a second route. There is still no ingest step
-> and no task graph.
-> **What has been validated is human
-> blood** — two PBMC datasets, 18 populations, zero errors — and nothing else: not another
+📖 **[Quickstart](docs/QUICKSTART.md)** · **[User guide](docs/USER_GUIDE.md)** ·
+**[Known issues](KNOWN_ISSUES.md)**
+
+> **Validated on human blood only** — two PBMC datasets, 18 populations, zero errors. Not another
 > tissue, not another species, and **not single-nucleus data**, on which it is nevertheless being
-> used. See [Status](#status) before trusting it beyond that.
+> used. See [Status](#status).
 
 ---
 
-## Why
+## Install
 
-Three failures shaped this, all measured rather than imagined.
-
-- **A label that depended on what else was in the sample.** Standardising a cluster against the
-  other clusters in its own run makes its score a property of the run, not of the cluster.
-  Deleting 2% of an object shifted every score by a median 19.4% and flipped a call. For any study
-  measuring composition, that turns a technical property into the result.
-- **A confidence gate that destroyed correct answers.** A softmax posterior over node scores was
-  given veto power without anyone checking it predicted correctness. It didn't: it discarded three
-  correct calls to catch one error, taking accuracy from 7/8 to 4/8.
-- **A marker panel that scored a solid tissue on olfactory receptors.** A near-silent gene has a minute
-  variance, so one stray count gives it an enormous z-score. Guarding against *exactly* zero
-  variance does not catch it. The output table looked entirely plausible.
-
-
-## Running scAnno on a cluster
-
-Copy `jobs/TEMPLATE.pbs` into your project and edit the marked block. It carries three things
-that are easy to omit and expensive to omit:
-
-- **`set -euo pipefail`.** Without `-e` a failed step is logged, the job continues, and the exit
-  trap reads the status of the last `echo` — sealing a failed run as a successful one.
-- **A seal that checks products, not just exit status.** A step can exit 0 having written
-  nothing, so the trap lists the files the run must have and fails if any is missing.
-- **Scratch redirected into the run directory.** R, pip, matplotlib and numba write under
-  `$HOME` by default.
-
-Create the run directory with a plain `mkdir` before `qsub`, never `mkdir -p`: a run-key
-collision should abort rather than give two jobs one directory. PBS does not create the `-o`
-destination and loses the log silently if it is missing.
-
-
-## The core idea
-
-> **The database learns. The classifier is a fixed function.**
-
-```
-classify : (query counts, store-or-corpus, declared tree) → labelled clusters
+```bash
+git clone https://github.com/JiaenLin/scAnno.git && cd scAnno
+pip install -e '.[run]'      # '.[run]' adds anndata + scanpy for reading .h5ad
+scanno selftest
 ```
 
-Nothing is fitted at runtime, so a result is reproducible from the store digest plus the tree, and
-every failure is attributable to one of three inputs rather than to hidden training state.
+The decision layer is numpy and scipy only. The marker corpus is **not** distributed: build a
+SQLite database from a CellMarker release, or point `--db` at any database with an `assertion`
+table carrying `species`, `tissue_class`, `cell_name`, `symbol_norm`, `evidence_tier` and
+`n_pmids`.
 
-## What scAnno delivers: two annotations
+Check what the corpus knows about your tissue first — if `panel` refuses, tuning will not help:
 
-**Two label columns, independent evidence about the same nuclei.**
-
-| | |
-|---|---|
-| **the L1 annotation** | an independent depth-1 walk over the **complete** declared compartment set, against the **full** corpus. One decision at the root and it is done — it terminates because the tree ends there, not because evidence ran out. **No seal at any depth can move it**: it never consults the scope tree, and it is a real walk rather than `path[:1]`, which would inherit every edit the vote made. |
-| **the scope annotation** | the same unchanged walk, run against **the scope**. At each node only the children that survived the vote are scored, so labels terminate at whatever depth the cohort's evidence supports and the set is mixed across levels. |
-
-Separate walks over different child sets, so **they can disagree — and the disagreement is
-information.** A nucleus called `Immune` at L1 whose scope path went `Stromal/Fibroblast` is a real
-conflict between two measurements of the same cell, and the report carries the agreement between the
-two columns as a result.
-
-**The scope restricts the TREE, not the database.** The corpus is unchanged; a sealed node's
-children have no position left to be scored at. A subtype absent from the scope annotation means
-*the cohort could not agree to make this split*.
-
-There is no "level 2 annotation" and no "level 3 annotation". Intermediate depths are truncations
-of the scope path; a share quoted at a depth nothing was annotated at is a number with no call
-behind it.
-
-## The scope, and how it is found
-
-**The scope is the label set the annotation is aimed at** — a result measured from the cohort, and
-the primary output of this step. `scanno scope --out` reports it under `scope`, each label carrying
-why it terminates there: `leaf` where the taxonomy goes no further, `sealed` where the cohort
-removed its children. The sealed tree is how the scope is applied.
-
-Finding it is a scouting pass and a vote:
-
-```
-PHASE 1  FIND THE SCOPE
-  cluster
-  pass 1     every sample walks the DECLARED tree, independently   -> evidence, not a deliverable
-  vote       scanno scope                                          -> THE SCOPE
-PHASE 2  ANNOTATE AGAINST IT
-  pass 2     the UNCHANGED walk, per sample, --scope               -> the scope annotation
-  + L1       the UNCHANGED walk, depth-1 tree                      -> the L1 annotation
+```bash
+scanno panel --db corpus.db --species Human --tissue Blood --top 10
 ```
 
-**The walk never changes.** Same gap test, same `GAP_CORPUS`, same truncate-never-abstain,
-`classify.py` untouched between the phases. The only difference is **which tree is walked**.
+## Run
 
-### The mechanism is the samples' own agreement
+```bash
+scanno cluster  --h5ad qc.h5ad --out clustered.h5ad --resolutions 0.5,1.0,2.0 --split-by sample
 
-At every internal node, per sample — one vote each, so a 16,000-cell library cannot outvote a
-7,500-cell one:
-
-```
-reached    samples with >=1 cell whose path traverses the node
-descended  samples IN reached with >=1 cell strictly below it
-support    descended / reached
+scanno annotate --h5ad clustered.h5ad --cluster-key leiden --tree tree.json \
+                --db corpus.db --species Mouse --tissue Heart --store store.npz \
+                --out-h5ad annotated.h5ad --report
 ```
 
-**Only samples that reached the node vote.** A sample that never arrived casts nothing — a missing
-observation, not a vote against. Counting absence as opposition would seal every branch that is
-merely rare, and rare is not unsupported. `--min-reach` is the same guard from the other side: a
-node too few samples reached is UNVOTABLE and left open, never sealed on one animal's evidence.
+`cluster` normalises, selects variable genes over every gene, runs PCA, neighbours and Leiden at
+every resolution asked for, keeping all of them. It refuses rather than proceeding when it cannot
+find raw counts to preserve. `--split-by` clusters each sample independently — no shared variable
+genes, no joint embedding, no batch key.
 
-Then, **keep a split if and only if every sample that saw the branch took it**:
+`annotate` scores clusters against the tree and writes the annotation per **cell**.
 
-| verdict | condition | effect |
-|---|---|---|
-| **SEAL** | `support < --min-support` | delete the node's **entire** child set — it becomes a leaf, and the label leaves the scope |
-| **FORCE** | support met, cells stranded on the node | tree unchanged; the stranded **cells** are pushed recursively to a leaf |
-| **KEEP** | support met, nothing stranded | nothing |
+## Weight sources
 
-Only SEAL edits the tree. Sealing rather than pruning is the whole mechanism: pruning leaves the
-node open, so `gap` is still computed over the survivors and samples can still land either side of
-the bar. Sealing makes `node_weights` return `None`, the walk breaks, and **every sample truncates
-there by construction rather than statistically** — no bar, no divergence.
-
-**A seal removes the possibility of a LABEL, never an observation.** Every cell keeps its pass-1
-path in `obs`, so it is reversible by re-running pass 2 against the declared tree.
-
-### The question the vote asks
-
-Not *"is this subtype real?"* but **"is this split reproducible across replicates?"**
-
-Two replicates of the same arm, batch and chemistry have been measured reporting
-`11.25% Fibroblast / 0.00% Matrifibrocyte` against `0.00% / 17.71%` — identical biology, different
-depth. Downstream that is indistinguishable from a compositional shift, and abundance is conserved
-and merely re-labelled, so no later analysis can undo it.
-
-The vote uses no gap magnitude, no corpus assertion count, no cluster size, no silhouette: those
-describe how confident **one** walk was. It measures whether **independent walks agreed**, which is
-what makes a cohort-wide label column comparable across samples.
-
-## Two ways to run it
-
-**Without an atlas** — the default, and the one most users are in. Node weights come from a curated
-marker corpus you supply, with each gene charged its best competing sibling claim.
+**Without an atlas** — the default. Node weights come from a curated marker corpus, each gene
+charged its best competing sibling claim.
 
 **With an atlas** — node weights come from expression profiles built from annotated datasets.
-Better where you have them; the corpus covers far more tissues than atlases do.
+Better where available; the corpus covers far more tissues than atlases do.
 
-Both share the same **gene background** (per-gene mean/sd, ~20k numbers, tissue-general) and the
-same rooted walk. Measured on PBMC:
+Both share the same gene background (per-gene mean/sd, tissue-general) and the same rooted walk.
+Measured on PBMC:
 
 | | pbmc3k | pbmc68k *(independent, FACS labels, 765 genes)* |
 |---|---|---|
 | **corpus only, no atlas** | 8 correct · 0 coarser · **0 wrong** | 7 correct · 3 coarser · **0 wrong** |
 | atlas profiles | 8 · 0 · **0** | 8 · 2 · **0** |
 
-The untrained path costs one exact call and one extra coarse label. It makes no errors.
+Nothing is fitted at runtime. A result is reproducible from the store digest plus the tree, and
+every failure is attributable to one of three inputs rather than to hidden training state.
 
-## The four steps
+## Steps
 
 | # | step | does | assigns | state |
 |---|---|---|---|---|
-| 0 | **ingest** | validate the samplesheet and the declared tree; bind it to the corpus; refuse on a node nothing can represent | — | specified |
-| 1 | **cluster** | normalise → HVG → PCA → neighbours → resolution sweep, **per sample independently** | — | **built** — `scanno cluster`, `--split-by` for per-sample |
-| 2 | **score** | one pass over cells, then walk the tree: at each node score only its children | proposes | **built** |
-| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | **built** — `scanno/emit.py`, reached by `--out-h5ad` |
+| 0 | ingest | validate samplesheet and declared tree, bind it to the corpus | — | specified |
+| 1 | cluster | normalise → HVG → PCA → neighbours → resolution sweep | — | built |
+| 2 | score | one pass over cells, then walk the tree, scoring only each node's children | proposes | built |
+| 3 | **assign** | the only code path that writes a label into `obs` | **yes — only here** | built |
 
-Four, not eight. scQC needs eight because each gates a deletion and deletions compound; nothing in
-annotation compounds, and a label is replaced by re-running.
+Only siblings are ever compared, so a call never depends on how many distant cell types are in the
+taxonomy. Scores are standardised against a stored background rather than against the run, so a
+cluster's score does not change when something else is added to or removed from the object.
 
-**Why the shape is this, and not the usual one:**
+📄 **[Why the design is this shape](docs/RATIONALE.md)** ·
+**[The classifier as built](docs/CLASSIFIER.md)**
 
-- **The tree is rooted, and that is the whole design.** A forest of leaves has nowhere to truncate
-  *to*, so its only failure action is `UNRESOLVED` and everything marginal gets thrown away. A
-  root is what lets `Lymphoid` be an answer.
-- **Only siblings are ever compared.** At each node the score is over that node's children alone,
-  so a call never depends on how many distant cell types happen to be in the taxonomy.
-- **One pass over cells, then milliseconds.** `cluster_profile` is a single sparse matmul against
-  a one-hot cluster indicator. That construction is also what makes non-destructive exclusion
-  exact: a cluster's profile depends on its own cells and nothing else.
-- **Scores are standardised against a stored background, not against the run.** This is the
-  property everything else rests on — see below.
-- **Assignment is one code path.** Same reason scQC confines removal to step 7: a reader should be
-  able to establish quickly that nothing else can put a label into `obs`.
+## Two annotations
 
-## What comes out
+scAnno delivers two label columns — independent evidence about the same cells.
 
-```bash
-scanno annotate --h5ad clustered.h5ad --cluster-key leiden --tree tree.json \
-                --db corpus.db --species Mouse --tissue Heart --store store.npz \
-                --out-h5ad annotated.h5ad        # the object, annotated per CELL
-```
+| | |
+|---|---|
+| **L1** | an independent depth-1 walk over the complete declared compartment set, against the full corpus. No seal at any depth can move it; it is a real walk, not a truncation of the scope path |
+| **scope** | the same walk run against the voted scope. At each node only children that survived the vote are scored, so labels terminate at whatever depth the cohort's evidence supports |
 
-`classify()` reasons about **clusters**; everything downstream consumes **cells**. Until 0.3.1
-`annotate` printed the cluster table, optionally wrote it as a TSV, and stopped — so the join
-back onto the object was left to every caller, and the object scAnno had just annotated still
-carried no annotation. Nothing could open it.
+They can disagree, and the disagreement is information: the report carries the agreement between
+them as a result. There is no "level 2" or "level 3" annotation — intermediate depths are
+truncations of the scope path, and a share quoted at a depth nothing was annotated at has no call
+behind it.
 
-`--out-h5ad` writes it. The input object with columns added, and **nothing else touched**:
+The scope restricts the **tree**, not the database. A subtype absent from the scope annotation
+means the cohort could not agree to make that split.
+
+## Output
+
+`--out-h5ad` writes the input object with columns added and nothing else touched — `X`, `var` and
+`obsm` come out as they went in.
 
 | column | is |
 |---|---|
-| `scanno_cell_type` | the label, as a categorical — **this is the one a reader wants** |
+| `scanno_cell_type` | the label, as a categorical |
 | `scanno_path` | the full root-to-leaf path the walk took |
 | `scanno_depth` | how deep it got before the evidence ran out |
-| `scanno_gap` | the decision gap of the **accepted** step |
-| `scanno_survival` | how much of the node's own evidence survived the sibling contrast |
-| `scanno_support` | curated tier-1/2 assertions behind the winning node, where a corpus was given |
+| `scanno_gap` | the decision gap of the accepted step |
+| `scanno_survival` | how much of the node's evidence survived the sibling contrast |
+| `scanno_support` | curated tier-1/2 assertions behind the winning node |
 
-`X`, `var` and `obsm` are the input's. scAnno does not rebuild the object around its answer, so
-an embedding or a gene-symbol column that went in comes out.
+Three properties, asserted in `tests/test_emit.py`:
 
-Three properties, each asserted in `tests/test_emit.py` rather than described here:
+- a flagged cell is `EXCLUDED` whatever its cluster was called — the exclusion is per cell
+- a statistic of a call that was not made is `NaN`, never `0`
+- a cluster with no call raises rather than being labelled something plausible
 
-- **A flagged nucleus is `EXCLUDED` whatever its cluster was called.** The exclusion is per
-  nucleus; a cell keeping its cluster's label because the cluster survived would quietly undo
-  that.
-- **A statistic of a call that was not made is `NaN`, never `0`.** A gap of `0.0` sorts first
-  and averages into every summary while looking like a genuinely marginal call.
-- **A cluster with no call raises.** `classify()` returns one row per cluster in order; a caller
-  that has filtered or reindexed it would otherwise label a whole population something plausible.
+## Upstream provenance
 
-### It tells you what a viewer will still ask for
+An object carrying scQC's `uns["scqc"]` declaration arms the exclusion automatically, after
+verifying the flag against its digest. A declaration that does not check out refuses. An object
+with a flag column and no declaration gets nothing — scAnno reads declarations and never infers
+meaning from a column name.
 
-Writing the file is not the same as the file being usable, so `--out-h5ad` ends with a
-readiness report — the annotation, an embedding, expression a viewer will accept, gene symbols
-beside accession-named rows, and the optional sample and condition columns:
+`--exclude-flag` withholds exactly the flagged cells without deleting anything, and there is no
+mode or threshold that widens that set.
 
-```
-  what a viewer will find in it
-  MISSING no 2-D embedding in obsm - a viewer needs one to draw cells. scAnno does
-          not compute embeddings; run UMAP upstream
-  ok      cell annotation: scanno_cell_type, 7 levels
-  ok      gene symbols: var['gene_symbol'] beside accession row names
-```
+## Report
 
-It never refuses on these. An object with no embedding is not a bad annotation — it is an
-object somebody still has to run UMAP on, and deciding otherwise would be scAnno deciding what
-the object is for.
+`--report` writes one self-contained HTML file plus a `report.json` carrying every number in it:
+composition, labels on the embedding, reliability by tree depth, the corpus markers behind the
+calls, what was withheld and how unevenly, every cluster call, and provenance. Every section
+states what it cannot show, and a missing limit is counted as a defect on the report's front page.
 
-### Where it goes next
+## Commands
 
-**The output opens in [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab) and visualises in
-[scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio)** — the per-sample annotated objects
-and the joint embedding alike.
+`annotate` · `cluster` · `calibrate` · `panel` · `store-info` · `resolution` · `scope` ·
+`compare` · `agent` · `selftest`. Exit code 2 is a refusal.
 
-Every writer in this package holds `classic_string_encoding`, so labels and indices land as HDF5
-string **datasets** rather than nullable-string groups. That is what a reader outside anndata needs:
-a group where `obs/_index` should be makes the index come back undefined and the first `.map` over
-it throw, and the viewer reports a property access that points nowhere near the cause.
-`tests/test_emit.py` asserts it by opening the written file with `h5py` and checking the type of
-`obs/_index`, `var/_index` and a string column.
-
-The joint embedding carries what a viewer draws from: raw counts in `layers['counts']`, log-normalised
-counts in `.X` and `layers['lognorm']`, `X_pca` and `X_umap` in `obsm`, and — with `--keep-obs` — just
-the label columns you name.
-
-The annotated `.h5ad` is what [scRNA-seq Lab](https://github.com/JiaenLin/scrnaseq-lab) opens.
-The lab converts it to the bundle that [scRNA-seq Studio](https://github.com/JiaenLin/scrnaseq-studio)
-reads, and **scAnno deliberately does not write that bundle** — one job each, and the bundle
-format is the lab's to keep current.
-
-`scanno_cell_type` is named the way it is for this: the lab has to *guess* which column holds
-the annotation, and every convention for that guess keys on the substring `cell_type`. Verified
-end to end against the lab's own converter, which picked
-`{"cluster":"scanno_cell_type","sample":"sample","condition":"condition","embedding":"X_umap"}`
-with nothing configured.
-
-## The report
-
-```bash
-scanno annotate ... --report reports/annotation.html \
-                    --sample-key sample --condition-key condition
-```
-
-One self-contained HTML file and a `report.json` carrying every number in it. No CDN, no fonts to
-fetch — openable from a filesystem in five years, which is longer than any link survives.
-
-| section | is |
-|---|---|
-| composition | level 1 and level 2, per sample where the object says which sample a cell came from |
-| the labels on the embedding | the picture, because a composition table cannot show *where* a population sits |
-| reliability | median decision gap by tree depth, against the share of cells whose node rests on fewer than 10 curated assertions |
-| the markers behind the calls | the corpus panels the classifier actually scored on, against the object they were applied to |
-| what was withheld | how many, on whose authority, where they sit, and how unevenly they fall across samples and design arms |
-| every cluster call | the full table, with gap and support |
-| provenance | the store digest, the taxonomy, the corpus, the gap threshold, the columns used |
-
-Two properties it is built to hold, both asserted in `tests/test_report.py`:
-
-- **Every section states what it cannot show**, in the same place as its numbers — and the report
-  audits itself, counting a missing limit as a defect on its own front page. A section with no
-  limit reads as a section with nothing to qualify, which is the more confident claim and the
-  wrong one.
-- **A figure that cannot be drawn is a NAMED absence** saying what would produce it. A blank space
-  reads as "there was nothing to show".
-
-It degrades rather than refusing. No sample column means no per-sample panel and a line saying so;
-no embedding means `A3` is an absence naming UMAP as the fix; no matplotlib means every figure is
-an absence and the document still writes.
-
-`pip install 'scanno[report]'` adds matplotlib.
-
-## Excluding what upstream QC flagged
-
-Upstream QC often marks nuclei it considers technical. Annotating them produces a label, and a
-label is indistinguishable downstream from one anybody should believe.
-
-```bash
-scanno annotate ...                                    # armed by the object's own declaration
-scanno annotate ... --exclude-flag cluster_FLAG        # or name the column yourself
-scanno annotate ... --no-exclude                       # or annotate everything
-```
-
-### It arms itself when the object declares one — and never guesses
-
-An object from [scQC](https://github.com/JiaenLin/scQC) carries `uns["scqc"]`: which column holds
-the flag, what it means, how many nuclei carry it, and a digest of the exact set. scAnno reads
-that and arms the exclusion, printing what it found before it walks anything:
-
-```
-scQC declaration found -> exclusion ARMED on 'cluster_FLAG'
-    18 of 300 nuclei (6.00%) are withheld and labelled EXCLUDED
-    digest c80a7099e4f46799 verified against the column in this file
-    run f82f60bf56ef  commit 2de8c34
-    scAnno did not choose these nuclei and cannot widen the set.
-```
-
-**This does not weaken the rule that scAnno never decides what is technical.** The distinction is
-the whole design and is easy to get backwards:
-
-- **Sniffing** — *"there is a column called `cluster_FLAG`, I will exclude on it"* — is scAnno
-  guessing what a column means. That would break the rule, and scAnno does not do it: an object
-  with the column and **no declaration gets nothing**, with a line saying so.
-- **Reading a declaration** — *"scQC says it wrote this column, here is what it means, here is a
-  digest"* — is upstream deciding, in its own record, and scAnno obeying.
-
-A declaration that does not check out is a **refusal**, not a warning: a flag rewritten since
-upstream wrote it is not upstream's decision any more, and acting on it while citing that
-provenance would attribute a choice to a pipeline that did not make it. Same for an object that
-has been subset since, and for a schema this version does not understand.
-
-Precedence is `--no-exclude` > `--exclude-flag` > the declaration. The person at the keyboard
-outranks the file; the file outranks the default.
-
-**Why armed is the default, when 0.3.0 concluded the opposite for a different capability.** The
-one removed then *widened* a flag — it withheld nuclei upstream QC had passed, 783 of 2,680 on the
-cohort it was written for. This one narrows to exactly what QC rejected, and the digest proves it.
-The asymmetry is in which error is silent: annotating a flagged nucleus mints a label for a cell
-QC refused, and that label is indistinguishable downstream from a good one, while withholding it
-produces a visible `EXCLUDED` that `--no-exclude` undoes in full. The louder error is the
-recoverable one.
-
-**Exactly those nuclei are withheld.** They are dropped from the cluster **profile** — they
-contribute to no mean and no detection rate, so they cannot influence any other nucleus's label —
-and each is labelled `EXCLUDED`, a sentinel that is not a cell type in any taxonomy. **Nothing is
-deleted:** every nucleus keeps its place in the object, and the exclusion is undone by re-running
-without the flag.
-
-There is one option and no mode, because **scAnno does not decide which nuclei are technical.** It
-computes no QC metric, applies no threshold, and has no code that turns the flag into a different
-set of cells. The excluded set is the column you named — identical at every clustering resolution,
-and fingerprinted in the record (a **mask digest**) so a reader can check that the set which ran
-is the set your QC handed over. A count cannot show that: two different masks of the same size
-agree on every number in a summary table.
-
-The only cluster-level consequence is arithmetic rather than a threshold: a cluster whose every
-member was flagged has no profile at all, so it cannot be walked. Every cell in it was flagged
-anyway, so no unflagged nucleus is affected, and it is reported rather than silent.
-
-**What this cannot do** is tell you whether the flag was right. scAnno takes the decision as
-input, demands a reason with it, and reports what it cost. Whether a flagged nucleus is damaged or
-is a cell type your QC does not expect is not a question this tool can answer.
-
-## What is deliberately absent
-
-Each was built, measured and removed. Listed so they do not come back without new evidence.
-
-| removed | measured outcome |
-|---|---|
-| coverage term | identical failure with it on and off |
-| softmax posterior + entropy gate | 7/8 → 4/8 |
-| permutation null | every p pinned at the 1/(B+1) floor |
-| correlation novelty gate | rejected 4 real populations on independent data |
-| negative marker weights | 2 errors on independent data, **invisible on the self-test** |
-| node-coherence gate | its statistic depended on which other nodes existed |
-| design-differential gate | refused on a comparison where 2 libraries of 10 held 94% of the unresolved nuclei |
-| cluster-share exclusion (`--exclude-mode cluster`) | withheld **783 of 2,680** nuclei (29.2%) that upstream QC had *passed*, while keeping 1,918 of 3,815 that it flagged; the size moved 42 → 4,080 with the caller's resolution from one unchanged flag |
-
-**Eight capabilities were built here, measured, and deleted** — some of them only after they had
-already shipped, and one of them (negative marker weights) causing errors that were invisible on
-the self-test. Hence the standing rule:
-
-> **No statistic gates an output until it has been shown to separate correct from incorrect calls
-> on held-out data, reported as an AUC beside the gate it justifies.**
-
-and, since 0.3.0, its companion:
-
-> **scAnno annotates and does not decide what is technical.** Where an exclusion is applied it is
-> exactly the per-cell flag it was given. A capability that is merely defaulted-off is one
-> argument away from running — see `docs/PRINCIPLES.md` §5.
-
-## Reading the output
-
-`docs/READING_THE_OUTPUT.md` is a playbook for the joint object: read it, QC it, normalise,
-cluster, and every common figure — dotplot, feature plot, violin, matrixplot, heatmap,
-composition bars — with every parameter you would want to change named and explained.
-
-It runs in **two tracks**. Track A uses what shipped and matches the report in seconds. Track B
-recomputes the whole chain from raw counts for full customization, and says plainly what that
-costs: a new clustering has no correspondence to the delivered labels.
-
-It also covers **differential expression and enrichment**: pseudobulk with `decoupler` and
-DESeq2 on the unit that is actually replicated — the sample, not the cell — then `gseapy` for
-preranked GSEA and over-representation on a contrast, and `decoupler` for a TF or pathway
-activity score on **every cell**, which can then be plotted like any other feature.
-
-`docs/reading_the_output.ipynb` is the same playbook as runnable cells. It is **generated** from
-the markdown by `docs/make_notebook.py`, and `tests/test_playbook.py` fails if the two drift —
-two copies of the same instructions diverge silently, and the notebook goes on teaching a
-parameter the document no longer recommends.
-
-## Install
-
-```bash
-git clone https://github.com/JiaenLin/scAnno.git && cd scAnno
-pip install -e '.[run]'               # '.[run]' adds anndata + scanpy, for reading .h5ad
-scanno selftest                       # or run it from the clone: python bin/scanno selftest
-python tests/test_calibrate.py        # synthetic; no data needed
-python tests/test_adversarial.py      # needs scanpy + the PBMC datasets
-```
-
-The decision layer is **numpy + scipy only**, deliberately: a tool that is hard to install is a
-tool that gets skipped.
-
-To learn marker reliability from atlases you already have:
-
-```bash
-scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \
-                 --species Human --tissue Blood --out calib/
-```
-
-The marker corpus is **not** distributed, the same way scQC ships a reference registry and not a
-genome. Download a CellMarker release and build the SQLite database with your own ingest, or
-point `--db` at any database with an `assertion` table carrying `species`, `tissue_class`,
-`cell_name`, `symbol_norm`, `evidence_tier` and `n_pmids`. Check what the corpus knows about your
-tissue before anything else — if `scanno panel` refuses, no amount of tuning will help:
-
-```bash
-scanno panel --db corpus.db --species Human --tissue Blood --top 10
-```
-
-
-### If you do not already have an environment
-
-`pip install -e '.[run]'` installs into whatever environment you are *already in*. If you have
-none, or you are reproducing a published number:
-
-```bash
-setup/install_env.sh --prefix ~/envs/scanno    # build the locked environment
-setup/install_env.sh --check                   # audit the one you have; changes nothing
-```
-
-`setup/environment.lock.yml` is captured from an environment that ran a real cohort end to end,
-not composed from bounds. The distinction matters: `pyproject.toml` says `scanpy>=1.10` because
-scAnno's decision layer genuinely tolerates a range, but **its results do not** — clustering is
-not bit-reproducible across versions, and on one cohort a cluster flag moved by 47 nuclei between
-two commits of the upstream tool on identical input. Bounds are what scAnno needs to import; the
-lock is what a result needs to reproduce.
-
-`--check` grades what it finds rather than failing on the first absence: a missing `anndata` means
-scAnno cannot read `.h5ad` at all, a missing `matplotlib` means every figure becomes a named
-absence and the report is still written, and a version that merely *differs* means it will run
-but may not match a published number.
-
+`resolution` picks a clustering resolution from the annotation rather than the geometry.
+`compare` scores two annotated objects against each other, naming the confused pairs rather than
+only a percentage. `agent` is an optional second opinion — bring your own key — and never replaces
+`annotate`.
 
 ## Documentation
 
 | | |
 |---|---|
-| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | **start here** — install, tree, annotate, read the output |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | every command, every refusal, and the gene background |
-| [docs/PRINCIPLES.md](docs/PRINCIPLES.md) | the four rules the code enforces, and what each cost to learn |
-| [docs/CLASSIFIER.md](docs/CLASSIFIER.md) | the design as built: `Z`, the walk, both weight sources |
-| [docs/CALIBRATION.md](docs/CALIBRATION.md) | how the store learns from atlases, and the promotion ladder |
-| [docs/TRAINING.md](docs/TRAINING.md) | whether trained weights help, measured — and the reordered panels |
-| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | measured, reproduced, not yet fixed |
+| [QUICKSTART](docs/QUICKSTART.md) | install, tree, annotate, read the output |
+| [USER_GUIDE](docs/USER_GUIDE.md) | every command, every refusal, the gene background |
+| [RATIONALE](docs/RATIONALE.md) | why the design is this shape, and what is deliberately absent |
+| [PRINCIPLES](docs/PRINCIPLES.md) | the rules the code enforces |
+| [CLASSIFIER](docs/CLASSIFIER.md) | the design as built: `Z`, the walk, both weight sources |
+| [CALIBRATION](docs/CALIBRATION.md) | how the store learns from atlases |
+| [TRAINING](docs/TRAINING.md) | whether trained weights help, measured |
+| [READING_THE_OUTPUT](docs/READING_THE_OUTPUT.md) | a playbook for the annotated object, with a notebook |
+| [KNOWN_ISSUES](KNOWN_ISSUES.md) | measured, reproduced, not yet fixed |
 
 ## Status
 
-**0.10.0.** Precise, because a tool that overstates itself does damage quietly. Every row was
-checked against the tree rather than remembered.
+**0.10.0.**
 
 | | |
 |---|---|
-| ✅ **built and tested** | the classifier: store, gene background, corpus weights, rooted walk with truncation. `tests/test_adversarial.py` re-runs every attack that found a defect. |
-| ✅ **validated — on human blood, and only there** | PBMC, two datasets, 18 populations, zero errors on both paths. One of the two is independent with FACS labels. The scope is part of the claim: read the next two rows before quoting this one. |
-| ⚠️ **one tissue, one species** | human blood. Every number is an existence proof, not a range. |
-| ⚠️ **no single-nucleus validation** | nuclear and whole-cell transcriptomes differ systematically; the gene background would have to be built for the right assay. **It is nevertheless being used on single-nucleus data**, which is a limitation of that use and not a property this tool has earned. |
-| ❌ **novelty detection unsolved** | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed; see KNOWN_ISSUES. |
-| ✅ **calibration** | `scanno calibrate` builds the store, learns bounded marker reliability and emits the reordered panels. Tested on synthetic data in `tests/test_calibrate.py`. |
-| ✅ **exclusion** | `--exclude-flag` withholds **exactly** the nuclei upstream QC flagged, without deleting anything, and there is no mode or threshold with which to widen that set. `tests/test_exclude.py` asserts equivalence to deletion and — §5 — that the retired cluster-share symbols are gone; `tests/test_exclude_cell.py` asserts the excluded set is exactly the flag at any clustering granularity, by digest and not only by count. |
-| ✅ **resolution** | `scanno resolution` picks a clustering resolution from the annotation rather than from the geometry, with a derived tolerance. |
-| ✅ **kNN diagnostic** | `cluster_neighbourhood` / `label_flow` ask whether the annotation respects the manifold. It changes no call. |
-| ✅ **agentic second opinion** | `scanno agent` — optional, bring your own key or command. Never replaces `annotate`; it is a second column to read beside it. |
-| ✅ **CLI** | `annotate`, `calibrate`, `panel`, `store-info`, `resolution`, `agent`, `selftest`. Exit code 2 is a refusal. |
-| ✅ **assign** | `--out-h5ad` writes the annotation into the object per CELL — label, path, depth, gap, survival and support — leaving `X`, `var` and `obsm` untouched. `tests/test_emit.py` asserts the join, the flag override, NaN-not-zero for calls that were not made, and the h5ad round trip down to the `categories`/`codes` encoding a reader looks for. |
-| ✅ **cluster** | `scanno cluster` is step 1: normalise, variable genes over EVERY gene, PCA, neighbours, UMAP, Leiden at every resolution asked for. It selects nothing - every resolution is kept, because a sweep that discarded the evidence for its own stopping point would be unfalsifiable - and it REFUSES rather than proceeding when it cannot find raw counts to preserve. `--split-by` clusters each sample independently: no shared variable genes, no joint embedding, no batch key. |
-| ✅ **two-route check** | `scanno compare` scores two annotated objects against each other, excluding from the denominator any cell one route withheld, naming the confused PAIRS rather than only a percentage, and reporting how much of route B is one sample - because a joint clustering of an un-integrated cohort can group by library, and then disagreement indicts B. |
-| ✅ **report** | `--report` writes one self-contained HTML file plus a `report.json` carrying every number in it: composition, the labels on the embedding, reliability by tree depth, the corpus markers behind the calls, what was withheld and how unevenly, every cluster call, and provenance. Every section states what it cannot show, and the report counts a missing limit as a defect on its own front page. |
-| ✅ **scope: SEAL, KEEP and FORCE** | `scanno scope` votes each internal node across a cohort and `annotate --scope` acts on the verdict. A SEAL deletes a child set, so the walk stops there for every sample alike. A FORCE says the cohort agreed the split is admissible, so **no cell may terminate on an internal node**: a stranded cluster is pushed to the child the unchanged walk already measured, and if that child is itself internal the push REPEATS — each further node really scored, by the same weights over the same data — until a leaf, at any depth. Nothing is invented: a chain that cannot reach a leaf is recorded and the run refuses rather than delivering a half-pushed cell. A forced call is not a gap-cleared call and the two are never pooled silently: `<prefix>_assignment` says how each cell was assigned, `<prefix>_force_depth` through how many steps outside the walk, and `uns` carries the chain and every step's margin — because only the FIRST step is below the bar by construction and a chain is only as strong as its weakest step. `tests/test_force.py`. |
-| ✅ **upstream provenance** | an object carrying scQC's `uns["scqc"]` declaration arms the exclusion automatically, after verifying the flag against its digest. A declaration that does not check out REFUSES. An object with a flag column and no declaration gets nothing - scAnno reads declarations and never guesses from a column name. |
-| ❌ **no ingest, no task graph** | step 0 is specified and not built. Step 1 exists only as `scanno resolution` over a sweep somebody else computed. |
-| ❌ **one evidence stream** | reference label transfer and de-novo marker lookup are designed and not built. Cross-stream agreement is what a single stream's errors are for. |
+| ✅ classifier | store, gene background, corpus weights, rooted walk with truncation |
+| ✅ validated | human blood: PBMC, two datasets, 18 populations, zero errors on both paths. One dataset is independent with FACS labels |
+| ⚠️ one tissue, one species | every number is an existence proof, not a range |
+| ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically; the gene background would need building for the assay |
+| ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
+| ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
+| ✅ scope: SEAL / KEEP / FORCE | voted across a cohort. A forced call is never pooled with a gap-cleared one: `<prefix>_assignment` records how each cell was assigned and `uns` carries every step's margin |
+| ✅ exclusion, provenance | equivalence to deletion asserted by digest, not only by count |
+| ✅ calibration, resolution, kNN diagnostic, two-route check, agent | all built and tested |
+| ❌ no ingest, no task graph | step 0 is specified, not built |
+| ❌ one evidence stream | reference label transfer and de-novo marker lookup are designed, not built |
 
 ## Licence
 
