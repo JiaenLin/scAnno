@@ -114,6 +114,23 @@ def cluster(adata, *, resolutions=None, n_top_genes=None, n_pcs=None, n_neighbor
                 "pseudobulk would later have no counts to work from. Supply raw counts in .X or "
                 f"in layers[{COUNTS_LAYER!r}].")
         adata.layers[COUNTS_LAYER] = adata.X.copy()
+    elif not looks_like_counts(adata.X):
+        # THE LAYER IS THERE AND .X HAS ALREADY BEEN NORMALISED. Until this branch existed the
+        # presence of the layer skipped the check entirely and normalize_total + log1p then ran
+        # on whatever .X happened to be - a SECOND time, on already-logged values, with no error
+        # and no warning. The clustering that came out was of a matrix nobody meant to compute.
+        #
+        # It is not an exotic input. `scanno embed` writes exactly this - X = log1p(counts per
+        # 10,000), raw integers in layers['counts'] - it is the ordinary scanpy convention, and
+        # it is the ONLY cohort object this tool can produce. So the joint route in
+        # compare.py's own docstring, `scanno cluster --h5ad cohort.h5ad`, could not be followed
+        # correctly by anyone who built its input with this package.
+        #
+        # Start from the counts, which is what the layer is for, and SAY SO: a run that silently
+        # substitutes its own input is a run whose log does not describe it.
+        log(f"    .X is not counts and layers[{COUNTS_LAYER!r}] is - clustering from the counts "
+            f"layer, not from .X")
+        adata.X = adata.layers[COUNTS_LAYER].copy()
     n_counts_genes = int(adata.n_vars)
 
     sc.pp.normalize_total(adata, target_sum=p["target_sum"])
