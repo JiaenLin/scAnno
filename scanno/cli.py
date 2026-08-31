@@ -999,7 +999,7 @@ def _compare(a):
         print(f"scanno: {a.b} has no obs column {a.path_key_b!r}.", file=sys.stderr)
         return 1
     res = compare(A.obs, B.obs, path_key=a.path_key, path_key_b=a.path_key_b,
-                  sample_key=a.sample_key, cluster_key=a.cluster_key)
+                  sample_key=a.sample_key, cluster_key=a.cluster_key, group_key=a.group_key)
     print("")
     for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem):
         print(line)
@@ -1015,14 +1015,15 @@ def _compare(a):
         import csv as _csv
         cols = ["cluster", "n_cluster", "label_absent", "label_carried", "samples_with",
                 "samples_lacking", "n_cells", "n_route_a_agrees", "pct_route_a_agrees",
-                "top_sample", "top_share_pct"]
+                "top_sample", "top_share_pct", "moving_by_group"]
         Path(a.out_table).parent.mkdir(parents=True, exist_ok=True)
         with open(a.out_table, "w", newline="", encoding="utf-8") as fh:
             w = _csv.DictWriter(fh, fieldnames=cols)
             w.writeheader()
             for r in mc["candidates"]:
-                w.writerow({k: (";".join(r[k]) if isinstance(r[k], list) else r[k])
-                            for k in cols})
+                w.writerow({k: (";".join(r[k]) if isinstance(r[k], list)
+                                else ";".join(f"{a_}={b_}" for a_, b_ in sorted(r[k].items()))
+                                if isinstance(r[k], dict) else r[k]) for k in cols})
         print(f"wrote {a.out_table}   {mc['n_candidates']} candidate(s)")
     return 0
 
@@ -1763,6 +1764,11 @@ def main(argv=None):
                         "It also turns on the per-cluster crosstab of route A's labels BY "
                         "SAMPLE, and the merge candidates read off it")
     s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
+    s.add_argument("--group-key", metavar="OBS_COLUMN",
+                   help="obs column naming the experimental group. With it, the cells a "
+                        "candidate would move are tabulated across that column's levels - rule "
+                        "one's third question, is the change differential across the design. It "
+                        "is REPORTED and takes no part in deciding what is a candidate")
     s.add_argument("--out", type=Path, help="write the comparison as JSON")
     s.add_argument("--out-table", type=Path, metavar="CSV",
                    help="write the merge candidates as CSV: one row per cluster/label pair "

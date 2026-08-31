@@ -43,7 +43,7 @@ def level(paths, depth):
 
 
 def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key=None,
-            cluster_key=None, sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
+            cluster_key=None, group_key=None, sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
     """Agreement between two annotations over the cells both actually annotated.
 
     `a_obs` and `b_obs` are DataFrames indexed by cell id. Only the intersection is scored, and
@@ -95,6 +95,8 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
     if sample_key and cluster_key and sample_key in B and cluster_key in B:
         sam = np.asarray(B[sample_key].astype(str))
         clu = np.asarray(B[cluster_key].astype(str))
+        grp = (np.asarray(B[group_key].astype(str))
+               if group_key and group_key in B else None)
 
         # Which samples carry no cell of a label ANYWHERE, over the whole comparison rather than
         # within a cluster. A label missing from one cluster but present elsewhere in that sample
@@ -165,6 +167,19 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             # mostly agree on is a population one of them resolved better, and one they mostly
             # disagree on is the joint route asserting something the per-sample route denies.
             n_agree = int(sum(d.get(L, 0) for d in xt.values()))
+
+            # WHERE the moving cells sit across a caller-named column. This is rule one's third
+            # question - is the change differential across the design - and it is REPORTED, never
+            # acted on: it takes no part in deciding whether a cluster is a candidate, and a test
+            # asserts the candidate set is identical with and without it. The tool names the
+            # levels it was given and does not know what they mean; a design-differential GATE
+            # was built here once, refused a real comparison, and was removed.
+            by_group = {}
+            if grp is not None:
+                for x in s_lack:
+                    sel = m & (sam == x) & ~np.isin(pa, list(sentinels)) & (pa != L)
+                    for g, n in zip(*np.unique(grp[sel], return_counts=True)):
+                        by_group[str(g)] = by_group.get(str(g), 0) + int(n)
             candidates.append({
                 "cluster": str(c), "n_cluster": int(m.sum()),
                 "label_absent": L, "label_carried": str(M),
@@ -174,6 +189,7 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                 "pct_route_a_agrees": round(100.0 * n_agree / max(1, int(m.sum())), 1),
                 "top_sample": str(vals[cnt.argmax()]),
                 "top_share_pct": round(100 * top, 1),
+                "moving_by_group": by_group,
             })
         out["b_dominance"] = {
             "threshold_pct": round(100 * DOMINANCE),
@@ -191,9 +207,46 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                      "that pattern follows a study's arms is the reader's to judge.",
             "n_candidates": len(candidates),
             "candidates": sorted(candidates, key=lambda r: -r["n_cells"]),
+            "impact": _impact(candidates, pa, group_key),
             "crosstab": crosstab,
         }
     return out
+
+
+def _impact(candidates, pa, group_key):
+    """What adopting every candidate would do to route A's composition, per label.
+
+    Derived FROM the candidate rows, never computed beside them: a summary that recomputes its
+    own numbers can disagree with the table it summarises, and nothing on the page says which
+    half is right.
+    """
+    import numpy as np
+
+    rows = {}
+    for r in candidates:
+        L = r["label_absent"]
+        d = rows.setdefault(L, {"label": L, "n_would_move": 0, "n_clusters": 0,
+                                "from_labels": {}, "by_group": {}})
+        d["n_would_move"] += r["n_cells"]
+        d["n_clusters"] += 1
+        d["from_labels"][r["label_carried"]] = (
+            d["from_labels"].get(r["label_carried"], 0) + r["n_cells"])
+        for g, n in (r.get("moving_by_group") or {}).items():
+            d["by_group"][g] = d["by_group"].get(g, 0) + n
+    out = []
+    for L, d in rows.items():
+        now = int((pa == L).sum())
+        d["n_route_a_now"] = now
+        d["n_route_a_after"] = now + d["n_would_move"]
+        d["fold_change"] = (round((now + d["n_would_move"]) / now, 2) if now else None)
+        out.append(d)
+    out.sort(key=lambda r: -r["n_would_move"])
+    return {"group_key": group_key, "labels": out,
+            "n_cells_total": int(sum(r["n_would_move"] for r in out)),
+            "limit": "this is what adopting EVERY candidate would do. It is an arithmetic "
+                     "consequence of the table above, not a recommendation, and a candidate "
+                     "whose cluster is mostly one animal or whose route-A agreement is low "
+                     "should not be adopted at all."}
 
 
 def format_report(res, a_name="A", b_name="B") -> list:
@@ -228,6 +281,15 @@ def format_report(res, a_name="A", b_name="B") -> list:
         if mc["n_candidates"]:
             L.append("      co-membership is not a label: these cells GROUP with cells called")
             L.append("      that, which is not the same as scoring as it.")
+        imp = mc.get("impact") or {}
+        if imp.get("labels"):
+            L.append(f"  IF EVERY CANDIDATE WERE ADOPTED - {imp['n_cells_total']:,} cells move:")
+            for r in imp["labels"]:
+                g = ("   " + ", ".join(f"{k} {v}" for k, v in sorted(r["by_group"].items()))
+                     if r["by_group"] else "")
+                L.append(f"      {r['label']}: {r['n_route_a_now']:,} -> "
+                         f"{r['n_route_a_after']:,}  (x{r['fold_change']}){g}")
+            L.append("      an arithmetic consequence of the rows above, not a recommendation.")
     L.append("  Agreement means the labels do not depend on the clustering scheme. It does NOT")
     L.append("  mean they are correct: both routes share the tree, the corpus and the")
     L.append("  classifier, so a corpus wrong about this tissue is wrong identically in both.")

@@ -263,6 +263,40 @@ check("and how little route A agrees is on the row",
       bool(c2) and c2[0]["pct_route_a_agrees"] < 1.0,
       str(c2[0]["pct_route_a_agrees"]) if c2 else "")
 
+print("\n13 - the design is tabulated, and CANNOT change what is a candidate")
+# Rule one's third question - is the change differential across the design - has to be answered,
+# and answering it means touching a column that names the arms. That is the same shape as
+# --sample-key: the caller names a column, the tool counts its levels and does not know what they
+# mean. What must never happen is the design reaching the DECISION. A design-differential gate
+# was built here once, refused a comparison in which two libraries of ten held 94% of the
+# unresolved nuclei, and was removed.
+grp = ["aged" if x in ("s1", "s2") else "young" for x in sams]
+B3 = B2.copy(); B3["grp"] = grp
+with_g = compare(A, B3, path_key="scanno_path", path_key_b="jp", sample_key="sample",
+                 cluster_key="cl", group_key="grp")
+without_g = compare(A, B3, path_key="scanno_path", path_key_b="jp", sample_key="sample",
+                    cluster_key="cl")
+
+
+def strip(rows):
+    return [{k: v for k, v in r.items() if k != "moving_by_group"} for r in rows]
+
+
+check("the candidate set is IDENTICAL with and without a design column",
+      strip(with_g["merge_candidates"]["candidates"])
+      == strip(without_g["merge_candidates"]["candidates"]))
+cg = with_g["merge_candidates"]["candidates"][0]
+check("the moving cells are counted per arm",
+      sum(cg["moving_by_group"].values()) == cg["n_cells"], str(cg["moving_by_group"]))
+check("and the arms are NAMED, not ranked or judged",
+      set(cg["moving_by_group"]) <= {"aged", "young"})
+imp = with_g["merge_candidates"]["impact"]
+check("the impact is derived from the rows, so it cannot disagree with them",
+      imp["n_cells_total"] == sum(r["n_cells"]
+                                  for r in with_g["merge_candidates"]["candidates"]))
+check("it says what adopting everything would do, and that it is not a recommendation",
+      "not a recommendation" in imp["limit"])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"compare: {len(fails)} FAILED - " + ", ".join(fails))
