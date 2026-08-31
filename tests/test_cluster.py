@@ -143,6 +143,29 @@ for _g, piece in pieces:
     cluster(piece, resolutions=[1.0], log=lambda *_: None)
 check("each piece clustered independently", all("leiden_1p0" in p.obs for _, p in pieces))
 
+print("\n8 - an object whose X is ALREADY normalised clusters from its counts layer")
+# The one cohort object scAnno itself can produce is `scanno embed`'s, and it writes
+# X = log1p(counts per 10,000) with the raw integers kept in layers['counts']. That is also the
+# ordinary scanpy convention. Feeding it back into `cluster` is the documented route-B recipe in
+# compare.py, and the counts check was skipped entirely whenever the layer existed - so
+# normalize_total + log1p ran a SECOND time, on already-logged values, with no error and no
+# warning. The clustering that came out was of a matrix nobody meant to compute.
+raw = toy()
+raw.layers[COUNTS_LAYER] = raw.X.copy()
+pre = raw.copy()
+_d = np.asarray(pre.X.todense())
+_d = np.log1p(_d / _d.sum(axis=1, keepdims=True) * 1e4)      # exactly what embed writes
+pre.X = sp.csr_matrix(_d.astype("float32"))
+check("the fixture really is pre-normalised", not looks_like_counts(pre.X))
+check("and still carries its raw counts", looks_like_counts(pre.layers[COUNTS_LAYER]))
+cluster(raw, resolutions=[1.0], seed=0, log=lambda *_: None)
+cluster(pre, resolutions=[1.0], seed=0, log=lambda *_: None)
+check("the same cells get the same clusters either way",
+      list(raw.obs["leiden_1p0"].astype(str)) == list(pre.obs["leiden_1p0"].astype(str)),
+      f"{raw.obs['leiden_1p0'].nunique()} vs {pre.obs['leiden_1p0'].nunique()} clusters")
+check("and the counts layer is still the counts layer",
+      looks_like_counts(pre.layers[COUNTS_LAYER]))
+
 print("\n" + "=" * 64)
 if fails:
     print(f"cluster: {len(fails)} FAILED - " + ", ".join(fails))
