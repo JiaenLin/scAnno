@@ -118,6 +118,107 @@ check("agreement is not presented as correctness",
 check("and the shared-inputs reason is given",
       any("corpus" in ln and "identically" in ln for ln in lines))
 
+print("\n8 - two routes annotated under DIFFERENT column names can be compared at all")
+# The routes are separate objects, and the ordinary way to stop a second annotation colliding
+# with the first is `--label-suffix`. `compare` had ONE key for both, so the only comparable
+# pair was two routes sharing a column NAME - the one thing you cannot do when both annotations
+# live in one object. Cost, measured on SAMBO: the joint-vs-per-sample comparison this module
+# was written for could not address the promoted per-sample column (`cell_type_forced`) and the
+# joint route's own (`scanno_resolved_path_scope`) in one call, and so was never run.
+A = obs(["A/x", "A/y"])
+B = pd.DataFrame({"other_path": ["A/x", "A/y"]}, index=["c0", "c1"])
+res = compare(A, B, path_key="scanno_path", path_key_b="other_path")
+check("route B is read from its own column", res["levels"][0]["agreement_pct"] == 100.0)
+check("and the key it used is recorded", res.get("path_key_b") == "other_path")
+check("omitting it still means one key for both",
+      compare(obs(["A/x"]), obs(["A/x"])).get("path_key_b") == "scanno_path")
+
+print("\n9 - a rare population the per-sample clustering merged is NAMED")
+# s1 resolved six dendritic cells. s2 and s3 had theirs absorbed into a macrophage cluster and
+# carry no dendritic call ANYWHERE. The joint clustering puts all fourteen in one cluster.
+# No threshold states this: the label is a property of WHICH SAMPLE DID THE CLUSTERING rather
+# than of the cell, and that is a structural fact about the crosstab.
+DC, MP = "Immune/Myeloid/Dendritic cell", "Immune/Myeloid/Macrophage"
+a_lab = [DC] * 6 + [MP] * 4 + [MP] * 4 + [MP] * 6
+b_lab = [DC] * 14 + [MP] * 6
+sams = ["s1"] * 6 + ["s2"] * 4 + ["s3"] * 4 + ["s1", "s1", "s2", "s2", "s3", "s3"]
+clus = ["J1"] * 14 + ["J0"] * 6
+ids = [f"c{i}" for i in range(20)]
+A = pd.DataFrame({"scanno_path": a_lab}, index=ids)
+B = pd.DataFrame({"jp": b_lab, "sample": sams, "cl": clus}, index=ids)
+res = compare(A, B, path_key="scanno_path", path_key_b="jp",
+              sample_key="sample", cluster_key="cl")
+cands = res["merge_candidates"]["candidates"]
+check("exactly one candidate is named", len(cands) == 1, str(cands))
+c = cands[0] if cands else {}
+check("it is the joint cluster holding both", c.get("cluster") == "J1")
+check("the label the merge hid is named", c.get("label_absent") == DC)
+check("so is the label it was hidden under", c.get("label_carried") == MP)
+check("the samples that could not resolve it are NAMED, not counted",
+      c.get("samples_lacking") == ["s2", "s3"], str(c.get("samples_lacking")))
+check("and so are the ones that could", c.get("samples_with") == ["s1"])
+check("the cells that would move are counted", c.get("n_cells") == 8, str(c.get("n_cells")))
+check("the cluster's sample dominance travels with it",
+      c.get("top_share_pct") is not None and c["top_share_pct"] < 50, str(c.get("top_share_pct")))
+check("every cluster keeps a crosstab, candidate or not",
+      set(res["merge_candidates"]["crosstab"]) == {"J0", "J1"})
+
+print("\n10 - the two negative controls, and BOTH halves are load-bearing")
+# (a) labels that disagree inside a cluster where every sample carries BOTH cohort-wide. That is
+#     an ordinary boundary disagreement - most of them are - and a check that fires on it is
+#     noise. With only the positive half a rule can be made to catch everything by loosening,
+#     which is how a gate becomes decoration.
+FB, PC = "Stromal/Fibroblast", "Stromal/Mural/Pericyte"
+ids = [f"c{i}" for i in range(4)]
+A = pd.DataFrame({"scanno_path": [FB, PC, FB, PC]}, index=ids)
+B = pd.DataFrame({"jp": [FB] * 4, "sample": ["s1", "s1", "s2", "s2"],
+                  "cl": ["J0"] * 4}, index=ids)
+res = compare(A, B, path_key="scanno_path", path_key_b="jp",
+              sample_key="sample", cluster_key="cl")
+check("a mixed cluster with no absent label is NOT a candidate",
+      res["merge_candidates"]["candidates"] == [],
+      str(res["merge_candidates"]["candidates"]))
+
+# (b) a structurally valid candidate whose cluster is five sixths one animal. It is REPORTED,
+#     never removed: DOMINANCE is a fact about the comparison's weaker arm and the reader's to
+#     weigh (compare.DOMINANCE). But it must travel with the candidate, or a reader adopts a
+#     library as a population.
+# s2 must carry MP SOMEWHERE or the rule fires in both directions and the fixture, not the
+# code, is what makes the count two. J1 gives both samples an MP cell outside the candidate
+# cluster, which is also what a real object looks like.
+ids = [f"c{i}" for i in range(8)]
+A = pd.DataFrame({"scanno_path": [DC] * 5 + [MP] + [MP, MP]}, index=ids)
+B = pd.DataFrame({"jp": [DC] * 6 + [MP, MP],
+                  "sample": ["s1"] * 5 + ["s2"] + ["s1", "s2"],
+                  "cl": ["J0"] * 6 + ["J1", "J1"]}, index=ids)
+res = compare(A, B, path_key="scanno_path", path_key_b="jp",
+              sample_key="sample", cluster_key="cl")
+cands = res["merge_candidates"]["candidates"]
+check("a library-dominated cluster is still reported", len(cands) == 1, str(cands))
+check("but carries a dominance above the threshold, so it can be refused",
+      bool(cands) and cands[0]["top_share_pct"] > 100 * DOMINANCE,
+      str(cands[0]["top_share_pct"]) if cands else "")
+
+print("\n11 - the candidate rule reads the SAMPLES and never the design")
+# A design-differential gate was built here once, refused a real comparison in which two
+# libraries of ten held 94% of the unresolved nuclei, and was removed (KNOWN_ISSUES). So this
+# names which samples lack the label and stops. Deciding that a study's arms differ is not the
+# tool's call, and a block that cannot see the design cannot make it.
+# A word scan over the source was written here first and was the wrong check: `group` is what
+# a clustering does to cells, and a check that fires on correct code is a check somebody
+# switches off. What matters is STRUCTURAL - the function cannot be given a design, and a
+# candidate names samples.
+import inspect  # noqa: E402
+_params = set(inspect.signature(compare).parameters)
+check("compare cannot be given a design at all",
+      not any(w in p_ for p_ in _params for w in ("factor", "design", "condition", "arm")),
+      str(sorted(_params)))
+check("a candidate names the samples and nothing above them",
+      set(c) >= {"samples_with", "samples_lacking"}
+      and not any(("factor" in k) or ("arm" in k) for k in c), str(sorted(c)))
+check("and the limit says whose judgement the pattern is",
+      "reader" in res["merge_candidates"]["limit"])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"compare: {len(fails)} FAILED - " + ", ".join(fails))

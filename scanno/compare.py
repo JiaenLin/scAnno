@@ -42,8 +42,8 @@ def level(paths, depth):
     return out
 
 
-def compare(a_obs, b_obs, *, path_key="scanno_path", sample_key=None, cluster_key=None,
-            sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
+def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key=None,
+            cluster_key=None, sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
     """Agreement between two annotations over the cells both actually annotated.
 
     `a_obs` and `b_obs` are DataFrames indexed by cell id. Only the intersection is scored, and
@@ -56,14 +56,23 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", sample_key=None, cluster_ke
 
     shared = a_obs.index.intersection(b_obs.index)
     A, B = a_obs.loc[shared], b_obs.loc[shared]
+    # The routes are separate objects and are normally annotated under different suffixes, so
+    # they normally carry different column names. One key for both meant the only comparable
+    # pair was two routes sharing a NAME - which is the one thing you cannot do when both
+    # annotations live in one object. Measured on SAMBO: the promoted per-sample column is
+    # `cell_type_forced` and the joint route's own is `scanno_resolved_path_scope`, so the
+    # joint-vs-per-sample comparison this module exists for could not be expressed, and in ten
+    # runs of that stage it was never once run.
+    key_b = path_key_b or path_key
     pa = np.asarray(A[path_key].astype(str))
-    pb = np.asarray(B[path_key].astype(str))
+    pb = np.asarray(B[key_b].astype(str))
 
     scorable = ~(np.isin(pa, sentinels) | np.isin(pb, sentinels))
     out = {
         "n_a": int(len(a_obs)), "n_b": int(len(b_obs)),
         "n_shared": int(len(shared)), "n_scored": int(scorable.sum()),
         "n_sentinel_either": int((~scorable).sum()),
+        "path_key": str(path_key), "path_key_b": str(key_b),
         "levels": [],
     }
     for depth in (1, 2):
@@ -86,7 +95,18 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", sample_key=None, cluster_ke
     if sample_key and cluster_key and sample_key in B and cluster_key in B:
         sam = np.asarray(B[sample_key].astype(str))
         clu = np.asarray(B[cluster_key].astype(str))
-        rows, dominated = [], 0
+
+        # Which samples carry no cell of a label ANYWHERE, over the whole comparison rather than
+        # within a cluster. A label missing from one cluster but present elsewhere in that sample
+        # is an ordinary boundary disagreement; a label the sample does not have AT ALL is the
+        # only shape that can be a population its own clustering could not separate.
+        all_samples = sorted(set(sam.tolist()))
+        lacking = {}
+        for lab in sorted(set(pa.tolist())):
+            have = set(sam[pa == lab].tolist())
+            lacking[lab] = [x for x in all_samples if x not in have]
+
+        rows, dominated, crosstab, candidates = [], 0, {}, []
         for c in sorted(set(clu)):
             m = clu == c
             vals, cnt = np.unique(sam[m], return_counts=True)
@@ -95,10 +115,60 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", sample_key=None, cluster_ke
             rows.append({"cluster": str(c), "n": int(m.sum()),
                          "top_sample": str(vals[cnt.argmax()]),
                          "top_share_pct": round(100 * top, 1)})
+
+            # Route A's labels inside route B's cluster, BY SAMPLE. The pair count reported
+            # above is flat over the whole object, so it can say `M -> L: 200` and cannot say
+            # which cluster that happened in or whether it was structured by sample - and those
+            # two facts are the whole difference between two routes disagreeing and a population
+            # one clustering could not separate.
+            xt = {}
+            for x in sorted(set(sam[m].tolist())):
+                labs, ns = np.unique(pa[m & (sam == x)], return_counts=True)
+                xt[x] = {str(a_): int(b_) for a_, b_ in zip(labs, ns)}
+            crosstab[str(c)] = xt
+
+            present = set()
+            for d in xt.values():
+                present |= set(d)
+            for L in sorted(present):
+                s_with = sorted(x for x, d in xt.items() if L in d)
+                s_lack = [x for x in sorted(xt) if x in lacking.get(L, ())]
+                if not s_with or not s_lack:
+                    continue
+                carried = {}
+                for x in s_lack:
+                    for lab, n in xt[x].items():
+                        carried[lab] = carried.get(lab, 0) + n
+                if not carried:
+                    continue
+                M = max(sorted(carried), key=lambda k: carried[k])
+                candidates.append({
+                    "cluster": str(c), "n_cluster": int(m.sum()),
+                    "label_absent": str(L), "label_carried": str(M),
+                    "samples_with": s_with, "samples_lacking": s_lack,
+                    "n_cells": int(sum(carried.values())),
+                    "n_label_absent_in_cluster": int(sum(d.get(L, 0) for d in xt.values())),
+                    "top_sample": str(vals[cnt.argmax()]),
+                    "top_share_pct": round(100 * top, 1),
+                })
         out["b_dominance"] = {
             "threshold_pct": round(100 * DOMINANCE),
             "n_clusters": len(rows), "n_dominated": int(dominated),
             "clusters": sorted(rows, key=lambda r: -r["top_share_pct"]),
+        }
+        out["merge_candidates"] = {
+            "rule": "within one route-B cluster, some samples carry a label that other samples "
+                    "in the same cluster do not carry ANYWHERE in route A. No threshold: the "
+                    "label is behaving as a property of which sample was clustered rather than "
+                    "of the cell.",
+            "limit": "co-membership is not a label. A candidate says these cells group with "
+                     "cells called X, not that they score as X, and a cluster that is mostly "
+                     "one animal cannot arbitrate anything - read top_share_pct beside every "
+                     "row. Which samples are named here is a fact about the samples; whether "
+                     "that pattern follows a study's arms is the reader's to judge.",
+            "n_candidates": len(candidates),
+            "candidates": sorted(candidates, key=lambda r: -r["n_cells"]),
+            "crosstab": crosstab,
         }
     return out
 
@@ -122,6 +192,18 @@ def format_report(res, a_name="A", b_name="B") -> list:
         if dom["n_dominated"]:
             L.append(f"      so {b_name} is the weaker of the two routes and cannot arbitrate "
                      f"{a_name}")
+    mc = res.get("merge_candidates")
+    if mc is not None:
+        L.append(f"  merge candidates: {mc['n_candidates']} cluster/label pairs where a label is "
+                 f"absent from a sample ENTIRELY")
+        for r in mc["candidates"][:4]:
+            L.append(f"      {r['n_cells']:>6,}  cluster {r['cluster']}: "
+                     f"{r['label_carried']} -> {r['label_absent']}   "
+                     f"lacking {','.join(r['samples_lacking'])}   "
+                     f"cluster is {r['top_share_pct']}% {r['top_sample']}")
+        if mc["n_candidates"]:
+            L.append("      co-membership is not a label: these cells GROUP with cells called")
+            L.append("      that, which is not the same as scoring as it.")
     L.append("  Agreement means the labels do not depend on the clustering scheme. It does NOT")
     L.append("  mean they are correct: both routes share the tree, the corpus and the")
     L.append("  classifier, so a corpus wrong about this tissue is wrong identically in both.")

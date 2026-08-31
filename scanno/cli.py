@@ -990,13 +990,16 @@ def _compare(a):
 
     A = ad.read_h5ad(a.a, backed="r")
     B = ad.read_h5ad(a.b, backed="r")
-    for obj, path in ((A, a.a), (B, a.b)):
-        if a.path_key not in obj.obs:
-            print(f"scanno: {path} has no obs column {a.path_key!r}. Annotate it first with "
+    for obj, path, key in ((A, a.a, a.path_key), (B, a.b, a.path_key_b or a.path_key)):
+        if key not in obj.obs:
+            print(f"scanno: {path} has no obs column {key!r}. Annotate it first with "
                   f"`scanno annotate --out-h5ad`.", file=sys.stderr)
             return 1
-    res = compare(A.obs, B.obs, path_key=a.path_key, sample_key=a.sample_key,
-                  cluster_key=a.cluster_key)
+    if a.path_key_b and a.path_key_b not in B.obs:
+        print(f"scanno: {a.b} has no obs column {a.path_key_b!r}.", file=sys.stderr)
+        return 1
+    res = compare(A.obs, B.obs, path_key=a.path_key, path_key_b=a.path_key_b,
+                  sample_key=a.sample_key, cluster_key=a.cluster_key)
     print("")
     for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem):
         print(line)
@@ -1004,6 +1007,23 @@ def _compare(a):
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(_json.dumps(res, indent=1, default=str), encoding="utf-8")
         print(f"\nwrote {a.out}")
+    if a.out_table:
+        mc = res.get("merge_candidates")
+        if mc is None:
+            print("scanno: --out-table needs --sample-key and --cluster-key", file=sys.stderr)
+            return 1
+        import csv as _csv
+        cols = ["cluster", "n_cluster", "label_absent", "label_carried", "samples_with",
+                "samples_lacking", "n_cells", "n_label_absent_in_cluster", "top_sample",
+                "top_share_pct"]
+        Path(a.out_table).parent.mkdir(parents=True, exist_ok=True)
+        with open(a.out_table, "w", newline="", encoding="utf-8") as fh:
+            w = _csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            for r in mc["candidates"]:
+                w.writerow({k: (";".join(r[k]) if isinstance(r[k], list) else r[k])
+                            for k in cols})
+        print(f"wrote {a.out_table}   {mc['n_candidates']} candidate(s)")
     return 0
 
 
@@ -1730,13 +1750,24 @@ def main(argv=None):
                             "second route is strong enough to be worth comparing against")
     s.add_argument("--a", required=True, type=Path, help="annotated object, route A")
     s.add_argument("--b", required=True, type=Path, help="annotated object, route B")
-    s.add_argument("--path-key", default="scanno_path")
+    s.add_argument("--path-key", default="scanno_path", help="route A's label column")
+    s.add_argument("--path-key-b", default=None, metavar="OBS_COLUMN",
+                   help="route B's label column, when it differs from --path-key. It usually "
+                        "does: two routes are normally annotated under different "
+                        "--label-suffix, which is what stops them colliding, and that leaves "
+                        "them with different column names. Defaults to --path-key")
     s.add_argument("--sample-key", metavar="OBS_COLUMN",
                    help="with --cluster-key, measures how much of each route-B cluster is one "
                         "sample. A joint clustering of an un-integrated cohort can group cells "
-                        "by library rather than by cell type, and then disagreement indicts B")
+                        "by library rather than by cell type, and then disagreement indicts B. "
+                        "It also turns on the per-cluster crosstab of route A's labels BY "
+                        "SAMPLE, and the merge candidates read off it")
     s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
     s.add_argument("--out", type=Path, help="write the comparison as JSON")
+    s.add_argument("--out-table", type=Path, metavar="CSV",
+                   help="write the merge candidates as CSV: one row per cluster/label pair "
+                        "where a label some samples carry is absent from other samples in the "
+                        "same cluster ENTIRELY. Needs --sample-key and --cluster-key")
     s.set_defaults(fn=_compare)
 
     s = sub.add_parser("report",
