@@ -103,6 +103,11 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
         all_samples = sorted(set(sam.tolist()))
         lacking = {}
         for lab in sorted(set(pa.tolist())):
+            if lab in sentinels:
+                continue      # EXCLUDED is not a cell type and a sample having none of it is
+                              # not evidence of anything. Reading them here produced 21 of 87
+                              # candidates on the first real run, and the samples they named
+                              # were exactly the four the upstream flag never touched.
             have = set(sam[pa == lab].tolist())
             lacking[lab] = [x for x in all_samples if x not in have]
 
@@ -127,40 +132,58 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                 xt[x] = {str(a_): int(b_) for a_, b_ in zip(labs, ns)}
             crosstab[str(c)] = xt
 
-            present = set()
-            for d in xt.values():
-                present |= set(d)
-            for L in sorted(present):
-                s_with = sorted(x for x, d in xt.items() if L in d)
-                s_lack = [x for x in sorted(xt) if x in lacking.get(L, ())]
-                if not s_with or not s_lack:
-                    continue
-                carried = {}
-                for x in s_lack:
-                    for lab, n in xt[x].items():
-                        carried[lab] = carried.get(lab, 0) + n
-                if not carried:
-                    continue
-                M = max(sorted(carried), key=lambda k: carried[k])
-                candidates.append({
-                    "cluster": str(c), "n_cluster": int(m.sum()),
-                    "label_absent": str(L), "label_carried": str(M),
-                    "samples_with": s_with, "samples_lacking": s_lack,
-                    "n_cells": int(sum(carried.values())),
-                    "n_label_absent_in_cluster": int(sum(d.get(L, 0) for d in xt.values())),
-                    "top_sample": str(vals[cnt.argmax()]),
-                    "top_share_pct": round(100 * top, 1),
-                })
+            # THE CANDIDATE IS ANCHORED ON ROUTE B'S OWN CALL FOR THIS CLUSTER, not on any
+            # label that happens to appear inside it. Without that anchor the rule fired on
+            # every rare label in every cluster - 87 candidates over 23 clusters on the first
+            # real run, the largest claiming 8,749 cells should become `Neural` on the evidence
+            # of THREE Neural cells. A joint clustering is only evidence about a population if
+            # the joint route ANNOTATED it as that population.
+            labs_b, ns_b = np.unique(pb[m], return_counts=True)
+            L = str(labs_b[ns_b.argmax()])
+            if L in sentinels:
+                continue
+            s_lack = [x for x in sorted(xt) if x in lacking.get(L, ())]
+            if not s_lack:
+                continue
+            s_with = sorted(x for x, d in xt.items() if L in d)
+
+            # Only the cells that would actually move: in this cluster, from a sample with no
+            # L anywhere, and not already sentinel. A withheld nucleus was never annotated, so
+            # there is no call to move.
+            moving = {}
+            for x in s_lack:
+                for lab, n in xt[x].items():
+                    if lab in sentinels or lab == L:
+                        continue
+                    moving[lab] = moving.get(lab, 0) + n
+            if not moving:
+                continue
+            M = max(sorted(moving), key=lambda k: moving[k])
+
+            # How much of this cluster route A ALREADY calls L. This is the credibility of the
+            # joint call and it is a measurement, not a threshold: a cluster the two routes
+            # mostly agree on is a population one of them resolved better, and one they mostly
+            # disagree on is the joint route asserting something the per-sample route denies.
+            n_agree = int(sum(d.get(L, 0) for d in xt.values()))
+            candidates.append({
+                "cluster": str(c), "n_cluster": int(m.sum()),
+                "label_absent": L, "label_carried": str(M),
+                "samples_with": s_with, "samples_lacking": s_lack,
+                "n_cells": int(sum(moving.values())),
+                "n_route_a_agrees": n_agree,
+                "pct_route_a_agrees": round(100.0 * n_agree / max(1, int(m.sum())), 1),
+                "top_sample": str(vals[cnt.argmax()]),
+                "top_share_pct": round(100 * top, 1),
+            })
         out["b_dominance"] = {
             "threshold_pct": round(100 * DOMINANCE),
             "n_clusters": len(rows), "n_dominated": int(dominated),
             "clusters": sorted(rows, key=lambda r: -r["top_share_pct"]),
         }
         out["merge_candidates"] = {
-            "rule": "within one route-B cluster, some samples carry a label that other samples "
-                    "in the same cluster do not carry ANYWHERE in route A. No threshold: the "
-                    "label is behaving as a property of which sample was clustered rather than "
-                    "of the cell.",
+            "rule": "a route-B cluster whose OWN delivered label is L, holding cells from "
+                    "samples that carry no L anywhere in route A. No threshold. Sentinels are "
+                    "not labels and take no part.",
             "limit": "co-membership is not a label. A candidate says these cells group with "
                      "cells called X, not that they score as X, and a cluster that is mostly "
                      "one animal cannot arbitrate anything - read top_share_pct beside every "
@@ -197,9 +220,10 @@ def format_report(res, a_name="A", b_name="B") -> list:
         L.append(f"  merge candidates: {mc['n_candidates']} cluster/label pairs where a label is "
                  f"absent from a sample ENTIRELY")
         for r in mc["candidates"][:4]:
-            L.append(f"      {r['n_cells']:>6,}  cluster {r['cluster']}: "
-                     f"{r['label_carried']} -> {r['label_absent']}   "
-                     f"lacking {','.join(r['samples_lacking'])}   "
+            L.append(f"      {r['n_cells']:>6,}  cluster {r['cluster']} = "
+                     f"{r['label_absent']} ({r['n_cluster']:,} cells, route A already agrees on "
+                     f"{r['pct_route_a_agrees']}%)   {r['label_carried']} -> "
+                     f"{r['label_absent']}   lacking {','.join(r['samples_lacking'])}   "
                      f"cluster is {r['top_share_pct']}% {r['top_sample']}")
         if mc["n_candidates"]:
             L.append("      co-membership is not a label: these cells GROUP with cells called")

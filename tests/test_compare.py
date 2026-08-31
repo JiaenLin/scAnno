@@ -219,6 +219,50 @@ check("a candidate names the samples and nothing above them",
 check("and the limit says whose judgement the pattern is",
       "reader" in res["merge_candidates"]["limit"])
 
+print("\n12 - AT REALISTIC SCALE: a big cluster with a few stray rare cells is NOT a candidate")
+# The fixtures above are fourteen cells and clean. Real clusters are thousands of cells holding
+# one or two of a rare label, and on the first run against a real cohort the rule fired on every
+# rare label in every cluster: 87 candidates over 23 clusters, the largest claiming 8,749 cells
+# should become `Neural` on the evidence of THREE Neural cells, and 21 of the 87 naming the
+# sentinel `EXCLUDED` as the label somebody was missing.
+#
+# Both are fixed by the same thing - the candidate is anchored on ROUTE B'S OWN CALL for the
+# cluster - and neither would have been caught by a fourteen-cell fixture. A convenient fixture
+# hides the bug it was built to catch, so this one is built at the scale the defect lives at.
+MAC, NEU = "Immune/Myeloid/Macrophage", "Neural"
+lab_a, lab_b, sams, clus = [], [], [], []
+for i in range(1, 7):                       # six samples, ~500 macrophages each, one cluster
+    n = 500
+    lab_a += [MAC] * n
+    sams += [f"s{i}"] * n
+    clus += ["J0"] * n
+lab_a[0:3] = [NEU] * 3                      # s1 alone resolved THREE neural cells in there
+lab_a[500:520] = ["EXCLUDED"] * 20          # and s2 alone carries some withheld nuclei
+lab_b = [MAC] * len(lab_a)                  # the joint route calls the whole cluster Macrophage
+ids = [f"c{i}" for i in range(len(lab_a))]
+A = pd.DataFrame({"scanno_path": lab_a}, index=ids)
+B = pd.DataFrame({"jp": lab_b, "sample": sams, "cl": clus}, index=ids)
+res = compare(A, B, path_key="scanno_path", path_key_b="jp",
+              sample_key="sample", cluster_key="cl")
+cands = res["merge_candidates"]["candidates"]
+check("three stray cells do not condemn a 3,000-cell cluster", cands == [],
+      str([(r["label_absent"], r["n_cells"]) for r in cands]))
+check("and the sentinel is never a label somebody is missing",
+      not any(r["label_absent"] == "EXCLUDED" for r in cands))
+
+# The same cluster, now ANNOTATED as Neural by the joint route, is a candidate - and its
+# credibility is reported rather than assumed: route A agrees on 3 of 3,000.
+B2 = B.copy(); B2["jp"] = [NEU] * len(lab_a)
+res2 = compare(A, B2, path_key="scanno_path", path_key_b="jp",
+               sample_key="sample", cluster_key="cl")
+c2 = res2["merge_candidates"]["candidates"]
+check("with route B calling it Neural it IS a candidate", len(c2) == 1, str(c2))
+check("the withheld nuclei are not counted as cells that would move",
+      bool(c2) and c2[0]["n_cells"] == 2480, str(c2[0]["n_cells"]) if c2 else "")
+check("and how little route A agrees is on the row",
+      bool(c2) and c2[0]["pct_route_a_agrees"] < 1.0,
+      str(c2[0]["pct_route_a_agrees"]) if c2 else "")
+
 print("\n" + "=" * 64)
 if fails:
     print(f"compare: {len(fails)} FAILED - " + ", ".join(fails))

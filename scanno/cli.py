@@ -1014,8 +1014,8 @@ def _compare(a):
             return 1
         import csv as _csv
         cols = ["cluster", "n_cluster", "label_absent", "label_carried", "samples_with",
-                "samples_lacking", "n_cells", "n_label_absent_in_cluster", "top_sample",
-                "top_share_pct"]
+                "samples_lacking", "n_cells", "n_route_a_agrees", "pct_route_a_agrees",
+                "top_sample", "top_share_pct"]
         Path(a.out_table).parent.mkdir(parents=True, exist_ok=True)
         with open(a.out_table, "w", newline="", encoding="utf-8") as fh:
             w = _csv.DictWriter(fh, fieldnames=cols)
