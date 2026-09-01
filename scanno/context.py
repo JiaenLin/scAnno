@@ -130,11 +130,25 @@ class Context:
             # built from the label name finds `scanno_gap`, finds nothing, and the reliability
             # section disappears with no error - which reads as a run that had no statistics
             # rather than one that looked in the wrong place.
+            # TWO GUARDS, and the run that needed them was reporting over a delivered object
+            # whose columns are named `cell_type`, `cell_type_forced`, `cell_type_joint_route`.
+            #
+            #   1. A no-op replace yields the KEY ITSELF. `"cell_type".replace("_path", "_gap")`
+            #      is `"cell_type"`, which is in obs, so the LABEL column was read as every
+            #      statistic - `could not convert string to float`, from a line that looks like
+            #      it is reading a number.
+            #   2. A name is not a type. Even a changed name can land on a column holding
+            #      something else, and this package's own naming makes that likely: a label
+            #      column and its statistics share a stem by design. So the column is COERCED
+            #      and accepted only if something numeric survives.
             for stat in ("depth", "gap", "support", "survival"):
                 for k in (self.path_key.replace("_path", f"_{stat}"),
                           self.label_key.replace("_cell_type", f"_{stat}")):
-                    if k in obs:
-                        d[stat] = np.asarray(obs[k], dtype=float)
+                    if k in (self.path_key, self.label_key) or k not in obs:
+                        continue
+                    _v = pd.to_numeric(pd.Series(np.asarray(obs[k])), errors="coerce")
+                    if _v.notna().any():
+                        d[stat] = np.asarray(_v, dtype=float)
                         break
             if flag_column and flag_column in obs:
                 d["flag"] = np.asarray(pd.Series(obs[flag_column]).astype("boolean")

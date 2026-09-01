@@ -59,8 +59,9 @@ class Fake:
         self.obs = pd.DataFrame({
             "sample": ["S1"] * 30 + ["S2"] * 30,
             "group": ["g1"] * 30 + ["g2"] * 30,
-            "scanno_path": PATH, "scanno_forced": FORCED,
-            "my_joint_col": JOINT, "scanno_l1": L1, "scanno_forced_l1": L1,
+            "cell_type": PATH, "cell_type_forced": FORCED,
+            "my_joint_col": JOINT, "cell_compartment": L1, "cell_compartment_forced": L1,
+            "cell_type_gap": ["not a number"] * N,
             "total_counts": np.arange(N, dtype=float),
         }, index=[f"c{i}" for i in range(N)])
         self.var = pd.DataFrame(index=["G1", "G2"])
@@ -68,9 +69,9 @@ class Fake:
         self.var_names = self.var.index
 
 
-ctx = Context([("S", Fake("S"))], path_key="scanno_path", sample_key="sample",
-              group_key="group", forced_key="scanno_forced", l1_key="scanno_l1",
-              forced_l1_key="scanno_forced_l1", joint_route_key="my_joint_col")
+ctx = Context([("S", Fake("S"))], path_key="cell_type", sample_key="sample",
+              group_key="group", forced_key="cell_type_forced", l1_key="cell_compartment",
+              forced_l1_key="cell_compartment_forced", joint_route_key="my_joint_col")
 
 print("\n1 - the context reads the joint column as its own")
 check("it is detected", ctx.has_joint_route)
@@ -81,7 +82,7 @@ frows = {r["label"]: r["nuclei"] for r in (ctx.forced_scope_rows() or [])}
 check("and the forced rows do NOT contain it",
       "Neural/OnlyInTheJointColumn" not in frows, str(frows))
 check("a context given no joint column simply has none",
-      not Context([("S", Fake("S"))], path_key="scanno_path").has_joint_route)
+      not Context([("S", Fake("S"))], path_key="cell_type").has_joint_route)
 
 print("\n2 - the delivered annotation leads and L1 follows")
 with tempfile.TemporaryDirectory() as td:
@@ -102,20 +103,32 @@ check("and the joint route comes after the forced column it corrects",
       order.get("the JOINT ROUTE", -1) > order.get("the scope annotation, FORCED", 99))
 
 print("\n3 - every block NAMES the obs column it was drawn from")
-for key in ("scanno_path", "scanno_forced", "my_joint_col", "scanno_l1"):
+for key in ("cell_type", "cell_type_forced", "my_joint_col", "cell_compartment"):
     check(f"the page names {key!r}", f"<code>{key}</code>" in html)
 check("the joint block's own label reaches the page",
       "OnlyInTheJointColumn" in html)
 
 print("\n4 - a report with no joint column does not invent the block")
-ctx2 = Context([("S", Fake("S"))], path_key="scanno_path", sample_key="sample",
-               group_key="group", forced_key="scanno_forced", l1_key="scanno_l1")
+ctx2 = Context([("S", Fake("S"))], path_key="cell_type", sample_key="sample",
+               group_key="group", forced_key="cell_type_forced", l1_key="cell_compartment")
 with tempfile.TemporaryDirectory() as td:
     write_cohort(ctx2, Path(td), title="T", version="0")
     html2 = (Path(td) / "reports" / "cohort.html").read_text(encoding="utf-8")
 check("no joint heading appears", "the JOINT ROUTE" not in html2)
 check("nor its label", "OnlyInTheJointColumn" not in html2)
 check("and the rest of the section still renders", "the scope annotation" in html2)
+
+print("\n5 - a label column is never read as a statistic")
+# `"cell_type".replace("_path", "_gap")` is `"cell_type"` - a no-op - so the LABEL column was
+# read as every statistic and the run died with `could not convert string to float` from a line
+# that looks like it is reading a number. The fixture also carries a `cell_type_gap` holding
+# text: a name is not a type, and this package's naming makes the collision likely because a
+# label column and its statistics share a stem by design.
+check("building the context does not raise on a text 'statistic'", ctx.n == N)
+for stat in ("depth", "gap", "support", "survival"):
+    got = ctx.P[stat] if stat in ctx.P else None
+    check(f"{stat!r} is absent rather than filled from a label",
+          got is None or got.notna().sum() == 0, "" if got is None else str(got.head(2).tolist()))
 
 print("\n" + "=" * 64)
 if fails:
