@@ -332,7 +332,14 @@ class Assembler:
                     f"Please report it; do not read this as a finding about the cohort.</div>")
         self.made.append({"figure": fid, "name": stem,
                           "path": str(path.relative_to(self.out))})
+        # THE TITLE NAMES WHAT WAS DRAWN. The registry holds the figure's KIND - "composition",
+        # "composition per sample" - and the caller supplies the subject, because one kind is
+        # drawn over several different columns. Baking the subject into the registry put
+        # "composition, forced" over a figure of the JOINT ROUTE's column: the picture and the
+        # words beside it named different annotations, and nothing on the page said so.
         title = FIGURES[fid][2]
+        if kw.get("what"):
+            title = f"{title} — {kw['what']}"
         cap = caption or LEGENDS.get(fid, "")
         return (f"<figure><h3>{_esc(fid)} · {_esc(title)}</h3>"
                 f'<img src="{self.rel}/{stem}.png" alt="{_esc(fid)}">'
@@ -1012,12 +1019,12 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                 "The delivered annotation comes first, then the same annotation with nothing left "
                 "UNRESOLVED, then the joint route's correction of that where one was given, and "
                 "the independent L1 walk last &mdash; L1 is a CHECK on the delivered call rather "
-                "than a coarser view of it. "
-                "the <b>L1 annotation</b>, an independent depth-1 walk over the complete declared "
-                "compartment set against the full corpus, and the <b>scope annotation</b>, the "
+                "than a coarser view of it.</p>")
+    body.append("<p class='lede'>The two are independent evidence, not two resolutions of one "
+                "call: the <b>L1 annotation</b> is an independent depth-1 walk over the complete declared "
+                "compartment set against the full corpus, and the <b>scope annotation</b> is the "
                 "same unchanged walk against the labels the cohort's own vote left standing. They "
-                "are independent evidence about the same nuclei — not a coarse and a fine view of "
-                "one call — so they <i>can</i> disagree, and a disagreement is a finding rather "
+                "describe the same nuclei — so they <i>can</i> disagree, and a disagreement is a finding rather "
                 "than an error. There is no level-2 or level-3 annotation: nothing was annotated "
                 "at those depths, and a share quoted at a depth no walk terminated on is a number "
                 "with no call behind it.</p>")

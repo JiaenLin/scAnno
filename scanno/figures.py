@@ -965,12 +965,12 @@ def F155(ctx, depth=1):
 #: KIND of figure rather than one per level.
 FIGURES = {
     "F102": (F102, "cohort", "composition"),
-    "F103": (F103, "cohort", "composition, the scope annotation"),
-    "F106": (F106, "cohort", "composition, forced"),
-    "F107": (F107, "cohort", "composition per sample, forced"),
+    "F103": (F103, "cohort", "composition"),
+    "F106": (F106, "cohort", "composition"),
+    "F107": (F107, "cohort", "composition per sample"),
     "F108": (F108, "cohort", "marker dotplot over a delivered label column"),
     "F141": (F141, "cohort", "composition per sample"),
-    "F143": (F143, "cohort", "composition per sample, the scope annotation"),
+    "F143": (F143, "cohort", "composition per sample"),
     "F140": (F140, "cohort", "reliability by depth"),
     "F133": (F133, "cohort", "survival against gap"),
     "F142": (F142, "cohort", "neighbourhood agreement"),

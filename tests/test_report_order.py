@@ -130,6 +130,29 @@ for stat in ("depth", "gap", "support", "survival"):
     check(f"{stat!r} is absent rather than filled from a label",
           got is None or got.notna().sum() == 0, "" if got is None else str(got.head(2).tolist()))
 
+print("\n6 - a figure's TITLE names the column it drew, not the block above it")
+# The defect this whole file exists for, in its last hiding place. The figure registry held
+# "composition, forced" as F106's description, so every F106 was titled "forced" whatever column
+# it was given - and under the JOINT ROUTE heading the picture and the words beside it named
+# different annotations, with nothing on the page to say so. The registry now holds the KIND and
+# the caller supplies the subject.
+blocks = re.split(r"<h3>(?=the )", html)
+jr = [b for b in blocks if b.startswith("the JOINT ROUTE")]
+fo = [b for b in blocks if b.startswith("the scope annotation, FORCED")]
+check("the joint block exists", len(jr) == 1, str([b[:30] for b in blocks]))
+check("the forced block exists", len(fo) == 1)
+jr_titles = re.findall(r"<h3>(F\d+ · .*?)</h3>", jr[0] if jr else "", re.S)
+fo_titles = re.findall(r"<h3>(F\d+ · .*?)</h3>", fo[0] if fo else "", re.S)
+check("the joint block's figures are titled", bool(jr_titles), str(jr_titles))
+check("and every one of them NAMES the joint column",
+      all("my_joint_col" in t for t in jr_titles), str(jr_titles))
+check("none of them says 'forced'",
+      not any("forced" in t.lower() for t in jr_titles), str(jr_titles))
+check("while the forced block's figures DO name the forced column",
+      all("cell_type_forced" in t for t in fo_titles), str(fo_titles))
+check("so the two blocks' figure titles are not identical",
+      set(jr_titles) != set(fo_titles))
+
 print("\n" + "=" * 64)
 if fails:
     print(f"report order: {len(fails)} FAILED - " + ", ".join(fails))
