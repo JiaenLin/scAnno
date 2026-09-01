@@ -1008,7 +1008,11 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
 
     # ---- composition: the TWO annotations, and only those --------------------------------
     body.append("<h2>Composition</h2>")
-    body.append("<p class='lede'>scAnno delivers <b>two</b> annotations and both are counted here: "
+    body.append("<p class='lede'>Each block below states the <b>obs column it was drawn from</b>. "
+                "The delivered annotation comes first, then the same annotation with nothing left "
+                "UNRESOLVED, then the joint route's correction of that where one was given, and "
+                "the independent L1 walk last &mdash; L1 is a CHECK on the delivered call rather "
+                "than a coarser view of it. "
                 "the <b>L1 annotation</b>, an independent depth-1 walk over the complete declared "
                 "compartment set against the full corpus, and the <b>scope annotation</b>, the "
                 "same unchanged walk against the labels the cohort's own vote left standing. They "
@@ -1035,21 +1039,44 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # honest one - it is the same annotation with the calls the walk declined made on the
     # reader's behalf, and it is placed next to its own original so the difference is the thing
     # on the page rather than a footnote.
-    for _title, _rows, _what in (
+    ctx_jr = ctx.joint_route_rows()
+    # THE DELIVERED ANNOTATION LEADS. It used to be L1 first, on the reasoning that a reader
+    # meets the compartments before the subtypes - but L1 is CONTEXT for the delivered call and
+    # is not what anything downstream consumes, so leading with it puts the answer third on the
+    # page. The order is now: the annotation as the walk delivered it, the same with nothing
+    # UNRESOLVED, the joint route's correction of that, and then L1 as the independent check.
+    #
+    # Every block NAMES THE OBS COLUMN IT WAS DRAWN FROM. Four blocks described as "the scope
+    # annotation" and "FORCED" read identically whichever object they were built over, so a
+    # report of a JOINT route's own columns and a report of a per-sample route's are
+    # indistinguishable on the page - which is exactly how a reader comes to believe a figure
+    # shows one annotation while it shows another.
+    for _title, _rows, _what, _key in (
+            ("the scope annotation", ctx.scope_rows(),
+             "the labels the cohort's own vote left available, each at the depth it terminates "
+             "at - so the set is mixed across levels by construction", ctx.path_key),
+            ("the scope annotation, FORCED", ctx_fsc,
+             "the same walk with nothing left UNRESOLVED: each such nucleus descends from where "
+             "it stopped to a leaf, by the argmax already recorded at every step",
+             ctx.forced_key),
+            ("the JOINT ROUTE", ctx_jr,
+             "the forced annotation with a second, JOINT clustering's corrections applied - a "
+             "third reading of the same nuclei and not a better one, because the joint "
+             "partition is the coarser of the two and absorbs populations as well as "
+             "recovering them", ctx.joint_route_key),
             ("the L1 annotation", ctx_l1,
              "an INDEPENDENT depth-1 walk - one decision at the root, and no seal at any depth "
-             "can move it"),
+             "can move it. Shown after the delivered annotation because it is a CHECK on it, "
+             "not a coarser view of it", ctx.l1_key),
             ("the L1 annotation, FORCED", ctx_fl1,
              "the same independent walk with every UNRESOLVED nucleus pushed onto the root's "
              "argmax - a child the walk already scored and then declined, because the margin "
-             "was below the bar"),
-            ("the scope annotation", ctx.scope_rows(),
-             "the labels the cohort's own vote left available, each at the depth it terminates "
-             "at - so the set is mixed across levels by construction"),
-            ("the scope annotation, FORCED", ctx_fsc,
-             "the same walk with nothing left UNRESOLVED: each such nucleus descends from where "
-             "it stopped to a leaf, by the argmax already recorded at every step")):
+             "was below the bar", ctx.forced_l1_key)):
+        if _rows is None and _title == "the JOINT ROUTE":
+            continue          # no joint column was named; the block is not an absence to explain
         body.append(f"<h3>{_title}</h3>")
+        if _key:
+            body.append(f"<p class='sub'>drawn from <code>{_esc(_key)}</code></p>")
         if _rows is None and "FORCED" in _title:
             body.append(_absent_section(
                 "a forced label column (`scanno annotate --resolve`, reported with "
@@ -1103,13 +1130,25 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             # forced heading. Same palette as the pair above, so a cell type keeps its colour and
             # the two are comparable by eye.
             _c = "forced_l1" if "L1" in _title else "forced"
-            _w = "the L1 annotation" if "L1" in _title else "the scope annotation"
+            _w = f"the L1 annotation ({_key})" if "L1" in _title else f"the scope annotation ({_key})"
             _s = "l1" if "L1" in _title else "scope"
             body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_group",
                               col=_c, by="group", what=_w))
             body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_sample",
                               col=_c, by="sample", what=_w))
             body.append(A.fig("F107", name=f"F107_per_sample_forced_{_s}", col=_c, what=_w))
+            continue
+        if _rows is ctx_jr:
+            # Drawn from the JOINT ROUTE's own column, never the forced figure reused under a
+            # joint heading - which is the defect this whole block exists to make impossible.
+            body.append(A.fig("F106", name="F106_composition_joint_route_by_group",
+                              col="joint_route", by="group",
+                              what=f"the joint route ({_key})"))
+            body.append(A.fig("F106", name="F106_composition_joint_route_by_sample",
+                              col="joint_route", by="sample",
+                              what=f"the joint route ({_key})"))
+            body.append(A.fig("F107", name="F107_per_sample_joint_route", col="joint_route",
+                              what=f"the joint route ({_key})"))
             continue
         if _rows is ctx_l1:
             body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))

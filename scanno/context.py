@@ -55,7 +55,7 @@ class Context:
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
                  joint_key=None, group_order=None, scope=None, l1_key=None,
-                 forced_key=None, forced_l1_key=None):
+                 forced_key=None, forced_l1_key=None, joint_route_key=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -89,6 +89,10 @@ class Context:
         # leaf. Optional, and absent unless `scanno annotate --resolve` wrote them.
         self.forced_key = forced_key or None
         self.forced_l1_key = forced_l1_key or None
+        # The JOINT ROUTE column: the forced annotation with a second, joint clustering's
+        # corrections applied. A THIRD reading of the same nuclei, not a better one - the joint
+        # partition is the coarser of the two and absorbs populations as well as recovering them.
+        self.joint_route_key = joint_route_key or None
         self._group_order = [str(g) for g in (group_order or [])]
 
         frames = []
@@ -114,6 +118,11 @@ class Context:
             if self.forced_l1_key:
                 d["forced_l1"] = (obs[self.forced_l1_key].astype(str)
                                   if self.forced_l1_key in obs else np.full(A.n_obs, ""))
+            # Empty where absent, like the two above and for the same reason: a column that was
+            # NAMED and not found must not read as "the joint route changed nothing".
+            if self.joint_route_key:
+                d["joint_route"] = (obs[self.joint_route_key].astype(str)
+                                    if self.joint_route_key in obs else np.full(A.n_obs, ""))
             if group_key and group_key in obs:
                 d["group"] = obs[group_key].astype(str)
             # Derived from the PATH KEY, not the label key: an annotation swept over several
@@ -162,6 +171,8 @@ class Context:
         self.has_forced = "forced" in self.P and bool((self.P["forced"].astype(str) != "").any())
         self.has_forced_l1 = ("forced_l1" in self.P
                               and bool((self.P["forced_l1"].astype(str) != "").any()))
+        self.has_joint_route = ("joint_route" in self.P
+                                and bool((self.P["joint_route"].astype(str) != "").any()))
         self._order = {}
         for dpt in self.levels:
             self._order[dpt] = self._order_for(dpt)
@@ -256,6 +267,16 @@ class Context:
         that were made for the reader rather than by the walk.
         """
         return self._rows_over("forced") if self.has_forced else None
+
+    def joint_route_rows(self):
+        """THE JOINT ROUTE — the forced annotation with a joint clustering's corrections applied.
+
+        A third reading, not a correction of the second in the sense of being righter: the joint
+        partition recovers populations the per-sample one merged AND merges populations it
+        recovered. Read the two together; the difference is the set of cells whose label depends
+        on which clustering scored them.
+        """
+        return self._rows_over("joint_route") if self.has_joint_route else None
 
     def forced_l1_rows(self):
         """THE L1 ANNOTATION, FORCED — the independent depth-1 walk with nothing left unresolved."""

@@ -1484,7 +1484,8 @@ def _report(a):
         print(f"  withheld nuclei read from obs[{flag!r}]"
               + ("  (declared upstream)" if declaration else "  (detected)"))
 
-    ctx = Context(objs, label_key=a.label_key, path_key=a.path_key,
+    ctx = Context(objs, joint_route_key=a.joint_route_key,
+                  label_key=a.label_key, path_key=a.path_key,
                   sample_key=a.sample_key, group_key=a.condition_key, joint=joint,
                   panels=panels, chosen_resolution=a.resolution, sweep=sweep, tolerance=tol,
                   sweep_pick=pick, sweep_reason=reason, flag_column=flag,
@@ -1990,6 +1991,12 @@ def main(argv=None):
                         "forced block is a NAMED absence rather than the unresolved share "
                         "redistributed by the document, which would be this report inventing a "
                         "measurement the walk declined to make")
+    s.add_argument("--joint-route-key", default=None, metavar="OBS_COLUMN",
+                   dest="joint_route_key",
+                   help="the joint-route column from `scanno compare --out-h5ad --out-key`: the "
+                        "forced annotation with a joint clustering's corrections applied. With "
+                        "it the composition section carries a THIRD block drawn from that "
+                        "column, beside the two it descends from")
     s.add_argument("--forced-l1-key", default=None, metavar="OBS_COLUMN",
                    help="the FORCED L1 column, `scAnno_L1_resolved<suffix>`. Same treatment for "
                         "the independent depth-1 walk")
