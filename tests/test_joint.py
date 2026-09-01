@@ -362,8 +362,12 @@ print("\n17 - the standing instructions are written ONCE, not per candidate")
 # reading it - the criteria being exactly the part that must not be skimmed.
 with_b = review_prompt(cands[0])
 without = review_prompt(cands[0], brief=False)
-check("the brief is included by default", "SAMPLE DOMINANCE" in with_b)
-check("and can be omitted", "SAMPLE DOMINANCE" not in without)
+# Asserted on a string unique to the BRIEF. "SAMPLE DOMINANCE" is in the evidence block too -
+# it labels one of the candidate's own numbers - so it could never distinguish the two.
+BRIEF_ONLY = "You are reviewing corrections"
+check("the brief is included by default", BRIEF_ONLY in with_b)
+check("and can be omitted", BRIEF_ONLY not in without)
+check("the marker is unique to the brief", BRIEF_ONLY not in without and "AGREEMENT" in without)
 check("the evidence survives either way",
       "CANDIDATE - joint cluster" in without and "AGREEMENT" in without)
 check("omitting it is most of the length", len(without) < len(with_b) / 2,

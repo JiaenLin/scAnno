@@ -859,9 +859,17 @@ def test_the_trace_this_feature_reads_is_the_one_classify_writes():
     assert len(app) == 1, f"{len(app)} trace.append call(s)"
     d = app[0].args[0]
     keys = [k.value for k in d.keys]
-    assert keys[:3] == ["at", "top", "gap"], keys
+    # PRESENT, not positioned. This read `keys[:3] == ["at", "top", "gap"]`, which pins the
+    # ORDER of a dict literal - so adding `second` and `scores` to the trace broke it while
+    # every invariant it exists to protect still held. What matters is that the keys are there
+    # and map to the right expressions, which is what the next lines check.
+    for _k in ("at", "top", "gap"):
+        assert _k in keys, keys
     assert ast.unparse(d.values[keys.index("at")]) == "node"
     assert ast.unparse(d.values[keys.index("top")]) == "order[srt[0]]"
+    # The runner-up is read the same way, so a rename cannot leave it pointing elsewhere either.
+    if "second" in keys:
+        assert ast.unparse(d.values[keys.index("second")]).startswith("order[srt[1]]"), keys
 
     # ... and the argmax is the FIRST of a descending sort, i.e. the most similar child
     assert "srt = np.argsort(-s)" in src
