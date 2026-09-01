@@ -265,6 +265,27 @@ class classic_string_encoding:
         return False
 
 
+def _uns_safe(v):
+    """Coerce a record into something `anndata` can actually write to `uns`.
+
+    It writes a dict as an HDF5 group and a list of scalars as an array, but a LIST OF DICTS has
+    no representation and fails at write time with `Can't implicitly convert non-string objects
+    to strings` - naming the key, not the shape, so the cause is not obvious. `None` has no
+    representation either.
+
+    The list becomes a dict keyed by zero-padded position, so nothing is lost and a reader
+    iterating `sorted(d)` gets the original order back. Found by writing the object: the suite
+    was green because it never round-tripped through h5ad.
+    """
+    if isinstance(v, dict):
+        return {str(k): _uns_safe(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        if v and all(isinstance(x, dict) for x in v):
+            return {f"{i:04d}": _uns_safe(x) for i, x in enumerate(v)}
+        return ["" if x is None else x for x in v]
+    return "" if v is None else v
+
+
 def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin"):
     """Write the joint-route label per CELL. The only code path that does.
 
@@ -283,7 +304,8 @@ def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin
         raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} cells")
     adata.obs[key] = pd.Categorical([str(x) for x in labels])
     adata.obs[key + origin_suffix] = pd.Categorical([str(x) for x in origin])
-    adata.uns["scanno_joint_route"] = dict(record, key=key, origin_key=key + origin_suffix)
+    adata.uns["scanno_joint_route"] = _uns_safe(
+        dict(record, key=key, origin_key=key + origin_suffix))
     return {"key": key, "origin_key": key + origin_suffix,
             "n_corrected": int(record.get("n_corrected", 0)),
             "n_categories": int(adata.obs[key].nunique())}

@@ -130,6 +130,26 @@ try:
         check("writing over an existing column REFUSES", False, "it did not")
     except ValueError:
         check("writing over an existing column REFUSES", True)
+
+    # ROUND-TRIP THROUGH h5ad. Everything above passes on an in-memory object, and the first
+    # real run still died at write: `uns` held a LIST OF DICTS, which anndata cannot represent
+    # and reports as "Can't implicitly convert non-string objects to strings" - naming the key
+    # and not the shape. A record that cannot be written is not provenance.
+    import tempfile
+
+    from scanno.emit import write_h5ad
+    with tempfile.TemporaryDirectory() as td:
+        fp = Path(td) / "rt.h5ad"
+        write_h5ad(Ad, fp)
+        R = ad.read_h5ad(fp)
+        check("the object writes and reads back", R.n_obs == Ad.n_obs)
+        check("the joint column survives the round trip",
+              list(R.obs["lab_joint"].astype(str)) == list(Ad.obs["lab_joint"].astype(str)))
+        check("so does the origin column",
+              list(R.obs["lab_joint_origin"].astype(str)) == list(origin))
+        u = R.uns["scanno_joint_route"]
+        check("and the provenance survives it", int(u["n_corrected"]) == rec["n_corrected"])
+        check("including every cluster it moved", len(u["moved"]) == len(rec["moved"]))
 except ImportError:
     print("  SKIP the h5ad checks: needs anndata")
 
