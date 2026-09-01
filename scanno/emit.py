@@ -273,12 +273,25 @@ def _uns_safe(v):
     to strings` - naming the key, not the shape, so the cause is not obvious. `None` has no
     representation either.
 
+    Nor can an HDF5 group NAME contain a forward slash, and every label in this package is a
+    path, so a dict keyed by a label fails too - which is the shape half this module produces.
+
     The list becomes a dict keyed by zero-padded position, so nothing is lost and a reader
-    iterating `sorted(d)` gets the original order back. Found by writing the object: the suite
-    was green because it never round-tripped through h5ad.
+    iterating `sorted(d)` gets the original order back; a slash-bearing key moves into its own
+    value. Both were found by WRITING the object. The suite was green through both because it
+    built one in memory and never wrote it, and the second survived the fix for the first.
     """
     if isinstance(v, dict):
-        return {str(k): _uns_safe(x) for k, x in v.items()}
+        out = {str(k): _uns_safe(x) for k, x in v.items()}
+        if any("/" in k for k in out):
+            # HDF5 group names cannot contain "/" - it is the path separator - and a label in
+            # this package IS a path, so any dict keyed by a label is unwritable by
+            # construction. The key moves into the value, where a slash is ordinary text.
+            enc = {f"{i:04d}": {"key": k, "value": out[k]} for i, k in enumerate(sorted(out))}
+            enc["_encoding"] = ("each entry is {key, value}: HDF5 group names cannot contain "
+                                "a forward slash and a label here is a path")
+            return enc
+        return out
     if isinstance(v, (list, tuple)):
         if v and all(isinstance(x, dict) for x in v):
             return {f"{i:04d}": _uns_safe(x) for i, x in enumerate(v)}

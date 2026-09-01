@@ -149,7 +149,16 @@ try:
               list(R.obs["lab_joint_origin"].astype(str)) == list(origin))
         u = R.uns["scanno_joint_route"]
         check("and the provenance survives it", int(u["n_corrected"]) == rec["n_corrected"])
-        check("including every cluster it moved", len(u["moved"]) == len(rec["moved"]))
+        check("including every cluster it moved",
+              len([k for k in u["moved"] if not k.startswith("_")]) == len(rec["moved"]))
+        # The labels this package writes are PATHS. A dict keyed by one cannot be an HDF5
+        # group, so the key has to travel as a value - and the round trip must still be able
+        # to say what moved to what.
+        mv = u["moved"]["0000"]
+        got = {e["key"]: int(e["value"]) for k, e in mv["from"].items() if not k.startswith("_")}
+        check("a label-keyed record survives with its slashes intact",
+              got == rec["moved"][0]["from"], f"{got} vs {rec['moved'][0]['from']}")
+        check("and says how it was encoded", "_encoding" in mv["from"])
 except ImportError:
     print("  SKIP the h5ad checks: needs anndata")
 
