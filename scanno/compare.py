@@ -59,8 +59,8 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
     # The routes are separate objects and are normally annotated under different suffixes, so
     # they normally carry different column names. One key for both meant the only comparable
     # pair was two routes sharing a NAME - which is the one thing you cannot do when both
-    # annotations live in one object. Measured on SAMBO: the promoted per-sample column is
-    # `cell_type_forced` and the joint route's own is `scanno_resolved_path_scope`, so the
+    # annotations live in one object. Measured on a real cohort: its promoted per-sample column
+    # was `cell_type_forced` and the joint route's own was `scanno_resolved_path_scope`, so the
     # joint-vs-per-sample comparison this module exists for could not be expressed, and in ten
     # runs of that stage it was never once run.
     key_b = path_key_b or path_key

@@ -2025,11 +2025,10 @@ def main(argv=None):
                         "it the report adds the two-route agreement, the label-against-library "
                         "figure and the feature plots, which need one embedding for the cohort")
     s.add_argument("--group-order", nargs="+", default=None, metavar="GROUP",
-                   help="the order the experimental groups should be READ in, e.g. "
-                        "young_chow young_HFD aged_chow aged_HFD. Alphabetical order "
-                        "interleaves the factors of a 2x2 so that no two adjacent rows are a "
-                        "comparison. A group not named here is appended and reported, never "
-                        "dropped")
+                   help="the order the experimental groups should be READ in, given as your "
+                        "own level names. Alphabetical order interleaves the factors of a "
+                        "crossed design so that no two adjacent rows are a comparison. A group "
+                        "not named here is appended and reported, never dropped")
     s.add_argument("--forced-key", default=None, metavar="OBS_COLUMN",
                    help="the FORCED scope column - `scanno annotate --resolve` writes "
                         "`<prefix>_resolved_path<suffix>`. With it the report shows the scope "
