@@ -153,6 +153,31 @@ check("while the forced block's figures DO name the forced column",
 check("so the two blocks' figure titles are not identical",
       set(jr_titles) != set(fo_titles))
 
+print("\n7 - EVERY composition figure names its column, and no two share a title")
+# The residual after 6: three of five blocks named their column in the figure title and two did
+# not, and inside every block the by-group and by-sample figures were titled identically - two
+# adjacent pictures of one kind, indistinguishable in the text and in the figure list.
+seen = {}
+for b in re.split(r"<h3>(?=the )", html):
+    if not b.startswith("the "):
+        continue
+    col = re.search(r"drawn from <code>(.*?)</code>", b)
+    if not col:
+        continue
+    name = re.sub(r"<[^>]+>", "", re.match(r"(.*?)</h3>", b, re.S).group(1)).strip()
+    titles = [re.sub(r"<[^>]+>", "", t).strip()
+              for t in re.findall(r"<h3>(F\d+ · .*?)</h3>", b, re.S)]
+    if not titles:
+        continue
+    check(f"{name}: every figure names {col.group(1)!r}",
+          all(col.group(1) in t for t in titles), str(titles))
+    check(f"{name}: no two figures share a title",
+          len(set(titles)) == len(titles), str(titles))
+    for t in titles:
+        seen.setdefault(t, []).append(name)
+dupes = {t: bs for t, bs in seen.items() if len(set(bs)) > 1}
+check("and no title is reused across two different blocks", not dupes, str(dupes))
+
 print("\n" + "=" * 64)
 if fails:
     print(f"report order: {len(fails)} FAILED - " + ", ".join(fails))

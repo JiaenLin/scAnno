@@ -338,8 +338,16 @@ class Assembler:
         # "composition, forced" over a figure of the JOINT ROUTE's column: the picture and the
         # words beside it named different annotations, and nothing on the page said so.
         title = FIGURES[fid][2]
-        if kw.get("what"):
-            title = f"{title} — {kw['what']}"
+        # TWO ADJACENT FIGURES OF ONE KIND MUST NOT SHARE A TITLE. Every composition block draws
+        # the same kind by group and again by sample, and both read "composition" - so the pair
+        # is indistinguishable in the text, in the figure list and in a reader's memory of it.
+        if kw.get("by"):
+            title = f"{title}, by {kw['by']}"
+        # `subject` is consumed here and never reaches the figure: it says WHAT WAS DRAWN, which
+        # every kind needs in its title, while only some kinds take a `what` of their own.
+        subject = kw.pop("subject", None) or kw.get("what")
+        if subject:
+            title = f"{title} — {subject}"
         cap = caption or LEGENDS.get(fid, "")
         return (f"<figure><h3>{_esc(fid)} · {_esc(title)}</h3>"
                 f'<img src="{self.rel}/{stem}.png" alt="{_esc(fid)}">'
@@ -1157,17 +1165,21 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             body.append(A.fig("F107", name="F107_per_sample_joint_route", col="joint_route",
                               what=f"the joint route ({_key})"))
             continue
+        _subj = f"{_title} ({_key})" if _key else _title
         if _rows is ctx_l1:
-            body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group"))
-            body.append(A.fig("F102", name="F102_composition_level1_by_sample", by="sample"))
-            body.append(A.fig("F141", name="F141_per_sample_level1", depth=1))
+            body.append(A.fig("F102", name="F102_composition_level1_by_group", by="group",
+                              subject=_subj))
+            body.append(A.fig("F102", name="F102_composition_level1_by_sample", by="sample",
+                              subject=_subj))
+            body.append(A.fig("F141", name="F141_per_sample_level1", depth=1, subject=_subj))
         else:
             _d = list(ctx.levels)[-1]
             body.append(A.fig("F103", name=f"F103_composition_level{_d}_by_group",
-                              by="group", depth=_d))
+                              by="group", depth=_d, subject=_subj))
             body.append(A.fig("F103", name=f"F103_composition_level{_d}_by_sample",
-                              by="sample", depth=_d))
-            body.append(A.fig("F143", name=f"F143_per_sample_level{_d}", depth=_d))
+                              by="sample", depth=_d, subject=_subj))
+            body.append(A.fig("F143", name=f"F143_per_sample_level{_d}", depth=_d,
+                              subject=_subj))
 
     # TWO ANNOTATIONS, AND ONLY TWO. scAnno delivers the INDEPENDENT L1 walk and the SCOPE
     # annotation; there is no "level 2 annotation" and no "level 3 annotation". The intermediate
