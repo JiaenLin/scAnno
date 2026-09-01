@@ -223,9 +223,16 @@ GRADE: one of adopt, refuse, undecided
 REASON: one sentence, citing the numbers you used."""
 
 
-def review_prompt(cand, *, lost=None, group_key=None, per_sample=None):
-    """The evidence for one candidate, in words. Numbers only; no conclusion is offered."""
-    L = [BRIEF, "", f"CANDIDATE - joint cluster {cand['cluster']}",
+def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=True):
+    """The evidence for one candidate, in words. Numbers only; no conclusion is offered.
+
+    `brief=False` omits the standing instructions. They were repeated per candidate because the
+    first design put each candidate to a provider as its own call, where every call needs them.
+    A reviewer reads ONE document, and seven copies of the same nine paragraphs made an 18 KB
+    file that is mostly duplication - which is not a formatting complaint: a reader who scrolls
+    past the same block six times stops reading it, and the criteria are the part that matters.
+    """
+    L = ([BRIEF, ""] if brief else []) + [f"CANDIDATE - joint cluster {cand['cluster']}",
          f"  the joint route calls this cluster: {cand['label_absent']}",
          f"  cluster size: {cand.get('n_cluster', 0):,} cells",
          f"  cells that would be corrected: {cand['n_cells']:,}",

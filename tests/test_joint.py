@@ -355,6 +355,20 @@ check("no key, model or temperature is anywhere in the record",
       not any(k in rr["provenance"] for k in ("model", "temperature", "provider")),
       str(sorted(rr["provenance"])))
 
+print("\n17 - the standing instructions are written ONCE, not per candidate")
+# They were repeated per candidate because the first design put each one to a provider as its own
+# call. A reviewer reads one document: seven copies of the same nine paragraphs made an 18 KB
+# file that was mostly duplication, and a reader who scrolls past the same block six times stops
+# reading it - the criteria being exactly the part that must not be skimmed.
+with_b = review_prompt(cands[0])
+without = review_prompt(cands[0], brief=False)
+check("the brief is included by default", "SAMPLE DOMINANCE" in with_b)
+check("and can be omitted", "SAMPLE DOMINANCE" not in without)
+check("the evidence survives either way",
+      "CANDIDATE - joint cluster" in without and "AGREEMENT" in without)
+check("omitting it is most of the length", len(without) < len(with_b) / 2,
+      f"{len(without)} vs {len(with_b)}")
+
 print("\n" + "=" * 64)
 if fails:
     print(f"joint: {len(fails)} FAILED - " + ", ".join(fails))

@@ -1126,8 +1126,11 @@ def _compare(a):
                     "",
                     "The procedure, the four criteria and the four prohibitions are in "
                     "skills/joint-route-review.", ""]
+            _req += ["", _prompt(mc["candidates"][0], lost=_lost, group_key=_gk).split(
+                "CANDIDATE -")[0].rstrip(), ""] if mc["candidates"] else []
             for _c in mc["candidates"]:
-                _req += ["", "---", "", _prompt(_c, lost=_lost, group_key=_gk)]
+                _req += ["", "---", "",
+                         _prompt(_c, lost=_lost, group_key=_gk, brief=False)]
             if a.out_report:
                 _rp = Path(a.out_report).with_name("review_request.md")
                 _rp.parent.mkdir(parents=True, exist_ok=True)
