@@ -36,7 +36,8 @@ except ImportError as e:
     raise SystemExit(0)
 
 from scanno.compare import compare  # noqa: E402
-from scanno.joint import CORRECTED, KEPT, document, reconcile, summarise  # noqa: E402
+from scanno.joint import (ABSORBED, KEPT, RECOVERED, document, reconcile,
+                          summarise)  # noqa: E402
 
 DC, MP, FB = "Immune/Myeloid/Dendritic cell", "Immune/Myeloid/Macrophage", "Stromal/Fibroblast"
 
@@ -53,7 +54,7 @@ res = compare(A, B, path_key="lab", path_key_b="jp", sample_key="sample", cluste
 cands = res["merge_candidates"]["candidates"]
 
 print("\n1 - it corrects exactly the cells the candidate names")
-new, origin, rec = reconcile(np.array(lab_a), np.array(clus), np.array(sams), cands)
+new, origin, rec = reconcile(np.array(lab_a), np.array(lab_b), np.array(clus), np.array(sams), cands)
 check("one candidate was found to apply", len(cands) == 1, str(cands))
 check("the eight absorbed cells are corrected", rec["n_corrected"] == 8, str(rec["n_corrected"]))
 check("they now carry the joint route's label",
@@ -68,10 +69,10 @@ check("and is marked as kept, not corrected", origin[10] == KEPT)
 
 print("\n3 - origin names every corrected cell and nothing else")
 check("the origin column counts what the record claims",
-      int((origin == CORRECTED).sum()) == rec["n_corrected"])
+      int((origin == RECOVERED).sum()) == rec["n_corrected"])
 check("every other cell is kept",
       int((origin == KEPT).sum()) == len(lab_a) - rec["n_corrected"])
-check("only two origin values exist", set(origin.tolist()) == {KEPT, CORRECTED})
+check("only two origin values exist", set(origin.tolist()) <= {KEPT, RECOVERED, ABSORBED})
 
 print("\n4 - the column it corrects is UNCHANGED, so reverting is a column drop")
 check("the input array was not mutated", lab_a[6] == MP and lab_a[11] == MP)
@@ -189,7 +190,7 @@ Ax = pd.DataFrame({"lab": lab2}, index=i2)
 Bx = pd.DataFrame({"jp": lb2, "sample": sm2, "cl": cl2}, index=i2)
 rx = compare(Ax, Bx, path_key="lab", path_key_b="jp", sample_key="sample", cluster_key="cl")
 cx = rx["merge_candidates"]["candidates"]
-nx, ox, recx = reconcile(np.array(lab2), np.array(cl2), np.array(sm2), cx)
+nx, ox, recx = reconcile(np.array(lab2), np.array(lb2), np.array(cl2), np.array(sm2), cx)
 sx = summarise(np.array(lab2), nx, np.array(sm2))
 impx = rx["merge_candidates"]["impact"]
 truth = {r["label"]: r["n_after"] for r in sx["per_label"]}
@@ -282,6 +283,46 @@ check("every candidate is ungraded", rn["n_graded"] == 0 and len(rn["ungraded"])
 check("their cells are counted", rn["n_cells_ungraded"] == sum(c["n_cells"] for c in cands))
 check("and the provenance says no reviewer ran", rn["provenance"]["source"] == "none")
 check("no grade is invented", all(not v for v in rn["verdicts"].values()) or not rn["verdicts"])
+
+print("\n15 - a label route B delivers NOWHERE is absorbed, not silently kept")
+# The column and the document contradicted each other. `lost_labels` reported that the joint
+# route had absorbed a population, while the joint COLUMN still carried every one of its cells
+# under the old label - measured on a real cohort at 47 dendritic nuclei that route B calls
+# macrophage. Applying only the recoveries makes the coarser partition look strictly better,
+# which is the claim `lost_labels` exists to deny.
+RARE = "Immune/Myeloid/Dendritic cell"
+la = [MP] * 20 + [RARE] * 6 + [FB] * 4
+lb = [MP] * 24 + [FB] * 6            # route B calls the rare cells' cluster MP, and delivers
+sm = ["s1"] * 15 + ["s2"] * 15       # no RARE anywhere
+cl = ["J0"] * 24 + ["J1"] * 6
+ids2 = [f"e{i}" for i in range(30)]
+Aa = pd.DataFrame({"lab": la}, index=ids2)
+Bb = pd.DataFrame({"jp": lb, "sample": sm, "cl": cl}, index=ids2)
+rr = compare(Aa, Bb, path_key="lab", path_key_b="jp", sample_key="sample", cluster_key="cl")
+nn, oo, rc = reconcile(np.array(la), np.array(lb), np.array(cl), np.array(sm),
+                       rr["merge_candidates"]["candidates"])
+check("route B delivers the rare label nowhere", RARE not in set(lb))
+check("so no cell keeps it in the joint column", int((nn == RARE).sum()) == 0,
+      str(int((nn == RARE).sum())))
+check("all six moved onto their own cluster's route-B call",
+      int((oo == ABSORBED).sum()) == 6, str(int((oo == ABSORBED).sum())))
+check("which is what route B actually says about them",
+      list(nn[20:26]) == [MP] * 6, str(list(nn[20:26])))
+check("the record names the absorbed label and where it went",
+      rc["absorbed"][RARE]["n"] == 6 and rc["absorbed"][RARE]["into"] == {MP: 6},
+      str(rc.get("absorbed")))
+check("recovered and absorbed are counted APART",
+      rc["n_recovered"] + rc["n_absorbed"] == rc["n_corrected"])
+check("and the record says why both directions exist", "strictly better" in rc["directions"])
+
+# A label route B DOES deliver is never absorbed, however few cells carry it.
+lb2ok = [MP] * 20 + [RARE] * 6 + [FB] * 4
+r2 = compare(Aa, pd.DataFrame({"jp": lb2ok, "sample": sm, "cl": cl}, index=ids2),
+             path_key="lab", path_key_b="jp", sample_key="sample", cluster_key="cl")
+n2, o2, rc2 = reconcile(np.array(la), np.array(lb2ok), np.array(cl), np.array(sm),
+                        r2["merge_candidates"]["candidates"])
+check("a label route B delivers is left alone", int((n2 == RARE).sum()) == 6)
+check("and nothing is recorded as absorbed", not rc2["absorbed"], str(rc2["absorbed"]))
 
 print("\n" + "=" * 64)
 if fails:

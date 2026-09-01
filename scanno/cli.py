@@ -1076,8 +1076,14 @@ def _compare(a):
         clu = clu.reindex(ai).fillna("__not_in_route_b__").to_numpy()
         sam = sam.reindex(ai).fillna("__not_in_route_b__").to_numpy()
 
+        # Route B's LABEL, aligned by barcode like its clustering. Needed because the joint
+        # route is not only what it resolved: a label route B delivers nowhere is one its
+        # partition could not separate, and the column has to carry that too.
+        key_b = a.path_key_b or a.path_key
+        lb = pd.Series(np.asarray(B.obs[key_b].astype(str)), index=bi)
+        lb = lb[~lb.index.duplicated()].reindex(ai).fillna("").to_numpy()
         labels = np.asarray(A2.obs[a.path_key].astype(str))
-        new_labels, origin, record = reconcile(labels, clu, sam, mc["candidates"])
+        new_labels, origin, record = reconcile(labels, lb, clu, sam, mc["candidates"])
         record["n_not_in_route_b"] = int(A2.n_obs - n_shared)
         summ = summarise(labels, new_labels, sam)
         out_key = a.out_key or f"{a.path_key}_joint"

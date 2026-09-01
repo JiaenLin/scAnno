@@ -39,11 +39,31 @@ from __future__ import annotations
 import numpy as np
 
 KEPT = "kept"
-CORRECTED = "joint_corrected"
+RECOVERED = "joint_recovered"
+ABSORBED = "joint_absorbed"
 
 
-def reconcile(labels, clusters, samples, candidates, sentinels=("EXCLUDED", "UNRESOLVED")):
-    """Apply every merge candidate to `labels`. Returns (new_labels, origin, record).
+def reconcile(labels, labels_b, clusters, samples, candidates,
+              sentinels=("EXCLUDED", "UNRESOLVED")):
+    """Apply the joint route to `labels`, IN BOTH DIRECTIONS. Returns (new_labels, origin, record).
+
+    A joint clustering differs from a per-sample one in two ways and the column has to carry
+    both, or it contradicts the document describing it:
+
+      RECOVERED  a joint cluster's own label is one that some samples carry nowhere, so their
+                 cells in it are corrected to it. The joint partition separated a population the
+                 per-sample partition could not.
+      ABSORBED   a label route A delivers that route B delivers NOWHERE. The joint partition
+                 could not separate that population, and its cells take their own cluster's
+                 route-B call.
+
+    Applying only the first makes the joint route look strictly better than the per-sample one,
+    which is the thing `lost_labels` exists to deny. Measured on a real cohort: 47 dendritic
+    nuclei that route B absorbed into a macrophage cluster stayed labelled dendritic in the
+    joint column while the report beside it said they had been absorbed. The report and the
+    column disagreed, and nothing on the page said which was right.
+
+    `<key>_origin` names which of the three a cell is, so the two directions never pool.
 
     Derived from the SAME candidate rows the document reports, so the column and the page
     describing it cannot disagree — the failure mode where a summary recomputes its own numbers
@@ -54,6 +74,7 @@ def reconcile(labels, clusters, samples, candidates, sentinels=("EXCLUDED", "UNR
     withheld nucleus is never corrected: it was never annotated, so there is no call to move.
     """
     lab = np.asarray(labels).astype(str).copy()
+    lb = np.asarray(labels_b).astype(str)
     clu = np.asarray(clusters).astype(str)
     sam = np.asarray(samples).astype(str)
     origin = np.full(lab.shape, KEPT, dtype=object)
@@ -72,7 +93,7 @@ def reconcile(labels, clusters, samples, candidates, sentinels=("EXCLUDED", "UNR
             continue
         froms, counts = np.unique(lab[m], return_counts=True)
         lab[m] = L
-        origin[m] = CORRECTED
+        origin[m] = RECOVERED
         moved.append({"cluster": str(r["cluster"]), "to": L, "n": n,
                       "from": {str(a): int(b) for a, b in zip(froms, counts)},
                       "samples": sorted(lack),
@@ -80,17 +101,44 @@ def reconcile(labels, clusters, samples, candidates, sentinels=("EXCLUDED", "UNR
                       "top_share_pct": r.get("top_share_pct"),
                       "top_sample": r.get("top_sample")})
 
-    n_corr = int((origin == CORRECTED).sum())
+    # DIRECTION TWO. A label route B delivers nowhere is one its partition could not separate;
+    # its cells take their own cluster's route-B call, per cell, so cells of one absorbed label
+    # may land on different targets - which is what the joint clustering actually says about
+    # them, and pooling them onto one target would be a claim it never made.
+    delivered_b = {x for x in set(lb.tolist()) if x not in sent}
+    absorbed = {}
+    for L in sorted(set(np.asarray(labels).astype(str).tolist())):
+        if L in sent or L in delivered_b:
+            continue
+        m = (lab == L) & (origin == KEPT) & ~np.isin(lb, list(sent)) & (lb != L)
+        n = int(m.sum())
+        if not n:
+            continue
+        into, cnt = np.unique(lb[m], return_counts=True)
+        absorbed[L] = {"n": n, "into": {str(a): int(b) for a, b in zip(into, cnt)},
+                       "samples": sorted(set(sam[m].tolist()))}
+        lab[m] = lb[m]
+        origin[m] = ABSORBED
+
+    n_rec = int((origin == RECOVERED).sum())
+    n_abs = int((origin == ABSORBED).sum())
+    n_corr = n_rec + n_abs
     record = {
         "schema": "scanno/joint@1",
         "n_cells": int(lab.size), "n_corrected": n_corr,
+        "n_recovered": n_rec, "n_absorbed": n_abs,
         "pct_corrected": round(100.0 * n_corr / max(1, lab.size), 3),
         "n_candidates_applied": len(moved),
         "moved": moved,
-        "origin_values": [KEPT, CORRECTED],
+        "absorbed": absorbed,
+        "origin_values": [KEPT, RECOVERED, ABSORBED],
         "gating": "none. Every candidate is applied and its cluster's sample dominance travels "
                   "with it. A statistic does not gate an output here until it has been shown to "
                   "separate correct from incorrect calls (docs/PRINCIPLES.md 3).",
+        "directions": "RECOVERED cells moved onto a label the joint partition separated and the "
+                      "per-sample one did not; ABSORBED cells moved OFF a label the joint "
+                      "partition could not separate at all. A coarser partition does both, and "
+                      "a column carrying only the first would make it look strictly better.",
         "limit": "co-membership is not identity. A corrected cell GROUPS with cells the joint "
                  "route called that label; it was not itself scored as one. The uncorrected "
                  "column sits beside this one and reverting is a column drop.",
@@ -304,7 +352,10 @@ def document(payload) -> str:
 
     P.append(f"<h2>What the joint route changed</h2>"
              f'<p><b>{rec["n_corrected"]:,} of {rec["n_cells"]:,} cells '
-             f'({rec["pct_corrected"]}%)</b> carry a different label in '
+             f'({rec["pct_corrected"]}%)</b> &mdash; '
+             f'<b>{rec.get("n_recovered", 0):,} recovered</b> onto a label the joint partition '
+             f'separated, <b>{rec.get("n_absorbed", 0):,} absorbed</b> off a label it could not '
+             f'separate at all &mdash; carry a different label in '
              f'<code>{_esc(payload["out_key"])}</code> than in '
              f'<code>{_esc(payload["forced_key"])}</code>, from '
              f'{rec["n_candidates_applied"]} candidate(s).</p>')
@@ -324,6 +375,21 @@ def document(payload) -> str:
     P.append(_table(["label", "n_before", "n_after", "n_delta"],
                     [r for r in summ["per_label"] if r["n_delta"]],
                     numeric=("n_before", "n_after", "n_delta")))
+
+    if rec.get("absorbed"):
+        P.append("<h3>Absorbed &mdash; labels this partition could not separate</h3>")
+        P.append(_table(["label", "cells", "moved onto", "from samples"],
+                        [{"label": k, "cells": v["n"],
+                          "moved onto": ", ".join(f"{a} {b}" for a, b in
+                                                  sorted(v["into"].items(), key=lambda kv: -kv[1])),
+                          "from samples": ", ".join(v["samples"])}
+                         for k, v in sorted(rec["absorbed"].items(),
+                                            key=lambda kv: -kv[1]["n"])],
+                        numeric=("cells",)))
+        P.append('<div class="cannot"><b>What this cannot show.</b> That absorbing them was '
+                 'right. These cells carried a label the FIRST route resolved and this one '
+                 'delivers nowhere; the column follows the joint partition because that is what '
+                 'the column is, and the earlier annotation keeps them.</div>')
 
     lost = mc.get("lost_labels") or {}
     P.append("<h2>What the joint route could not resolve</h2>")
