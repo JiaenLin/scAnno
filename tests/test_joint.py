@@ -229,14 +229,24 @@ r0 = review(cands, {})
 check("it is reported as ungraded", r0["ungraded"] == [cl0], str(r0["ungraded"]))
 check("with its cells counted", r0["n_cells_ungraded"] == cands[0]["n_cells"])
 check("and the record says silence is not adoption",
-      "not adopted by silence" in r0["limit"])
+      "not adopted by silence" in r0["limit"].lower())
 check("a verdict changes NO label - the column is what reconcile wrote",
       "changes no label" in r0["limit"])
 
 print("\n13 - the reviewer is called with EVIDENCE, and its free text is resolved")
 from scanno.joint import BRIEF, parse_verdict, review_prompt  # noqa: E402
-pr = review_prompt(cands[0], lost={"labels": [{"label": DC, "n": 47,
-                                               "absorbed_into": {MP: 45}}]},
+# The candidate must have been MEASURED with a group column, or it carries no per-level
+# breakdown and the prompt has nothing to show. Building one here rather than asserting on a
+# candidate that could not have had it.
+Bg = B.copy()
+Bg["grp"] = ["g1" if x == "s1" else "g2" for x in sams]
+rg = compare(A, Bg, path_key="lab", path_key_b="jp", sample_key="sample",
+             cluster_key="cl", group_key="grp")
+cg = rg["merge_candidates"]["candidates"][0]
+check("the candidate carries a per-level breakdown", bool(cg.get("moving_by_group")),
+      str(cg.get("moving_by_group")))
+pr = review_prompt(cg, lost={"labels": [{"label": DC, "n": 47,
+                                         "absorbed_into": {MP: 45}}]},
                    group_key="grp")
 check("the prompt states the criteria before the candidate", pr.startswith(BRIEF[:40]))
 for want in ("AGREEMENT", "SAMPLE DOMINANCE", "samples carrying no", "corrected cells per grp",
@@ -262,6 +272,16 @@ r = review(cands, {cands[0]["cluster"]: ("refuse", "x")},
 check("an unresolved verdict is counted as such", r["n_unresolved"] == 1)
 check("and the provenance says where the verdict came from",
       r["provenance"]["source"] == "agent")
+
+print("\n14 - a review that did not happen is recorded, not omitted")
+# The file is written either way. A missing verdicts file and a file saying nobody judged this
+# run look identical to a reader who does not know which runs had a reviewer attached, and the
+# first invites the assumption that there was nothing to object to.
+rn = review(cands, {}, provenance={"source": "none"})
+check("every candidate is ungraded", rn["n_graded"] == 0 and len(rn["ungraded"]) == len(cands))
+check("their cells are counted", rn["n_cells_ungraded"] == sum(c["n_cells"] for c in cands))
+check("and the provenance says no reviewer ran", rn["provenance"]["source"] == "none")
+check("no grade is invented", all(not v for v in rn["verdicts"].values()) or not rn["verdicts"])
 
 print("\n" + "=" * 64)
 if fails:

@@ -1152,6 +1152,23 @@ def _compare(a):
                     print(f"wrote {a.verdicts}")
             elif a.verdicts and Path(a.verdicts).exists():
                 rev = _json.loads(Path(a.verdicts).read_text(encoding="utf-8"))
+            elif a.verdicts:
+                # NO REVIEWER WAS ATTACHED, and that is a result rather than an absence. Every
+                # candidate is recorded as ungraded with its cell count, so a reader meets the
+                # same file whether or not anyone judged the run - and cannot mistake a review
+                # that did not happen for one that found nothing to object to.
+                from .joint import review as _review
+                rev = _review(mc["candidates"], {},
+                              provenance={"source": "none",
+                                          "limit": "no reviewer was attached to this run. "
+                                                   "Every candidate is ungraded; ungraded is "
+                                                   "not approved."})
+                Path(a.verdicts).parent.mkdir(parents=True, exist_ok=True)
+                Path(a.verdicts).write_text(_json.dumps(rev, indent=1, default=str),
+                                            encoding="utf-8")
+                print(f"wrote {a.verdicts}   NO reviewer attached - "
+                      f"{rev['n_candidates']} candidate(s) ungraded, "
+                      f"{rev['n_cells_ungraded']:,} cells")
             html = document({
                 "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "version": __import__("scanno").__version__,
