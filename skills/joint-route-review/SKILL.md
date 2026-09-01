@@ -1,85 +1,79 @@
 ---
 name: joint-route-review
-description: Grade the merge candidates a scAnno joint route proposes, and record each verdict against the run. Use after `scanno compare --out-h5ad --out-report`, when a joint clustering has proposed corrections to a per-sample annotation and somebody has to decide which of them are real. Covers what the tool measured, what it deliberately did not, the criteria a verdict rests on, and the things a reviewer must never do.
+description: Act as the reviewer scAnno calls during a joint-route run — grade each merge candidate a joint clustering proposes against a per-sample annotation, from the evidence the run measured. Use when wired in as `scanno compare --review-command`, or when asked to judge which joint-route corrections are real. Covers what the run measures, the judgement it deliberately leaves to you, the four criteria, and what a verdict can never do.
 ---
 
 # Reviewing a joint route
 
-**The tool measures and does not judge. You judge and do not measure.** Every number you use is
-already on disk; producing one yourself — a script, a notebook cell, a figure — puts a number in
-front of a reader that no run regenerates, and that is the one thing this step forbids.
+**You are called from inside the run, not after it.** `scanno compare --review-command '<cmd>'`
+puts each candidate to you with the evidence it has just measured, resolves your reply onto
+`adopt` / `refuse` / `undecided`, and renders the verdicts into the same report the run writes.
+One invocation, one set of results. There is no second pass to correct later, and no file for
+anyone to edit by hand.
 
-## Why a verdict is recorded rather than said
+## The division of labour, and why it is drawn here
 
 `scanno compare` names which samples lack a label and stops. Deciding that a study's arms differ
-is not the tool's call: a design-differential gate was built into this codebase once, refused a
-real comparison in which two libraries of ten held 94% of the unresolved nuclei, and was removed.
+is not the tool's call: a design-differential **gate** was built into this codebase once, refused
+a real comparison in which two libraries of ten held 94% of the unresolved nuclei, and was
+removed. `docs/PRINCIPLES.md` §3 — no statistic gates an output until it is shown to separate
+correct from incorrect calls.
 
-But somebody still has to decide, and **a decision taken in conversation is not reproducible.**
-It cannot be checked against the run it describes and it is gone with the session that made it.
-So the decision is recorded against the candidate it is about, with its reason, and the report
-renders it.
+So the measuring stops where the judging starts, and **you are the judging.** Your verdict is
+recorded against the candidate with its reason, the prompt's hash and your raw reply, so it can
+be audited even though an LLM call cannot be repeated.
 
-## What you are given
+## What you are given, per candidate
 
-From the run, and nowhere else:
+The cluster, what the joint route calls it, how many cells would be corrected and what they
+currently carry, plus:
 
-| file | what it holds |
+| | |
 |---|---|
-| `<pair>_compare_<res>.json` | every candidate, the crosstab behind each, `lost_labels`, the netted `impact` |
-| `<pair>_candidates_<res>.csv` | one row per candidate |
-| `<pair>_impact_per_sample_<res>.csv` | every sample × label, before and after, in points |
-| `report/joint_route.html` | the same, assembled |
+| **agreement** | the share of the cluster the first route *already* calls that label |
+| **sample dominance** | how much of the cluster is one sample |
+| **samples lacking it** | which carry none of that label anywhere, and how many cells each contributes |
+| **across the design** | the corrected cells per level of a caller-named factor |
+| **what this clustering lost** | populations the first route resolved that the joint one absorbed |
 
-## The four criteria, and what each is worth
+You are given no conclusion, and there is none to withhold — unlike `scanno agent`, nothing here
+has a prior answer you could be shown.
 
-1. **`pct_route_a_agrees` — how much of the cluster the first route already calls that label.**
-   High means the joint route resolved a population the first route mostly agreed on. Low means
-   the joint route is asserting something the first route *denies* on most of the cluster, and a
+## The four criteria
+
+1. **Agreement.** High means the joint route resolved a population the first route mostly agreed
+   on. Low means it is asserting something the first route *denies* on most of the cluster, and a
    correction of that shape rests on the joint clustering being right where the other is wrong.
-2. **`top_share_pct` — how much of the cluster is one sample.** A joint clustering of an
-   un-integrated cohort can group cells by library rather than by cell type. A cluster that is
-   mostly one animal **cannot arbitrate anything**, whatever its agreement.
-3. **Where the corrected cells fall across the design.** This is the one thing the tool will not
-   read for you, deliberately. A correction landing entirely in one level — or giving one level
-   none of it — cannot be distinguished from a batch effect when that level is confounded with
-   something technical. **You must check the design yourself and say so in the reason.**
-4. **What the joint route LOST.** `lost_labels` names every population the first route resolved
-   that the joint clustering absorbed. A joint route that destroys a population while recovering
-   another is not strictly better, and a review that quotes only the recoveries is half a review.
+2. **Sample dominance.** A joint clustering of an un-integrated cohort can group by library
+   rather than by cell type. A cluster that is mostly one sample **cannot arbitrate anything**,
+   whatever its agreement.
+3. **Where the corrected cells fall across the design.** A correction landing entirely in one
+   level — or giving one level none of it — cannot be told apart from a technical effect when
+   that level is confounded with something technical. **This is the criterion the tool will not
+   evaluate for you**, and the reason it exists.
+4. **What the joint route lost.** It is the coarser partition. A review that quotes only the
+   recoveries is half a review.
 
-## Recording
+## Answering
 
-```bash
-scanno joint-review --compare <run>/compare/forced_compare_leiden_1p0.json \
-    --verdict "17=adopt:siblings under one parent, 85.6% agreement, spread across three levels" \
-    --verdict "20=refuse:every corrected cell falls in one level of a confounded factor, and the first route disagrees on 82.5% of the cluster" \
-    --out <run>/compare/verdicts.json
+Two lines. `GRADE:` one of `adopt`, `refuse`, `undecided`. `REASON:` one sentence **citing the
+numbers you used**.
 
-scanno compare ... --verdicts <run>/compare/verdicts.json --out-report <run>/report/joint_route.html
-```
+A reply naming no grade is recorded as `unresolved` with its text and never coerced — a reviewer
+that did not answer and one that answered `undecided` are different findings, and the report
+counts them separately.
 
-`adopt` · `refuse` · `undecided`. **A reason is required** and is recorded verbatim. It refuses a
-cluster that is not a candidate, a grade outside the vocabulary, and an empty reason.
+## What a verdict cannot do
 
-## What a verdict does NOT do
-
-**It changes no label.** The joint column is what `reconcile` wrote, and every candidate is
-applied. `refuse` is a note saying a reader should not build on that correction; it does not
-remove it, because a statistic — or a judgement — that silently edited the column would make the
-three annotations disagree with their own provenance.
-
-**An ungraded candidate is not adopted by silence.** It is in the column like every other and
-simply has nobody's name against it. The report lists it as ungraded, with its cell count.
-
-## Things this step must never do
-
-- **Compute a number.** If a figure you want is not in the run, the fix is a change to scAnno, not
-  a script beside it. A number that no run regenerates is a draft, whoever wrote it.
-- **Edit an object, a table or a report by hand.** Everything is a run product.
-- **Present co-membership as identity.** A candidate says these cells *group* with cells the joint
-  route called that label. It does not say they were scored as one.
-- **Grade on the design alone.** "This would make the arms differ" is not a reason to refuse, and
-  "this would make them agree" is certainly not a reason to adopt. The reason must be about
-  whether the *evidence separates* a merged population from an artefact.
-- **Quote a number from a run with no `SEALED.txt`.**
+- **It changes no label.** Every candidate is applied to the third column either way. `refuse`
+  says a reader should not build on that correction; it does not remove it, because a judgement
+  that silently edited the column would make the three annotations disagree with their own
+  provenance.
+- **Silence is not adoption.** An ungraded candidate is reported as ungraded, with its cell
+  count.
+- **It cannot cite a number that is not in the prompt.** If a figure you want was not measured,
+  the fix is a change to scAnno, not a calculation of your own. A number no run regenerates is a
+  draft, whoever wrote it.
+- **It cannot be a preference about the result.** "This would make the groups differ" is not a
+  reason to refuse; "this would make them agree" is not a reason to adopt. The reason must be
+  about whether the evidence **separates** a merged population from an artefact.

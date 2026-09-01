@@ -141,8 +141,96 @@ def summarise(before, after, samples, sentinels=("EXCLUDED", "UNRESOLVED")):
 
 GRADES = ("adopt", "refuse", "undecided")
 
+#: What the reviewer is told, once, before the candidates. It states the criteria and the two
+#: things a verdict cannot do, because an agent that believes it is editing the annotation will
+#: grade differently from one that knows it is annotating the annotation.
+BRIEF = """You are reviewing corrections that a JOINT clustering proposes to a per-sample
+annotation. A candidate is a joint cluster whose own delivered label is L, holding cells from
+samples that carry no L anywhere in the first route.
 
-def review(candidates, verdicts):
+Your verdict changes NO label. Every candidate is applied to the third column either way; a
+verdict is a recorded note saying whether a reader should build on that correction.
+
+Grade each on the evidence given, and nothing else:
+
+1. AGREEMENT - the share of the cluster the first route already calls L. High means the joint
+   route resolved a population the first route mostly agreed on. Low means the joint route is
+   asserting something the first route DENIES on most of the cluster.
+2. SAMPLE DOMINANCE - how much of the cluster is one sample. A joint clustering of an
+   un-integrated cohort can group cells by library rather than by cell type, and a cluster that
+   is mostly one sample cannot arbitrate anything, whatever its agreement.
+3. WHERE THE CORRECTED CELLS FALL across the design levels given. A correction landing entirely
+   in one level, or giving one level none of it, cannot be told apart from a technical effect
+   when that level is confounded with something technical. This is the judgement the measuring
+   tool deliberately does not make.
+4. WHAT THE JOINT ROUTE LOST. It is the coarser partition and destroys populations as well as
+   recovering them.
+
+"This would make the groups differ" is not a reason to refuse, and "this would make them agree"
+is not a reason to adopt. The reason must be about whether the evidence SEPARATES a merged
+population from an artefact.
+
+Answer for THIS candidate only, in two lines:
+GRADE: one of adopt, refuse, undecided
+REASON: one sentence, citing the numbers you used."""
+
+
+def review_prompt(cand, *, lost=None, group_key=None, per_sample=None):
+    """The evidence for one candidate, in words. Numbers only; no conclusion is offered."""
+    L = [BRIEF, "", f"CANDIDATE - joint cluster {cand['cluster']}",
+         f"  the joint route calls this cluster: {cand['label_absent']}",
+         f"  cluster size: {cand.get('n_cluster', 0):,} cells",
+         f"  cells that would be corrected: {cand['n_cells']:,}",
+         f"  they currently carry: {cand['label_carried']}",
+         f"  AGREEMENT - the first route already calls "
+         f"{cand.get('pct_route_a_agrees')}% of this cluster {cand['label_absent']}",
+         f"  SAMPLE DOMINANCE - {cand.get('top_share_pct')}% of it is one sample "
+         f"({cand.get('top_sample')})",
+         f"  samples carrying no {cand['label_absent']} anywhere: "
+         f"{', '.join(cand.get('samples_lacking') or [])}"]
+    if per_sample or cand.get("moving_by_sample"):
+        d = per_sample or {k: sum(v.values()) for k, v in cand["moving_by_sample"].items()}
+        L.append("  corrected cells per sample: "
+                 + ", ".join(f"{k} {v}" for k, v in sorted(d.items())))
+    if group_key and cand.get("moving_by_group"):
+        L.append(f"  corrected cells per {group_key}: "
+                 + ", ".join(f"{k} {v}" for k, v in sorted(cand["moving_by_group"].items())))
+        L.append(f"  (levels of {group_key} receiving none of it are not listed)")
+    if lost and lost.get("labels"):
+        L.append("  WHAT THIS JOINT CLUSTERING LOST elsewhere in the same run:")
+        for r in lost["labels"]:
+            into = ", ".join(f"{k} {v}" for k, v in list(r["absorbed_into"].items())[:3])
+            L.append(f"    {r['n']:,} {r['label']} absorbed into {into}")
+    return "\n".join(L)
+
+
+def parse_verdict(text):
+    """Free text in, a graded verdict out - or `unresolved`, kept verbatim and never coerced.
+
+    The same shape as `agent.resolve_label`: the reviewer answers in its own words and the answer
+    is RESOLVED afterwards. A reply that names no grade is not silently read as `undecided`; it
+    is recorded as unresolved with its text, because a reviewer that did not answer and one that
+    answered "undecided" are different findings.
+    """
+    import re
+
+    raw = str(text or "").strip()
+    grade, reason = None, ""
+    m = re.search(r"\bGRADE\s*[:\-]\s*(\w+)", raw, re.I)
+    if m and m.group(1).lower() in GRADES:
+        grade = m.group(1).lower()
+    else:
+        for g in GRADES:
+            if re.search(rf"\b{g}\b", raw, re.I):
+                grade = g
+                break
+    m = re.search(r"\bREASON\s*[:\-]\s*(.+)", raw, re.I | re.S)
+    reason = (m.group(1) if m else raw).strip().replace("\n", " ")[:600]
+    return {"grade": grade or "undecided", "reason": reason,
+            "tier": "graded" if grade else "unresolved", "raw": raw[:2000]}
+
+
+def review(candidates, verdicts, tiers=None, provenance=None):
     """Grade each candidate, from a CLOSED vocabulary, with a reason that is required.
 
     THE MEASUREMENT IS THE TOOL'S AND THE JUDGEMENT IS NOT. `compare` names which samples lack a
@@ -177,9 +265,12 @@ def review(candidates, verdicts):
         graded[cl] = {"cluster": cl, "grade": grade, "reason": str(reason).strip(),
                       "label_absent": r["label_absent"], "n_cells": r["n_cells"],
                       "pct_route_a_agrees": r.get("pct_route_a_agrees"),
-                      "top_share_pct": r.get("top_share_pct")}
+                      "top_share_pct": r.get("top_share_pct"),
+                      "tier": (tiers or {}).get(cl, "declared")}
     ungraded = sorted(set(by_cluster) - set(graded), key=lambda c: -by_cluster[c]["n_cells"])
     return {"schema": "scanno/joint-review@1", "grades": GRADES,
+            "provenance": provenance or {"source": "declared"},
+            "n_unresolved": sum(1 for v in graded.values() if v.get("tier") == "unresolved"),
             "n_candidates": len(by_cluster), "n_graded": len(graded),
             "verdicts": graded, "ungraded": ungraded, "errors": errors,
             "n_cells_by_grade": {g: sum(v["n_cells"] for v in graded.values()

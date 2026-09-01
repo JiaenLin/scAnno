@@ -1054,6 +1054,7 @@ def _compare(a):
         import pandas as pd
 
         import datetime as _dt
+        import hashlib as _hashlib
 
         from .emit import annotate_joint, write_h5ad
         from .joint import document, reconcile, summarise
@@ -1097,7 +1098,59 @@ def _compare(a):
                  "cells differing from the one above": record["n_corrected"]},
             ]
             rev = None
-            if a.verdicts:
+            if a.review_command or a.review_provider:
+                # THE REVIEW HAPPENS HERE, inside the run that measured the evidence. A verdict
+                # recorded by a separate invocation is a second run against numbers that may
+                # have moved; this one cannot be out of date with what it grades.
+                from .agent import CommandProvider, HTTPProvider
+                from .joint import parse_verdict, review, review_prompt
+                if a.review_command:
+                    prov = CommandProvider(a.review_command, model=a.review_model)
+                else:
+                    try:
+                        prov = HTTPProvider(preset=a.review_provider, model=a.review_model,
+                                            temperature=a.review_temperature)
+                    except (RuntimeError, ValueError) as e:
+                        print(f"scanno: {e}", file=sys.stderr)
+                        return REFUSE
+                lost = mc.get("lost_labels")
+                gk = (mc.get("impact") or {}).get("group_key")
+                verdicts, tiers, calls = {}, {}, []
+                print(f"review: {len(mc['candidates'])} candidate(s) to "
+                      f"{prov.name}/{getattr(prov, 'model', '?')}")
+                for c in mc["candidates"]:
+                    prompt = review_prompt(c, lost=lost, group_key=gk)
+                    try:
+                        reply = prov.complete(prompt)
+                    except Exception as e:                      # noqa: BLE001
+                        print(f"scanno: REFUSE - the reviewer failed on cluster "
+                              f"{c['cluster']}: {e}", file=sys.stderr)
+                        return REFUSE
+                    v = parse_verdict(reply)
+                    verdicts[str(c["cluster"])] = (v["grade"], v["reason"])
+                    tiers[str(c["cluster"])] = v["tier"]
+                    calls.append({"cluster": str(c["cluster"]),
+                                  "prompt_sha256": _hashlib.sha256(
+                                      prompt.encode("utf-8")).hexdigest()[:16],
+                                  "tier": v["tier"], "raw": v["raw"]})
+                    print(f"  cluster {c['cluster']:<5} {v['grade']:<10} [{v['tier']}]")
+                rev = review(mc["candidates"], verdicts, tiers=tiers, provenance={
+                    "source": "agent", "provider": prov.name,
+                    "model": str(getattr(prov, "model", "")),
+                    "temperature": a.review_temperature, "calls": calls,
+                    "limit": "an LLM call is not reproducible by re-running it. The prompt "
+                             "hash and the raw reply are recorded so the verdict can be "
+                             "audited even though it cannot be repeated."})
+                for e in rev["errors"]:
+                    print(f"scanno: REFUSE - {e}", file=sys.stderr)
+                if rev["errors"]:
+                    return REFUSE
+                if a.verdicts:
+                    Path(a.verdicts).parent.mkdir(parents=True, exist_ok=True)
+                    Path(a.verdicts).write_text(_json.dumps(rev, indent=1, default=str),
+                                                encoding="utf-8")
+                    print(f"wrote {a.verdicts}")
+            elif a.verdicts and Path(a.verdicts).exists():
                 rev = _json.loads(Path(a.verdicts).read_text(encoding="utf-8"))
             html = document({
                 "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -1908,6 +1961,16 @@ def main(argv=None):
                         "--cluster-key")
     s.add_argument("--out-key", metavar="OBS_COLUMN", default=None,
                    help="name for the joint-route column (default <--path-key>_joint)")
+    s.add_argument("--review-command", metavar="CMD", dest="review_command",
+                   help="BRING YOUR OWN AGENT, IN THIS RUN. Any command that reads a prompt on "
+                        "stdin and writes a reply on stdout. Each candidate is put to it with "
+                        "the evidence this run measured, the reply is resolved onto adopt / "
+                        "refuse / undecided, and the verdicts are rendered into --out-report. "
+                        "One invocation, one set of results - the review is not a second pass")
+    s.add_argument("--review-provider", metavar="NAME", dest="review_provider",
+                   help="the same, from a hosted provider; the key comes from the environment")
+    s.add_argument("--review-model", metavar="NAME", dest="review_model")
+    s.add_argument("--review-temperature", type=float, default=0.0, dest="review_temperature")
     s.add_argument("--verdicts", type=Path, metavar="JSON",
                    help="verdicts from `scanno joint-review`, rendered into --out-report. A "
                         "candidate with no verdict is listed as ungraded rather than assumed")

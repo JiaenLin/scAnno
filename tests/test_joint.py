@@ -233,6 +233,36 @@ check("and the record says silence is not adoption",
 check("a verdict changes NO label - the column is what reconcile wrote",
       "changes no label" in r0["limit"])
 
+print("\n13 - the reviewer is called with EVIDENCE, and its free text is resolved")
+from scanno.joint import BRIEF, parse_verdict, review_prompt  # noqa: E402
+pr = review_prompt(cands[0], lost={"labels": [{"label": DC, "n": 47,
+                                               "absorbed_into": {MP: 45}}]},
+                   group_key="grp")
+check("the prompt states the criteria before the candidate", pr.startswith(BRIEF[:40]))
+for want in ("AGREEMENT", "SAMPLE DOMINANCE", "samples carrying no", "corrected cells per grp",
+             "WHAT THIS JOINT CLUSTERING LOST"):
+    check(f"it carries {want!r}", want in pr)
+check("it offers no conclusion", "you should" not in pr.lower())
+check("and says the verdict changes no label", "changes NO label" in pr)
+
+v = parse_verdict("GRADE: refuse\nREASON: every corrected cell is in one level, 17.5% agreement")
+check("a graded reply resolves", (v["grade"], v["tier"]) == ("refuse", "graded"))
+check("with the reason kept", "17.5%" in v["reason"])
+v2 = parse_verdict("I think this one is probably fine to adopt given the agreement")
+check("a grade word anywhere still resolves", (v2["grade"], v2["tier"]) == ("adopt", "graded"))
+v3 = parse_verdict("hard to say from this")
+check("a reply naming NO grade is unresolved, not silently undecided",
+      (v3["grade"], v3["tier"]) == ("undecided", "unresolved"))
+check("and its words are kept verbatim", "hard to say" in v3["reason"])
+check("the raw reply is retained for audit", v3["raw"].startswith("hard to say"))
+
+r = review(cands, {cands[0]["cluster"]: ("refuse", "x")},
+           tiers={cands[0]["cluster"]: "unresolved"},
+           provenance={"source": "agent", "provider": "stub"})
+check("an unresolved verdict is counted as such", r["n_unresolved"] == 1)
+check("and the provenance says where the verdict came from",
+      r["provenance"]["source"] == "agent")
+
 print("\n" + "=" * 64)
 if fails:
     print(f"joint: {len(fails)} FAILED - " + ", ".join(fails))
