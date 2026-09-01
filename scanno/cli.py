@@ -1043,6 +1043,69 @@ def _compare(a):
         moved = sum(1 for r in ips["rows"] if r["n_delta"])
         print(f"wrote {a.out_impact}   {len(ips['rows'])} sample x label rows, "
               f"{moved} of them change")
+
+    if a.out_h5ad or a.out_report:
+        mc = res.get("merge_candidates")
+        if mc is None:
+            print("scanno: the joint route needs --sample-key and --cluster-key",
+                  file=sys.stderr)
+            return 1
+        import numpy as np
+        import pandas as pd
+
+        import datetime as _dt
+
+        from .emit import annotate_joint, write_h5ad
+        from .joint import document, reconcile, summarise
+
+        # Route B's clustering aligned onto route A BY BARCODE, never by position: the joint
+        # object is a different clustering of the same cells and nothing guarantees it was
+        # written in route A's order. Comparing positionally would measure a shuffle.
+        A2 = ad.read_h5ad(a.a)
+        bi = B.obs.index.astype(str)
+        clu = pd.Series(np.asarray(B.obs[a.cluster_key].astype(str)), index=bi)
+        sam = pd.Series(np.asarray(B.obs[a.sample_key].astype(str)), index=bi)
+        clu, sam = clu[~clu.index.duplicated()], sam[~sam.index.duplicated()]
+        ai = A2.obs.index.astype(str)
+        n_shared = int(ai.isin(clu.index).sum())
+        if not n_shared:
+            print(f"scanno: {a.a} and {a.b} share no barcodes; they are not the same cells.",
+                  file=sys.stderr)
+            return 1
+        clu = clu.reindex(ai).fillna("__not_in_route_b__").to_numpy()
+        sam = sam.reindex(ai).fillna("__not_in_route_b__").to_numpy()
+
+        labels = np.asarray(A2.obs[a.path_key].astype(str))
+        new_labels, origin, record = reconcile(labels, clu, sam, mc["candidates"])
+        record["n_not_in_route_b"] = int(A2.n_obs - n_shared)
+        summ = summarise(labels, new_labels, sam)
+        out_key = a.out_key or f"{a.path_key}_joint"
+
+        if a.out_h5ad:
+            info = annotate_joint(A2, new_labels, origin, record, key=out_key)
+            Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
+            write_h5ad(A2, a.out_h5ad)
+            print(f"wrote {a.out_h5ad}   +obs[{info['key']!r}] and "
+                  f"obs[{info['origin_key']!r}]   {info['n_corrected']:,} cells corrected")
+
+        if a.out_report:
+            cols = [
+                {"column": a.path_key, "what it is": "the annotation being corrected",
+                 "cells differing from the one above": ""},
+                {"column": out_key,
+                 "what it is": "the same labels with every merge candidate applied",
+                 "cells differing from the one above": record["n_corrected"]},
+            ]
+            html = document({
+                "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+                "version": __import__("scanno").__version__,
+                "a_name": Path(a.a).name, "b_name": Path(a.b).name,
+                "forced_key": a.path_key, "out_key": out_key, "columns": cols,
+                "record": record, "summary": summ, "compare": res,
+            })
+            Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
+            Path(a.out_report).write_text(html, encoding="utf-8")
+            print(f"wrote {a.out_report}   {summ['n_changed']:,} cells differ")
     return 0
 
 
@@ -1794,6 +1857,19 @@ def main(argv=None):
                         "candidate, and the percentage-point change. The denominator is every "
                         "nucleus of that sample and adoption does not change it. Needs "
                         "--sample-key and --cluster-key")
+    s.add_argument("--out-h5ad", type=Path, metavar="PATH",
+                   help="write route A's object with a THIRD label column added: the "
+                        "--path-key label with every merge candidate applied, plus "
+                        "<--out-key>_origin naming per cell whether it was kept or corrected. "
+                        "The corrected column sits BESIDE the one it corrects and never "
+                        "replaces it, so reverting is a column drop. Needs --sample-key and "
+                        "--cluster-key")
+    s.add_argument("--out-key", metavar="OBS_COLUMN", default=None,
+                   help="name for the joint-route column (default <--path-key>_joint)")
+    s.add_argument("--out-report", type=Path, metavar="HTML",
+                   help="write the joint-route document: the three annotations, every cluster "
+                        "the joint route changed with its credibility, what it cost per label "
+                        "and per sample, and the populations the joint clustering ABSORBED")
     s.add_argument("--out-table", type=Path, metavar="CSV",
                    help="write the merge candidates as CSV: one row per cluster/label pair "
                         "where a label some samples carry is absent from other samples in the "

@@ -265,6 +265,30 @@ class classic_string_encoding:
         return False
 
 
+def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin"):
+    """Write the joint-route label per CELL. The only code path that does.
+
+    `classify()` proposes and this module assigns; the joint route is a fourth proposer and it
+    goes through the same door, so there is exactly one place in the package where a label
+    reaches `obs`. It REFUSES to overwrite: the joint column is a view over the forced one, and
+    a tool that silently replaced an existing column would make reverting impossible.
+    """
+    import pandas as pd
+
+    if key in adata.obs:
+        raise ValueError(
+            f"obs[{key!r}] already exists. The joint route ADDS a column beside the annotation "
+            f"it corrects and never replaces one - choose another name with --out-key.")
+    if len(labels) != adata.n_obs or len(origin) != adata.n_obs:
+        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} cells")
+    adata.obs[key] = pd.Categorical([str(x) for x in labels])
+    adata.obs[key + origin_suffix] = pd.Categorical([str(x) for x in origin])
+    adata.uns["scanno_joint_route"] = dict(record, key=key, origin_key=key + origin_suffix)
+    return {"key": key, "origin_key": key + origin_suffix,
+            "n_corrected": int(record.get("n_corrected", 0)),
+            "n_categories": int(adata.obs[key].nunique())}
+
+
 def write_h5ad(adata, path, **kw):
     """Write an object every reader can open: plain labels, classic string encoding."""
     from pathlib import Path

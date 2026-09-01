@@ -88,9 +88,12 @@ cluster's score does not change when something else is added to or removed from 
 📄 **[Why the design is this shape](docs/RATIONALE.md)** ·
 **[The classifier as built](docs/CLASSIFIER.md)**
 
-## Two annotations
+## The annotations, and what separates them
 
-scAnno delivers two label columns — independent evidence about the same cells.
+scAnno can deliver several label columns for the same cells. They differ along **two independent
+axes**, and confusing the two is the easiest way to misread the output.
+
+### Axis one — which tree the walk ran against
 
 | | |
 |---|---|
@@ -105,6 +108,54 @@ behind it.
 The scope restricts the **tree**, not the database. A subtype absent from the scope annotation
 means the cohort could not agree to make that split.
 
+### Axis two — how much the annotation is willing to assert
+
+Three columns, each built from the one above it, all shipped side by side. **Each is a view over
+its predecessor, never a replacement**, so moving back a row is a column drop and not a re-run.
+
+| column | what it is | `UNRESOLVED` |
+|---|---|---|
+| `<prefix>_path` | **the walk, as it ran.** A cluster descends while the sibling contrast clears the gap bar and stops when it does not, so a cell carries the deepest label the evidence supported — `Lymphoid` where T and NK could not be separated. A cell whose walk failed at the root is `UNRESOLVED`, and that is a statement, not a gap | possible |
+| `<prefix>_resolved_path` | **the forced assignment of the cells the walk declined.** `--resolve` pushes every `UNRESOLVED` cell from the root down to a leaf, and every cell stranded on an internal node down from there, using the argmax the walk ALREADY recorded — so nothing is scored that was not scored anyway and nothing is invented. **Their margin was below the gap bar by construction**: these are the least certain calls in the object. `<prefix>_resolved_origin` says per cell whether its leaf was reached or assigned | none |
+| `<prefix>_path_joint` | **the joint correction of the forced label.** A second, JOINT clustering of the whole cohort is annotated against the same tree, scope, store and corpus, and where a joint cluster's own label is one that some samples do not carry *anywhere*, those samples' cells in it are corrected to it. `<prefix>_path_joint_origin` says per cell `kept` or `joint_corrected` | none |
+
+Use the plain column when the question is what the annotator was willing to assert; the forced
+column where a column with no holes is needed — a composition table, a viewer colour-by, a
+semi-supervised label; and the joint column as a **second opinion about the clustering**, not as
+the answer.
+
+### The joint route is not the authority
+
+It is the **coarser** partition, and coarseness cuts both ways. It recovers populations the
+per-sample clustering merged, and it merges populations the per-sample clustering recovered —
+`scanno compare` reports both directions, and `lost_labels` names every label the first route
+delivered that the joint clustering absorbed, what absorbed it, and which samples lost it.
+Reporting only the direction where the joint route wins would present one route's losses as the
+other's gains.
+
+Nothing is gated. Every candidate is applied and each carries its cluster's **sample dominance**
+and the share of the cluster the first route **already agreed** on — a cluster that is mostly one
+animal cannot arbitrate anything, and a cluster the two routes disagree about is the joint route
+asserting something the first one denies. Both are reported on every row and neither decides,
+because a statistic does not gate an output here until it has been shown to separate correct from
+incorrect calls (`docs/PRINCIPLES.md` §3).
+
+```bash
+# route B: ONE clustering over every sample together, annotated against the SAME scope
+scanno cluster  --h5ad cohort.h5ad --out joint.h5ad --resolutions 0.25:2.0:0.25
+scanno annotate --h5ad joint.h5ad --cluster-key leiden_1p0 --tree tree.json \
+                --scope scope.json --store store.npz --species Mouse --tissue Heart --resolve
+
+# the third column, the document, and the tables — route A is corrected, never replaced
+scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
+               --path-key cell_type_forced --path-key-b scanno_resolved_path \
+               --sample-key sample --cluster-key leiden_1p0 --group-key group \
+               --out-h5ad delivered.h5ad --out-key cell_type_joint_route \
+               --out-report joint_route.html --out-table candidates.csv \
+               --out-impact impact_per_sample.csv
+```
+
+
 ## Output
 
 `--out-h5ad` writes the input object with columns added and nothing else touched — `X`, `var` and
@@ -118,6 +169,8 @@ means the cohort could not agree to make that split.
 | `scanno_gap` | the decision gap of the accepted step |
 | `scanno_survival` | how much of the node's evidence survived the sibling contrast |
 | `scanno_support` | curated tier-1/2 assertions behind the winning node |
+| `scanno_resolved_path` | with `--resolve`: the forced label, no holes, plus `scanno_resolved_origin` |
+| `scanno_path_joint` | with `compare --out-h5ad`: the joint correction, plus `scanno_path_joint_origin` |
 
 Three properties, asserted in `tests/test_emit.py`:
 
@@ -144,8 +197,9 @@ states what it cannot show, and a missing limit is counted as a defect on the re
 
 ## Commands
 
-`annotate` · `cluster` · `calibrate` · `panel` · `store-info` · `resolution` · `scope` ·
-`compare` · `agent` · `selftest`. Exit code 2 is a refusal.
+`annotate` · `cluster` · `background` · `scope` · `compare` · `report` · `embed` · `lab` ·
+`readme` · `resolution` · `calibrate` · `panel` · `store-info` · `agent` · `selftest`.
+Exit code 2 is a refusal.
 
 `resolution` picks a clustering resolution from the annotation rather than the geometry.
 `compare` scores two annotated objects against each other, naming the confused pairs rather than
@@ -178,6 +232,7 @@ only a percentage. `agent` is an optional second opinion — bring your own key 
 | ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically; the gene background would need building for the assay |
 | ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
+| ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |
 | ✅ scope: SEAL / KEEP / FORCE | voted across a cohort. A forced call is never pooled with a gap-cleared one: `<prefix>_assignment` records how each cell was assigned and `uns` carries every step's margin |
 | ✅ exclusion, provenance | equivalence to deletion asserted by digest, not only by count |
 | ✅ calibration, resolution, kNN diagnostic, two-route check, agent | all built and tested |

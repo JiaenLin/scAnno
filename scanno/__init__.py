@@ -15,7 +15,9 @@ from .corpus import (GeneSpaceMismatch, TIER_W, check_gene_space, load_assertion
                      node_weights)
 from .cluster import cluster, parse_resolutions, res_tag
 from .compare import compare as compare_routes
-from .emit import annotate_obs, format_readiness, lab_readiness, per_cell
+from .emit import (annotate_joint, annotate_obs, format_readiness, lab_readiness,
+                   per_cell)
+from .joint import reconcile as joint_reconcile
 from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cells,
                       flag_digest, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
