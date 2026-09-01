@@ -297,6 +297,38 @@ check("the impact is derived from the rows, so it cannot disagree with them",
 check("it says what adopting everything would do, and that it is not a recommendation",
       "not a recommendation" in imp["limit"])
 
+print("\n14 - the per-sample impact conserves cells and keeps its denominator")
+# Adoption RELABELS; it never adds or removes a nucleus. If the per-sample table does not
+# conserve, it is describing something other than a relabelling - and the percentage-point
+# deltas, which are the thing a reader compares across samples of different size, would be
+# measured against a denominator that moved underneath them.
+ips = with_g["merge_candidates"]["impact_per_sample"]
+by_s = {}
+for r in ips["rows"]:
+    by_s.setdefault(r["sample"], []).append(r)
+ok_tot, ok_den, ok_pct = True, True, True
+for x, rs in by_s.items():
+    if sum(r["n_before"] for r in rs) != sum(r["n_after"] for r in rs):
+        ok_tot = False
+    if len({r["n_sample_total"] for r in rs}) != 1:
+        ok_den = False
+    if sum(r["n_before"] for r in rs) != rs[0]["n_sample_total"]:
+        ok_den = False
+    for r in rs:
+        if abs(r["pct_after"] - r["pct_before"] - r["pct_delta"]) > 0.002:
+            ok_pct = False
+check("no nucleus is created or destroyed in any sample", ok_tot)
+check("the denominator is every nucleus of the sample and is the same before and after", ok_den)
+check("and the percentage-point delta is the difference of the two shares", ok_pct)
+moved = sum(r["n_delta"] for r in ips["rows"] if r["n_delta"] > 0)
+check("the cells gained equal the candidates' n_cells",
+      moved == sum(r["n_cells"] for r in with_g["merge_candidates"]["candidates"]),
+      f"{moved} moved")
+check("a sentinel row is marked as one rather than silently mixed in",
+      all(isinstance(r["is_sentinel"], bool) for r in ips["rows"]))
+check("the denominator is DECLARED, not left to be inferred",
+      "every nucleus" in ips["denominator"])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"compare: {len(fails)} FAILED - " + ", ".join(fails))

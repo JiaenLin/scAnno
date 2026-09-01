@@ -1025,6 +1025,24 @@ def _compare(a):
                                 else ";".join(f"{a_}={b_}" for a_, b_ in sorted(r[k].items()))
                                 if isinstance(r[k], dict) else r[k]) for k in cols})
         print(f"wrote {a.out_table}   {mc['n_candidates']} candidate(s)")
+    if a.out_impact:
+        mc = res.get("merge_candidates")
+        if mc is None:
+            print("scanno: --out-impact needs --sample-key and --cluster-key", file=sys.stderr)
+            return 1
+        import csv as _csv
+        ips = mc["impact_per_sample"]
+        cols = ["sample", "label", "n_sample_total", "n_before", "n_after", "n_delta",
+                "pct_before", "pct_after", "pct_delta", "is_sentinel"]
+        Path(a.out_impact).parent.mkdir(parents=True, exist_ok=True)
+        with open(a.out_impact, "w", newline="", encoding="utf-8") as fh:
+            w = _csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            for r in ips["rows"]:
+                w.writerow({k: r[k] for k in cols})
+        moved = sum(1 for r in ips["rows"] if r["n_delta"])
+        print(f"wrote {a.out_impact}   {len(ips['rows'])} sample x label rows, "
+              f"{moved} of them change")
     return 0
 
 
@@ -1770,6 +1788,12 @@ def main(argv=None):
                         "one's third question, is the change differential across the design. It "
                         "is REPORTED and takes no part in deciding what is a candidate")
     s.add_argument("--out", type=Path, help="write the comparison as JSON")
+    s.add_argument("--out-impact", type=Path, metavar="CSV",
+                   help="write the PER-SAMPLE composition impact: one row per sample x label "
+                        "with the count and the share before and after adopting every "
+                        "candidate, and the percentage-point change. The denominator is every "
+                        "nucleus of that sample and adoption does not change it. Needs "
+                        "--sample-key and --cluster-key")
     s.add_argument("--out-table", type=Path, metavar="CSV",
                    help="write the merge candidates as CSV: one row per cluster/label pair "
                         "where a label some samples carry is absent from other samples in the "

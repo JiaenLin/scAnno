@@ -152,12 +152,16 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             # Only the cells that would actually move: in this cluster, from a sample with no
             # L anywhere, and not already sentinel. A withheld nucleus was never annotated, so
             # there is no call to move.
-            moving = {}
+            moving, moving_by_sample = {}, {}
             for x in s_lack:
+                per = {}
                 for lab, n in xt[x].items():
                     if lab in sentinels or lab == L:
                         continue
                     moving[lab] = moving.get(lab, 0) + n
+                    per[lab] = per.get(lab, 0) + n
+                if per:
+                    moving_by_sample[x] = per
             if not moving:
                 continue
             M = max(sorted(moving), key=lambda k: moving[k])
@@ -190,6 +194,7 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                 "top_sample": str(vals[cnt.argmax()]),
                 "top_share_pct": round(100 * top, 1),
                 "moving_by_group": by_group,
+                "moving_by_sample": moving_by_sample,
             })
         out["b_dominance"] = {
             "threshold_pct": round(100 * DOMINANCE),
@@ -208,6 +213,7 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             "n_candidates": len(candidates),
             "candidates": sorted(candidates, key=lambda r: -r["n_cells"]),
             "impact": _impact(candidates, pa, group_key),
+            "impact_per_sample": _impact_per_sample(candidates, pa, sam, sentinels),
             "crosstab": crosstab,
         }
     return out
@@ -247,6 +253,55 @@ def _impact(candidates, pa, group_key):
                      "consequence of the table above, not a recommendation, and a candidate "
                      "whose cluster is mostly one animal or whose route-A agreement is low "
                      "should not be adopted at all."}
+
+
+def _impact_per_sample(candidates, pa, sam, sentinels):
+    """Every label's share of every sample, before and after adopting all candidates.
+
+    THE DENOMINATOR IS EVERY NUCLEUS OF THAT SAMPLE, sentinels included, and it does not change:
+    adoption moves cells between labels and adds or removes none. So a percentage-point delta
+    here is directly comparable across samples of different size, which a share of the moving
+    set would not be.
+
+    Derived from the candidate rows, like the cohort summary, so the two cannot disagree.
+    """
+    import numpy as np
+
+    samples = sorted(set(sam.tolist()))
+    before = {x: {} for x in samples}
+    total = {x: 0 for x in samples}
+    for x in samples:
+        mask = sam == x
+        total[x] = int(mask.sum())
+        labs, ns = np.unique(pa[mask], return_counts=True)
+        before[x] = {str(a_): int(b_) for a_, b_ in zip(labs, ns)}
+
+    after = {x: dict(d) for x, d in before.items()}
+    for r in candidates:
+        L = r["label_absent"]
+        for x, per in (r.get("moving_by_sample") or {}).items():
+            for frm, n in per.items():
+                after[x][frm] = after[x].get(frm, 0) - n
+                after[x][L] = after[x].get(L, 0) + n
+
+    rows = []
+    for x in samples:
+        for lab in sorted(set(before[x]) | set(after[x])):
+            b, a_ = int(before[x].get(lab, 0)), int(after[x].get(lab, 0))
+            if not b and not a_:
+                continue
+            t = max(1, total[x])
+            rows.append({
+                "sample": x, "label": lab, "n_sample_total": total[x],
+                "n_before": b, "n_after": a_, "n_delta": a_ - b,
+                "pct_before": round(100.0 * b / t, 3),
+                "pct_after": round(100.0 * a_ / t, 3),
+                "pct_delta": round(100.0 * (a_ - b) / t, 3),
+                "is_sentinel": lab in sentinels,
+            })
+    return {"denominator": "every nucleus of that sample, sentinels included; unchanged by "
+                           "adoption, so a percentage-point delta is comparable across samples",
+            "n_samples": len(samples), "rows": rows}
 
 
 def format_report(res, a_name="A", b_name="B") -> list:
