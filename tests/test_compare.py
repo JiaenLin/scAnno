@@ -329,6 +329,31 @@ check("a sentinel row is marked as one rather than silently mixed in",
 check("the denominator is DECLARED, not left to be inferred",
       "every nucleus" in ips["denominator"])
 
+print("\n15 - a population route B ABSORBED is reported, not only ones it recovered")
+# The mirror of section 12. Reporting only the direction in which the second clustering wins
+# makes it look strictly better than the first, and it is not: a coarser partition recovers some
+# populations and destroys others. Measured on a real cohort - 47 dendritic nuclei the
+# per-sample route resolved landed 45 in a 9,186-cell macrophage cluster and 2 in a lymphoid
+# one, and the joint route delivered no dendritic label anywhere.
+lab_a = [MAC] * 300 + [DC] * 6 + [NEU] * 4
+lab_b = [MAC] * 310                      # route B calls the whole thing Macrophage
+sams = (["s1"] * 150 + ["s2"] * 150) + ["s1"] * 6 + ["s2"] * 4
+clus = ["J0"] * 310
+ids = [f"c{i}" for i in range(310)]
+A = pd.DataFrame({"scanno_path": lab_a}, index=ids)
+B = pd.DataFrame({"jp": lab_b, "sample": sams, "cl": clus}, index=ids)
+res = compare(A, B, path_key="scanno_path", path_key_b="jp",
+              sample_key="sample", cluster_key="cl")
+lost = res["merge_candidates"]["lost_labels"]
+got = {r["label"]: r for r in lost["labels"]}
+check("both absorbed labels are named", set(got) == {DC, NEU}, str(sorted(got)))
+check("with the count route A resolved", got.get(DC, {}).get("n") == 6)
+check("and WHAT absorbed them", got.get(DC, {}).get("absorbed_into") == {MAC: 6})
+check("and which samples lost them", got.get(NEU, {}).get("by_sample") == {"s2": 4})
+check("a label route B DOES deliver is not reported lost", MAC not in got)
+check("and the limit says both directions are the same defect",
+      "same defect" in lost["limit"])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"compare: {len(fails)} FAILED - " + ", ".join(fails))

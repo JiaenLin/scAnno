@@ -113,7 +113,7 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             have = set(sam[pa == lab].tolist())
             lacking[lab] = [x for x in all_samples if x not in have]
 
-        rows, dominated, crosstab, candidates = [], 0, {}, []
+        rows, dominated, crosstab, candidates, cluster_label = [], 0, {}, [], {}
         for c in sorted(set(clu)):
             m = clu == c
             vals, cnt = np.unique(sam[m], return_counts=True)
@@ -142,6 +142,7 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             # the joint route ANNOTATED it as that population.
             labs_b, ns_b = np.unique(pb[m], return_counts=True)
             L = str(labs_b[ns_b.argmax()])
+            cluster_label[str(c)] = L
             if L in sentinels:
                 continue
             s_lack = [x for x in sorted(xt) if x in lacking.get(L, ())]
@@ -212,11 +213,53 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                      "that pattern follows a study's arms is the reader's to judge.",
             "n_candidates": len(candidates),
             "candidates": sorted(candidates, key=lambda r: -r["n_cells"]),
+            "lost_labels": _lost_labels(pa, pb, clu, sam, cluster_label, sentinels),
             "impact": _impact(candidates, pa, group_key),
             "impact_per_sample": _impact_per_sample(candidates, pa, sam, sentinels),
             "crosstab": crosstab,
         }
     return out
+
+
+def _lost_labels(pa, pb, clu, sam, cluster_label, sentinels):
+    """Populations route A resolved that route B's clustering ABSORBED.
+
+    THE SAME DEFECT, MEASURED IN THE OTHER DIRECTION. A merge candidate is route B resolving a
+    population route A's clustering could not separate. This is the reverse: a label route A
+    delivers that no route-B cluster is called, because its cells are a small enough minority of
+    some larger cluster that the cluster's mean carries the majority's identity.
+
+    Reporting one direction and not the other makes the second clustering look strictly better
+    than the first, which it is not - a coarser partition recovers some populations and destroys
+    others. Measured on a real cohort: 47 dendritic nuclei that the per-sample route resolved
+    landed 45 in a 9,186-cell macrophage cluster and 2 in a lymphoid one, and the joint route
+    delivered no dendritic label at all.
+    """
+    import numpy as np
+
+    delivered = {v for v in cluster_label.values() if v not in sentinels}
+    out = []
+    for lab in sorted(set(pa.tolist())):
+        if lab in sentinels or lab in delivered:
+            continue
+        mask = pa == lab
+        n = int(mask.sum())
+        if not n:
+            continue
+        absorbed, by_sample = {}, {}
+        for c, x in zip(clu[mask], sam[mask]):
+            into = cluster_label.get(str(c), "?")
+            absorbed[into] = absorbed.get(into, 0) + 1
+            by_sample[str(x)] = by_sample.get(str(x), 0) + 1
+        out.append({"label": str(lab), "n": n,
+                    "absorbed_into": dict(sorted(absorbed.items(), key=lambda kv: -kv[1])),
+                    "by_sample": dict(sorted(by_sample.items()))})
+    out.sort(key=lambda r: -r["n"])
+    return {"n_labels": len(out), "labels": out,
+            "limit": "these are populations route A resolved and route B did not. Reporting "
+                     "only the other direction would make route B look strictly better than "
+                     "route A; a coarser partition recovers some populations and destroys "
+                     "others, and both are the same defect."}
 
 
 def _impact(candidates, pa, group_key):
@@ -336,7 +379,15 @@ def format_report(res, a_name="A", b_name="B") -> list:
         if mc["n_candidates"]:
             L.append("      co-membership is not a label: these cells GROUP with cells called")
             L.append("      that, which is not the same as scoring as it.")
-        imp = mc.get("impact") or {}
+        lost = mc.get("lost_labels") or {}
+    if lost.get("labels"):
+        L.append(f"  {b_name} LOST {lost['n_labels']} label(s) that {a_name} resolved:")
+        for r in lost["labels"]:
+            into = ", ".join(f"{k} {v}" for k, v in list(r["absorbed_into"].items())[:3])
+            L.append(f"      {r['n']:>6,}  {r['label']}   absorbed into: {into}")
+        L.append("      the same merge, in the other direction. A coarser partition recovers")
+        L.append("      some populations and destroys others.")
+    imp = mc.get("impact") or {}
         if imp.get("labels"):
             L.append(f"  IF EVERY CANDIDATE WERE ADOPTED - {imp['n_cells_total']:,} cells move:")
             for r in imp["labels"]:
