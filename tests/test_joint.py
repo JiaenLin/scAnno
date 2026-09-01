@@ -306,11 +306,17 @@ check("so no cell keeps it in the joint column", int((nn == RARE).sum()) == 0,
       str(int((nn == RARE).sum())))
 check("all six moved onto their own cluster's route-B call",
       int((oo == ABSORBED).sum()) == 6, str(int((oo == ABSORBED).sum())))
-check("which is what route B actually says about them",
-      list(nn[20:26]) == [MP] * 6, str(list(nn[20:26])))
-check("the record names the absorbed label and where it went",
-      rc["absorbed"][RARE]["n"] == 6 and rc["absorbed"][RARE]["into"] == {MP: 6},
+# The fixture splits those six across TWO joint clusters, and that is the point rather than an
+# accident: four sit where route B says Macrophage and two where it says Fibroblast. Cells of one
+# absorbed label must land on DIFFERENT targets, because that is what route B says about them
+# individually - pooling them onto one label would be a claim it never made.
+check("each cell lands on its OWN cluster's route-B call",
+      list(nn[20:26]) == [MP] * 4 + [FB] * 2, str(list(nn[20:26])))
+check("the record names the absorbed label and every target it split across",
+      rc["absorbed"][RARE]["n"] == 6 and rc["absorbed"][RARE]["into"] == {MP: 4, FB: 2},
       str(rc.get("absorbed")))
+check("one absorbed label reaching more than one target is representable",
+      len(rc["absorbed"][RARE]["into"]) == 2)
 check("recovered and absorbed are counted APART",
       rc["n_recovered"] + rc["n_absorbed"] == rc["n_corrected"])
 check("and the record says why both directions exist", "strictly better" in rc["directions"])
