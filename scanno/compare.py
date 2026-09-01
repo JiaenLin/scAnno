@@ -380,14 +380,14 @@ def format_report(res, a_name="A", b_name="B") -> list:
             L.append("      co-membership is not a label: these cells GROUP with cells called")
             L.append("      that, which is not the same as scoring as it.")
         lost = mc.get("lost_labels") or {}
-    if lost.get("labels"):
-        L.append(f"  {b_name} LOST {lost['n_labels']} label(s) that {a_name} resolved:")
-        for r in lost["labels"]:
-            into = ", ".join(f"{k} {v}" for k, v in list(r["absorbed_into"].items())[:3])
-            L.append(f"      {r['n']:>6,}  {r['label']}   absorbed into: {into}")
-        L.append("      the same merge, in the other direction. A coarser partition recovers")
-        L.append("      some populations and destroys others.")
-    imp = mc.get("impact") or {}
+        if lost.get("labels"):
+            L.append(f"  {b_name} LOST {lost['n_labels']} label(s) that {a_name} resolved:")
+            for r in lost["labels"]:
+                into = ", ".join(f"{k} {v}" for k, v in list(r["absorbed_into"].items())[:3])
+                L.append(f"      {r['n']:>6,}  {r['label']}   absorbed into: {into}")
+            L.append("      the same merge, in the other direction. A coarser partition recovers")
+            L.append("      some populations and destroys others.")
+        imp = mc.get("impact") or {}
         if imp.get("labels"):
             L.append(f"  IF EVERY CANDIDATE WERE ADOPTED - {imp['n_cells_total']:,} cells move:")
             for r in imp["labels"]:
