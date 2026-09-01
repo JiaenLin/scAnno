@@ -1096,16 +1096,58 @@ def _compare(a):
                  "what it is": "the same labels with every merge candidate applied",
                  "cells differing from the one above": record["n_corrected"]},
             ]
+            rev = None
+            if a.verdicts:
+                rev = _json.loads(Path(a.verdicts).read_text(encoding="utf-8"))
             html = document({
                 "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "version": __import__("scanno").__version__,
                 "a_name": Path(a.a).name, "b_name": Path(a.b).name,
                 "forced_key": a.path_key, "out_key": out_key, "columns": cols,
-                "record": record, "summary": summ, "compare": res,
+                "record": record, "summary": summ, "compare": res, "review": rev,
             })
             Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
             Path(a.out_report).write_text(html, encoding="utf-8")
             print(f"wrote {a.out_report}   {summ['n_changed']:,} cells differ")
+    return 0
+
+
+def _joint_review(a):
+    """Record a graded verdict against each joint-route candidate."""
+    import json as _json
+
+    from .joint import review
+
+    res = _json.loads(Path(a.compare).read_text(encoding="utf-8"))
+    mc = (res or {}).get("merge_candidates")
+    if not mc:
+        print(f"scanno: {a.compare} carries no merge_candidates. Run `scanno compare` with "
+              f"--sample-key and --cluster-key first.", file=sys.stderr)
+        return 1
+    verdicts = {}
+    for spec in a.verdict:
+        if "=" not in spec or ":" not in spec.split("=", 1)[1]:
+            print(f"scanno: REFUSE - {spec!r} is not CLUSTER=GRADE:REASON", file=sys.stderr)
+            return REFUSE
+        cl, rest = spec.split("=", 1)
+        grade, reason = rest.split(":", 1)
+        verdicts[cl.strip()] = (grade.strip(), reason)
+
+    rec = review(mc["candidates"], verdicts)
+    for e in rec["errors"]:
+        print(f"scanno: REFUSE - {e}", file=sys.stderr)
+    if rec["errors"]:
+        return REFUSE
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(a.out).write_text(_json.dumps(rec, indent=1, default=str), encoding="utf-8")
+    print(f"wrote {a.out}   {rec['n_graded']} of {rec['n_candidates']} candidates graded")
+    for g in rec["grades"]:
+        print(f"  {g:<10} {rec['n_cells_by_grade'].get(g, 0):>7,} cells")
+    if rec["ungraded"]:
+        print(f"  UNGRADED   {rec['n_cells_ungraded']:>7,} cells in cluster(s) "
+              f"{', '.join(rec['ungraded'])}")
+        print("  an ungraded candidate is NOT adopted by silence - it is in the column like "
+              "every other and simply has nobody's name against it")
     return 0
 
 
@@ -1866,6 +1908,9 @@ def main(argv=None):
                         "--cluster-key")
     s.add_argument("--out-key", metavar="OBS_COLUMN", default=None,
                    help="name for the joint-route column (default <--path-key>_joint)")
+    s.add_argument("--verdicts", type=Path, metavar="JSON",
+                   help="verdicts from `scanno joint-review`, rendered into --out-report. A "
+                        "candidate with no verdict is listed as ungraded rather than assumed")
     s.add_argument("--out-report", type=Path, metavar="HTML",
                    help="write the joint-route document: the three annotations, every cluster "
                         "the joint route changed with its credibility, what it cost per label "
@@ -1875,6 +1920,19 @@ def main(argv=None):
                         "where a label some samples carry is absent from other samples in the "
                         "same cluster ENTIRELY. Needs --sample-key and --cluster-key")
     s.set_defaults(fn=_compare)
+
+    s = sub.add_parser("joint-review",
+                       help="record a graded verdict against each joint-route candidate")
+    s.add_argument("--compare", required=True, type=Path, metavar="JSON",
+                   help="the JSON `scanno compare --out` wrote for this run")
+    s.add_argument("--verdict", action="append", default=[], metavar="CLUSTER=GRADE:REASON",
+                   help="one per candidate, e.g. --verdict '20=refuse:every corrected cell "
+                        "falls in one level of the design'. GRADE is adopt, refuse or "
+                        "undecided; the reason is required and is recorded verbatim. Repeatable")
+    s.add_argument("--out", required=True, type=Path, metavar="JSON",
+                   help="where the verdicts are written. Pass it back to "
+                        "`scanno compare --verdicts` to render them into the document")
+    s.set_defaults(fn=_joint_review)
 
     s = sub.add_parser("report",
                        help="the report: one cohort document, plus one page per sample")

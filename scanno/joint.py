@@ -139,6 +139,58 @@ def summarise(before, after, samples, sentinels=("EXCLUDED", "UNRESOLVED")):
                            "relabels and never adds or removes, so it does not move."}
 
 
+GRADES = ("adopt", "refuse", "undecided")
+
+
+def review(candidates, verdicts):
+    """Grade each candidate, from a CLOSED vocabulary, with a reason that is required.
+
+    THE MEASUREMENT IS THE TOOL'S AND THE JUDGEMENT IS NOT. `compare` names which samples lack a
+    label and stops there, because deciding that a study's arms differ is not the tool's call and
+    a gate that tried it was built here once and removed. But somebody still has to decide, and a
+    decision taken in conversation and typed into a document is not reproducible, cannot be
+    checked against the run it describes, and is gone with the session that made it.
+
+    So the decision is recorded HERE, against the candidate it is about, with its reason, and the
+    report renders it. It changes no label: the joint column is written by `reconcile` and a
+    verdict is a reader's note on it.
+
+    Refuses a grade for a cluster that is not a candidate, a grade outside the vocabulary, and an
+    empty reason. Reports every candidate with NO verdict, because an ungraded candidate is not
+    adopted by silence.
+    """
+    by_cluster = {str(r["cluster"]): r for r in candidates}
+    graded, errors = {}, []
+    for cl, (grade, reason) in verdicts.items():
+        cl = str(cl)
+        if cl not in by_cluster:
+            errors.append(f"cluster {cl!r} is not a candidate; candidates are "
+                          f"{', '.join(sorted(by_cluster)) or 'none'}")
+            continue
+        if grade not in GRADES:
+            errors.append(f"cluster {cl!r}: grade {grade!r} is not one of {', '.join(GRADES)}")
+            continue
+        if not str(reason).strip():
+            errors.append(f"cluster {cl!r}: a verdict needs a reason")
+            continue
+        r = by_cluster[cl]
+        graded[cl] = {"cluster": cl, "grade": grade, "reason": str(reason).strip(),
+                      "label_absent": r["label_absent"], "n_cells": r["n_cells"],
+                      "pct_route_a_agrees": r.get("pct_route_a_agrees"),
+                      "top_share_pct": r.get("top_share_pct")}
+    ungraded = sorted(set(by_cluster) - set(graded), key=lambda c: -by_cluster[c]["n_cells"])
+    return {"schema": "scanno/joint-review@1", "grades": GRADES,
+            "n_candidates": len(by_cluster), "n_graded": len(graded),
+            "verdicts": graded, "ungraded": ungraded, "errors": errors,
+            "n_cells_by_grade": {g: sum(v["n_cells"] for v in graded.values()
+                                        if v["grade"] == g) for g in GRADES},
+            "n_cells_ungraded": sum(by_cluster[c]["n_cells"] for c in ungraded),
+            "limit": "a verdict is a reader's note recorded against the run. It changes no "
+                     "label: the joint column is what `reconcile` wrote, and an ungraded "
+                     "candidate is NOT adopted by silence - it is applied in the column like "
+                     "every other and simply has nobody's name against it."}
+
+
 def document(payload) -> str:
     """One self-contained page: the three annotations, what moved, and what it cost."""
     from .report import _CSS, _esc, _table
@@ -196,6 +248,47 @@ def document(payload) -> str:
                  + "</div>")
     else:
         P.append("<p>No label the first route delivered is absent from the joint route.</p>")
+
+    imp = mc.get("impact") or {}
+    if imp.get("group_key"):
+        P.append(f'<h2>Across <code>{_esc(imp["group_key"])}</code></h2>')
+        tot = {}
+        for r in imp["labels"]:
+            for g, n in (r.get("by_group") or {}).items():
+                tot[g] = tot.get(g, 0) + n
+        P.append(_table(["label", "gained", "lost", "net"] + sorted(tot),
+                        [dict({"label": r["label"], "gained": r["n_gained"],
+                               "lost": r["n_lost"], "net": r["n_delta"]},
+                              **{g: (r.get("by_group") or {}).get(g, 0) for g in tot})
+                         for r in imp["labels"] if r["n_gained"]],
+                        numeric=("gained", "lost", "net") + tuple(sorted(tot))))
+        P.append('<div class="cannot"><b>What this cannot show.</b> Whether that pattern '
+                 'follows the study&rsquo;s design. This names the levels it was given and does '
+                 'not know what they mean; a level receiving none of a correction, or all of '
+                 'it, is a fact about the correction and the reader&rsquo;s to weigh. Deciding '
+                 'that a study&rsquo;s arms differ is not this tool&rsquo;s call.</div>')
+
+    rev = payload.get("review")
+    if rev:
+        P.append("<h2>Verdicts</h2>")
+        P.append(f'<p>{rev["n_graded"]} of {rev["n_candidates"]} candidates carry a recorded '
+                 f'verdict. ' + " &middot; ".join(
+                     f'<b>{_esc(g)}</b> {rev["n_cells_by_grade"].get(g, 0):,} cells'
+                     for g in rev["grades"]) +
+                 f' &middot; ungraded {rev["n_cells_ungraded"]:,} cells.</p>')
+        P.append(_table(["cluster", "grade", "label", "cells", "reason"],
+                        [{"cluster": v["cluster"], "grade": v["grade"],
+                          "label": v["label_absent"], "cells": v["n_cells"],
+                          "reason": v["reason"]}
+                         for v in sorted(rev["verdicts"].values(), key=lambda v: -v["n_cells"])],
+                        numeric=("cells",)))
+        if rev["ungraded"]:
+            P.append(f'<div class="cannot"><b>Ungraded.</b> cluster(s) '
+                     f'{_esc(", ".join(rev["ungraded"]))} carry no verdict. '
+                     + _esc(rev["limit"]) + "</div>")
+        else:
+            P.append(f'<div class="cannot"><b>What this cannot show.</b> {_esc(rev["limit"])}'
+                     "</div>")
 
     P.append("<h2>Per sample</h2>")
     P.append(_table(["sample", "label", "n_before", "n_after", "pct_before", "pct_after",
