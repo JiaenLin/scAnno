@@ -207,6 +207,32 @@ check("and the total moved is the number of corrected cells",
       impx["n_cells_total"] == recx["n_corrected"],
       f'{impx["n_cells_total"]} vs {recx["n_corrected"]}')
 
+print("\n11 - a verdict is recorded against a candidate, and refuses to be vague")
+from scanno.joint import GRADES, review  # noqa: E402
+cl0 = cands[0]["cluster"]
+r = review(cands, {cl0: ("refuse", "the corrected cells all fall in one level of a factor "
+                         "that is confounded with something technical")})
+check("the verdict is recorded against its candidate", r["verdicts"][cl0]["grade"] == "refuse")
+check("with the reason kept verbatim", "confounded" in r["verdicts"][cl0]["reason"])
+check("and the evidence it was graded on travels with it",
+      r["verdicts"][cl0]["n_cells"] == cands[0]["n_cells"]
+      and r["verdicts"][cl0]["pct_route_a_agrees"] == cands[0]["pct_route_a_agrees"])
+check("a cluster that is not a candidate REFUSES",
+      review(cands, {"nope": ("adopt", "x")})["errors"])
+check("a grade outside the vocabulary REFUSES",
+      review(cands, {cl0: ("looks_fine", "x")})["errors"])
+check("an empty reason REFUSES", review(cands, {cl0: ("adopt", "   ")})["errors"])
+check("the vocabulary is closed and small", set(GRADES) == {"adopt", "refuse", "undecided"})
+
+print("\n12 - an ungraded candidate is NOT adopted by silence")
+r0 = review(cands, {})
+check("it is reported as ungraded", r0["ungraded"] == [cl0], str(r0["ungraded"]))
+check("with its cells counted", r0["n_cells_ungraded"] == cands[0]["n_cells"])
+check("and the record says silence is not adoption",
+      "not adopted by silence" in r0["limit"])
+check("a verdict changes NO label - the column is what reconcile wrote",
+      "changes no label" in r0["limit"])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"joint: {len(fails)} FAILED - " + ", ".join(fails))
