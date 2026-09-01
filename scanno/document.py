@@ -313,6 +313,11 @@ class Assembler:
         """Draw `fid` and return its HTML block, or a NAMED ABSENCE if it cannot be drawn."""
         stem = name or fid
         path = self.out / "figures" / self.subdir / f"{stem}.png"
+        # POPPED BEFORE `draw`, and that ordering is the whole of it: `subject` is this method's
+        # own argument and no figure function takes one. Popped after the call it reached six
+        # figures as an unexpected keyword, every one of them failed with a TypeError, and the
+        # blocks they belonged to rendered with no figures at all.
+        subject = kw.pop("subject", None) or kw.get("what")
         try:
             draw(fid, self.ctx, path, **kw)
         except NotDrawable as e:
@@ -343,9 +348,6 @@ class Assembler:
         # is indistinguishable in the text, in the figure list and in a reader's memory of it.
         if kw.get("by"):
             title = f"{title}, by {kw['by']}"
-        # `subject` is consumed here and never reaches the figure: it says WHAT WAS DRAWN, which
-        # every kind needs in its title, while only some kinds take a `what` of their own.
-        subject = kw.pop("subject", None) or kw.get("what")
         if subject:
             title = f"{title} — {subject}"
         cap = caption or LEGENDS.get(fid, "")

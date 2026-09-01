@@ -167,6 +167,12 @@ for b in re.split(r"<h3>(?=the )", html):
     name = re.sub(r"<[^>]+>", "", re.match(r"(.*?)</h3>", b, re.S).group(1)).strip()
     titles = [re.sub(r"<[^>]+>", "", t).strip()
               for t in re.findall(r"<h3>(F\d+ · .*?)</h3>", b, re.S)]
+    # A BLOCK WITH NO FIGURES IS A FAILURE, NOT A SKIP. This read `if not titles: continue`,
+    # so when six figures died with a TypeError and their blocks rendered empty, the check
+    # walked past them and reported green. A check that passes when the thing it checks is
+    # ABSENT is worse than no check: the silence reads as a result.
+    check(f"{name}: has figures at all", bool(titles),
+          "the block rendered with none - look for FAILED TO DRAW on the page")
     if not titles:
         continue
     check(f"{name}: every figure names {col.group(1)!r}",
@@ -177,6 +183,10 @@ for b in re.split(r"<h3>(?=the )", html):
         seen.setdefault(t, []).append(name)
 dupes = {t: bs for t, bs in seen.items() if len(set(bs)) > 1}
 check("and no title is reused across two different blocks", not dupes, str(dupes))
+# A figure that RAISED renders as a defect block rather than an absence, and the two must never
+# be confused - so the page is checked for it directly rather than inferred from a count.
+check("no figure failed to draw", "FAILED TO DRAW" not in html,
+      f'{html.count("FAILED TO DRAW")} figure(s) raised')
 
 print("\n" + "=" * 64)
 if fails:
