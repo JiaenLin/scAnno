@@ -174,6 +174,39 @@ check("reconcile cannot be given a design",
       not any(w in p_ for p_ in inspect.signature(reconcile).parameters
               for w in ("factor", "design", "condition", "arm", "group")))
 
+print("\n10 - the predicted summary and the delivered column agree, label for label")
+# Two routes to one quantity: `compare._impact` predicts from the candidate rows, and
+# `joint.summarise` counts the arrays that were actually written. They disagreed on the first
+# real object - 552 predicted for a label the column held 455 at - because a label that GAINS
+# from one candidate and LOSES to another was only ever credited with the gain. Binding them
+# here is what stops that coming back, and the fixture makes one label do both.
+lab2 = [DC] * 6 + [MP] * 4 + [MP] * 4 + [DC] * 5 + [FB] * 3
+lb2 = [DC] * 14 + [FB] * 8
+sm2 = ["s1"] * 6 + ["s2"] * 4 + ["s3"] * 4 + ["s1"] * 5 + ["s2"] * 3
+cl2 = ["J1"] * 14 + ["J2"] * 8
+i2 = [f"d{i}" for i in range(22)]
+Ax = pd.DataFrame({"lab": lab2}, index=i2)
+Bx = pd.DataFrame({"jp": lb2, "sample": sm2, "cl": cl2}, index=i2)
+rx = compare(Ax, Bx, path_key="lab", path_key_b="jp", sample_key="sample", cluster_key="cl")
+cx = rx["merge_candidates"]["candidates"]
+nx, ox, recx = reconcile(np.array(lab2), np.array(cl2), np.array(sm2), cx)
+sx = summarise(np.array(lab2), nx, np.array(sm2))
+impx = rx["merge_candidates"]["impact"]
+truth = {r["label"]: r["n_after"] for r in sx["per_label"]}
+pred = {r["label"]: r["n_route_a_after"] for r in impx["labels"]}
+bad = {k: (pred[k], truth.get(k)) for k in pred if truth.get(k) != pred[k]}
+check("a label in this fixture both gains and loses",
+      any(r["n_gained"] and r["n_lost"] for r in impx["labels"]),
+      str([(r["label"].split(chr(47))[-1], r["n_gained"], r["n_lost"])
+           for r in impx["labels"]]))
+check("every PREDICTED after-count equals the DELIVERED one", not bad, str(bad))
+check("gains and losses balance to zero",
+      sum(r["n_delta"] for r in impx["labels"]) == 0,
+      str([(r["label"].split(chr(47))[-1], r["n_delta"]) for r in impx["labels"]]))
+check("and the total moved is the number of corrected cells",
+      impx["n_cells_total"] == recx["n_corrected"],
+      f'{impx["n_cells_total"]} vs {recx["n_corrected"]}')
+
 print("\n" + "=" * 64)
 if fails:
     print(f"joint: {len(fails)} FAILED - " + ", ".join(fails))

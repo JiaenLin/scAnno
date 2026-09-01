@@ -271,27 +271,43 @@ def _impact(candidates, pa, group_key):
     """
     import numpy as np
 
-    rows = {}
+    # A LABEL CAN BOTH GAIN AND LOSE, and until this counted the losses it did not.
+    # `n_route_a_after` was `now + gained`, so any label that is also the SOURCE of another
+    # candidate was over-reported. Measured on a real cohort: Neural gains 303 cells from one
+    # candidate and loses 97 to another, and this said 552 where the delivered column held 455 -
+    # a third too high, on the row the whole reading turned on. Caught only because
+    # `joint.summarise()` counts the two delivered arrays instead of predicting from these rows.
+    rows, lost = {}, {}
     for r in candidates:
         L = r["label_absent"]
-        d = rows.setdefault(L, {"label": L, "n_would_move": 0, "n_clusters": 0,
+        d = rows.setdefault(L, {"label": L, "n_gained": 0, "n_lost": 0, "n_clusters": 0,
                                 "from_labels": {}, "by_group": {}})
-        d["n_would_move"] += r["n_cells"]
+        d["n_gained"] += r["n_cells"]
         d["n_clusters"] += 1
         d["from_labels"][r["label_carried"]] = (
             d["from_labels"].get(r["label_carried"], 0) + r["n_cells"])
         for g, n in (r.get("moving_by_group") or {}).items():
             d["by_group"][g] = d["by_group"].get(g, 0) + n
+        for per in (r.get("moving_by_sample") or {}).values():
+            for frm, n in per.items():
+                lost[frm] = lost.get(frm, 0) + n
+    for frm in lost:
+        rows.setdefault(frm, {"label": frm, "n_gained": 0, "n_lost": 0, "n_clusters": 0,
+                              "from_labels": {}, "by_group": {}})
     out = []
     for L, d in rows.items():
         now = int((pa == L).sum())
+        d["n_lost"] = int(lost.get(L, 0))
+        d["n_delta"] = d["n_gained"] - d["n_lost"]
         d["n_route_a_now"] = now
-        d["n_route_a_after"] = now + d["n_would_move"]
-        d["fold_change"] = (round((now + d["n_would_move"]) / now, 2) if now else None)
+        d["n_route_a_after"] = now + d["n_delta"]
+        d["fold_change"] = (round((now + d["n_delta"]) / now, 2) if now else None)
         out.append(d)
-    out.sort(key=lambda r: -r["n_would_move"])
+    out.sort(key=lambda r: -abs(r["n_delta"]))
     return {"group_key": group_key, "labels": out,
-            "n_cells_total": int(sum(r["n_would_move"] for r in out)),
+            "n_cells_total": int(sum(r["n_gained"] for r in out)),
+            "conservation": "gains and losses balance: a correction relabels and never adds or "
+                            "removes one, so sum(n_delta) is zero.",
             "limit": "this is what adopting EVERY candidate would do. It is an arithmetic "
                      "consequence of the table above, not a recommendation, and a candidate "
                      "whose cluster is mostly one animal or whose route-A agreement is low "
@@ -394,7 +410,8 @@ def format_report(res, a_name="A", b_name="B") -> list:
                 g = ("   " + ", ".join(f"{k} {v}" for k, v in sorted(r["by_group"].items()))
                      if r["by_group"] else "")
                 L.append(f"      {r['label']}: {r['n_route_a_now']:,} -> "
-                         f"{r['n_route_a_after']:,}  (x{r['fold_change']}){g}")
+                         f"{r['n_route_a_after']:,}  (x{r['fold_change']}, "
+                         f"+{r['n_gained']:,}/-{r['n_lost']:,}){g}")
             L.append("      an arithmetic consequence of the rows above, not a recommendation.")
     L.append("  Agreement means the labels do not depend on the clustering scheme. It does NOT")
     L.append("  mean they are correct: both routes share the tree, the corpus and the")
