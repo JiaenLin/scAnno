@@ -1195,11 +1195,14 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     if not rel:
         body.append(_absent_section(
             "per-call statistics",
-            f"obs carries none of {ctx.label_key.replace('_cell_type', '_depth')}, "
-            f"{ctx.label_key.replace('_cell_type', '_gap')}, "
-            f"{ctx.label_key.replace('_cell_type', '_support')} or "
-            f"{ctx.label_key.replace('_cell_type', '_survival')}. Name the annotation with "
-            f"--label-key so they are found, or re-run the annotation to write them."))
+            "obs carries no per-call statistic under any name this run searched: "
+            + (", ".join(f"`{k}`" for k in sorted(getattr(ctx, "stat_keys_tried", ())))
+               or "none were derivable from the keys given")
+            + ". Name the annotation with --label-key / --path-key so they are found, or "
+              "re-run the annotation to write them. An object carrying only LABEL columns - "
+              "one assembled by `scanno embed`, whose --label-obs is a drop-list - has the "
+              "labels and not the statistics, and this section is empty for that reason "
+              "rather than because the calls were unreliable."))
     if rel:
         rows = [[f"depth {r['depth']}", f"{r['calls']:,}",
                  f"{r['nuclei']:,} ({r['pct']:.1f}%)", _num(r["median_gap"], 2),

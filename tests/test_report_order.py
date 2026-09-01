@@ -188,6 +188,21 @@ check("and no title is reused across two different blocks", not dupes, str(dupes
 check("no figure failed to draw", "FAILED TO DRAW" not in html,
       f'{html.count("FAILED TO DRAW")} figure(s) raised')
 
+print("\n8 - an absent statistic names the columns it looked for")
+# The message derived the names by `label_key.replace("_cell_type", "_gap")`, a no-op on a key
+# holding neither substring - so on the object this report is actually run over it told the
+# reader obs carried none of `cell_type`, `cell_type`, `cell_type` or `cell_type`. The context
+# now records every name it searched and the message reads them back.
+check("the context recorded what it searched for", bool(ctx.stat_keys_tried),
+      str(sorted(ctx.stat_keys_tried)))
+check("and never the label column itself",
+      "cell_type" not in ctx.stat_keys_tried and "cell_compartment" not in ctx.stat_keys_tried,
+      str(sorted(ctx.stat_keys_tried)))
+check("the page names them", all(f"`{k}`" in html for k in sorted(ctx.stat_keys_tried))
+      or "no per-call statistic" not in html, str(sorted(ctx.stat_keys_tried)))
+check("and says WHY a label-only object has none",
+      "no per-call statistic" not in html or "drop-list" in html)
+
 print("\n" + "=" * 64)
 if fails:
     print(f"report order: {len(fails)} FAILED - " + ", ".join(fails))

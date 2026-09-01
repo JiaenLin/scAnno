@@ -114,7 +114,17 @@ def classify(Z, usable, tree, store=None, assertions=None, gap_min=None, exclude
             # and could not be de-biased without costing accuracy (scanno/corpus.py). A win on
             # a panel that lost 40% of its evidence to better-cited neighbours is a weaker
             # result than the same gap on an intact one, and nothing else in the output says so.
-            trace.append({"at": node, "top": order[srt[0]], "gap": gap,
+            # THE RUNNER-UP AND THE SCORES, because a call cannot be audited from its winner.
+            # `gap` says the margin was 0.64; it does not say 0.64 over WHAT, and without that a
+            # reader cannot tell a call that beat a near-tie from one that beat nothing close.
+            # Measured on a real cohort: a cluster 72% of whose cells another route called
+            # cardiomyocyte was labelled Neural, and the run recorded the label and the margin
+            # and nothing about what lost - so the reason had to be reconstructed from a marker
+            # table, which is inference and not a record.
+            trace.append({"at": node, "top": order[srt[0]],
+                          "second": (order[srt[1]] if len(order) > 1 else None),
+                          "scores": {str(order[i]): round(float(s[i]), 4) for i in srt[:6]},
+                          "gap": gap,
                           "survival": (float(surv[srt[0]]) if surv is not None
                                        else float("nan")),
                           "cover": (float(cover[srt[0]]) if cover is not None

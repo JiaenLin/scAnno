@@ -697,7 +697,7 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
-    from .emit import (annotate_obs, force_provenance, format_independent_l1,
+    from .emit import (annotate_obs, force_provenance, trace_provenance, format_independent_l1,
                        format_plain_labels, format_readiness, format_reindex, independent_l1,
                        lab_readiness, reindex_by_symbol, write_h5ad)
 
@@ -712,6 +712,13 @@ def _annotate(a):
                          support=support or None, suffix=a.label_suffix,
                          assignment=force_rec is not None,
                          resolved=resolve_rec is not None)
+        # ALWAYS, not only when something was forced. The walk computes what every label beat and
+        # by how much, at every step, and it was thrown away - a run could say a cluster is
+        # `Neural, gap 0.64` and nothing about what Neural beat, so the reason for a call had to
+        # be reconstructed from a marker table rather than read from the run.
+        _tk = trace_provenance(A, res, prefix=a.label_prefix, suffix=a.label_suffix)
+        print(f"    why each cluster got its label in uns[{_tk!r}]: every node scored, the "
+              f"winner, the runner-up and the margin between them")
         if force_rec is not None:
             # WRITTEN EVEN WHEN NOTHING WAS FORCED. An all-`gap` column on a scoped run is the
             # statement "this scope was honoured and stranded nobody here", which is a result;

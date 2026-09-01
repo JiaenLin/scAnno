@@ -874,6 +874,44 @@ def format_independent_l1(rec) -> list:
     return L
 
 
+def trace_provenance(adata, res, prefix=DEFAULT_PREFIX, suffix=""):
+    """Persist WHY each cluster got its label: every node scored, what won, what came second.
+
+    `classify()` computes this at every step of every walk and returns it, and until now it was
+    thrown away - the object carried the winning label and the margin of the accepted step, and
+    nothing about the alternatives. A margin of 0.64 does not say 0.64 over WHAT, so a call that
+    beat a near-tie and one that beat nothing close read identically, and "why is this cluster
+    labelled that" could only be answered by reconstructing it from a marker table.
+
+    Per CLUSTER rather than per cell, because it is a property of the cluster's mean profile and
+    one row per nucleus would repeat it a thousand times. Sorted by cluster id as a string so it
+    survives the HDF5 round trip, which cannot key a group by an integer.
+    """
+    key = f"{prefix}_trace{suffix}"
+    out = {}
+    for r in res:
+        if r.get("excluded"):
+            continue
+        out[str(r["cluster"])] = {
+            "label": str(r.get("label", "")), "depth": int(r.get("depth", 0)),
+            "steps": [{"at": str(t.get("at", "")), "top": str(t.get("top", "")),
+                       "second": ("" if t.get("second") is None else str(t["second"])),
+                       "gap": float(t.get("gap", float("nan"))),
+                       "scores": {str(k): float(v) for k, v in (t.get("scores") or {}).items()}}
+                      for t in (r.get("trace") or [])],
+        }
+    adata.uns[key] = _uns_safe({
+        "schema": "scanno/trace@1", "column": f"{prefix}_path{suffix}",
+        "n_clusters": len(out), "clusters": out,
+        "limit": "scores are the cluster mean standardised against the STORE'S GENE BACKGROUND, "
+                 "not against this run. They are comparable between clusters and between runs "
+                 "of the same store, and they are not probabilities. A large score means the "
+                 "profile is unusual for that gene set against the background - which favours a "
+                 "marker that is absent elsewhere over one that is merely abundant.",
+    })
+    return key
+
+
 def force_provenance(adata, record, prefix=DEFAULT_PREFIX, suffix="", scope=""):
     """Record HOW the forced cells were assigned, in `uns`, beside the column that says WHICH.
 

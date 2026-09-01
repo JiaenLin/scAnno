@@ -94,6 +94,9 @@ class Context:
         # partition is the coarser of the two and absorbs populations as well as recovering them.
         self.joint_route_key = joint_route_key or None
         self._group_order = [str(g) for g in (group_order or [])]
+        #: Every name searched for a per-call statistic, so an absence can say what it looked for
+        #: rather than guessing the names a second time and guessing differently.
+        self.stat_keys_tried = set()
 
         frames = []
         for name, A in self.objects:
@@ -144,6 +147,12 @@ class Context:
             for stat in ("depth", "gap", "support", "survival"):
                 for k in (self.path_key.replace("_path", f"_{stat}"),
                           self.label_key.replace("_cell_type", f"_{stat}")):
+                    # RECORD WHAT WAS LOOKED FOR, so an absence can name it. The message that
+                    # reports one derived the names by the same replace, which is a no-op on a
+                    # key holding neither substring - it told the reader obs carried none of
+                    # `cell_type`, `cell_type`, `cell_type` or `cell_type`.
+                    if k not in (self.path_key, self.label_key):
+                        self.stat_keys_tried.add(k)
                     if k in (self.path_key, self.label_key) or k not in obs:
                         continue
                     _v = pd.to_numeric(pd.Series(np.asarray(obs[k])), errors="coerce")
