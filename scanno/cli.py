@@ -1104,59 +1104,36 @@ def _compare(a):
                  "cells differing from the one above": record["n_corrected"]},
             ]
             rev = None
-            if a.review_command or a.review_provider:
-                # THE REVIEW HAPPENS HERE, inside the run that measured the evidence. A verdict
-                # recorded by a separate invocation is a second run against numbers that may
-                # have moved; this one cannot be out of date with what it grades.
-                from .agent import CommandProvider, HTTPProvider
-                from .joint import parse_verdict, review, review_prompt
-                if a.review_command:
-                    prov = CommandProvider(a.review_command, model=a.review_model)
-                else:
-                    try:
-                        prov = HTTPProvider(preset=a.review_provider, model=a.review_model,
-                                            temperature=a.review_temperature)
-                    except (RuntimeError, ValueError) as e:
-                        print(f"scanno: {e}", file=sys.stderr)
-                        return REFUSE
-                lost = mc.get("lost_labels")
-                gk = (mc.get("impact") or {}).get("group_key")
-                verdicts, tiers, calls = {}, {}, []
-                print(f"review: {len(mc['candidates'])} candidate(s) to "
-                      f"{prov.name}/{getattr(prov, 'model', '?')}")
-                for c in mc["candidates"]:
-                    prompt = review_prompt(c, lost=lost, group_key=gk)
-                    try:
-                        reply = prov.complete(prompt)
-                    except Exception as e:                      # noqa: BLE001
-                        print(f"scanno: REFUSE - the reviewer failed on cluster "
-                              f"{c['cluster']}: {e}", file=sys.stderr)
-                        return REFUSE
-                    v = parse_verdict(reply)
-                    verdicts[str(c["cluster"])] = (v["grade"], v["reason"])
-                    tiers[str(c["cluster"])] = v["tier"]
-                    calls.append({"cluster": str(c["cluster"]),
-                                  "prompt_sha256": _hashlib.sha256(
-                                      prompt.encode("utf-8")).hexdigest()[:16],
-                                  "tier": v["tier"], "raw": v["raw"]})
-                    print(f"  cluster {c['cluster']:<5} {v['grade']:<10} [{v['tier']}]")
-                rev = review(mc["candidates"], verdicts, tiers=tiers, provenance={
-                    "source": "agent", "provider": prov.name,
-                    "model": str(getattr(prov, "model", "")),
-                    "temperature": a.review_temperature, "calls": calls,
-                    "limit": "an LLM call is not reproducible by re-running it. The prompt "
-                             "hash and the raw reply are recorded so the verdict can be "
-                             "audited even though it cannot be repeated."})
-                for e in rev["errors"]:
-                    print(f"scanno: REFUSE - {e}", file=sys.stderr)
-                if rev["errors"]:
-                    return REFUSE
-                if a.verdicts:
-                    Path(a.verdicts).parent.mkdir(parents=True, exist_ok=True)
-                    Path(a.verdicts).write_text(_json.dumps(rev, indent=1, default=str),
-                                                encoding="utf-8")
-                    print(f"wrote {a.verdicts}")
-            elif a.verdicts and Path(a.verdicts).exists():
+            # THE ADAPTOR, NOT AN AGENT. No key, no resident model, no subprocess: the run
+            # WRITES DOWN what a reviewer has to read, and `scanno joint-review` reads a verdict
+            # back. A working agent - a person, or one in a session - does the judging in
+            # between, following skills/joint-route-review. A tool that needed a provider to be
+            # reviewable would be unreviewable on a compute node, which is where it runs.
+            from .joint import review as _review
+            from .joint import review_prompt as _prompt
+            _lost = mc.get("lost_labels")
+            _gk = (mc.get("impact") or {}).get("group_key")
+            _req = ["# Review request — " + str(Path(a.a).name),
+                    "",
+                    f"{len(mc['candidates'])} candidate(s). Grade each one: adopt, refuse or "
+                    "undecided, with a reason citing the numbers below.",
+                    "Record them with:",
+                    "",
+                    "    scanno joint-review --payload <this run>/report/joint_route.json \\",
+                    "        --verdict '<cluster>=<grade>:<reason>' ... \\",
+                    "        --out <this run>/compare/verdicts.json \\",
+                    "        --out-report <this run>/report/joint_route.html",
+                    "",
+                    "The procedure, the four criteria and the four prohibitions are in "
+                    "skills/joint-route-review.", ""]
+            for _c in mc["candidates"]:
+                _req += ["", "---", "", _prompt(_c, lost=_lost, group_key=_gk)]
+            if a.out_report:
+                _rp = Path(a.out_report).with_name("review_request.md")
+                _rp.parent.mkdir(parents=True, exist_ok=True)
+                _rp.write_text("\n".join(_req), encoding="utf-8")
+                print(f"wrote {_rp}   {len(mc['candidates'])} candidate(s) awaiting a verdict")
+            if a.verdicts and Path(a.verdicts).exists():
                 rev = _json.loads(Path(a.verdicts).read_text(encoding="utf-8"))
             elif a.verdicts:
                 # NO REVIEWER WAS ATTACHED, and that is a result rather than an absence. Every
@@ -1175,16 +1152,72 @@ def _compare(a):
                 print(f"wrote {a.verdicts}   NO reviewer attached - "
                       f"{rev['n_candidates']} candidate(s) ungraded, "
                       f"{rev['n_cells_ungraded']:,} cells")
-            html = document({
+            payload = {
                 "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "version": __import__("scanno").__version__,
                 "a_name": Path(a.a).name, "b_name": Path(a.b).name,
                 "forced_key": a.path_key, "out_key": out_key, "columns": cols,
                 "record": record, "summary": summ, "compare": res, "review": rev,
-            })
+            }
+            html = document(payload)
             Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
             Path(a.out_report).write_text(html, encoding="utf-8")
+            # THE PAYLOAD, BESIDE THE PAGE. Everything the document was built from, so a verdict
+            # can be folded in later WITHOUT re-clustering, re-annotating or re-comparing - the
+            # review is a reader's step and must not cost a run.
+            _pj = Path(a.out_report).with_suffix(".json")
+            _pj.write_text(_json.dumps(payload, indent=1, default=str), encoding="utf-8")
+            print(f"wrote {_pj}   the document's own inputs, for `scanno joint-review`")
             print(f"wrote {a.out_report}   {summ['n_changed']:,} cells differ")
+    return 0
+
+
+def _joint_review(a):
+    """Record verdicts against a finished run, and re-render its document. No analysis."""
+    import json as _json
+
+    from .joint import document, review
+
+    payload = _json.loads(Path(a.payload).read_text(encoding="utf-8"))
+    mc = ((payload.get("compare") or {}).get("merge_candidates")) or {}
+    if not mc.get("candidates"):
+        print(f"scanno: {a.payload} carries no candidates to grade.", file=sys.stderr)
+        return 1
+    verdicts = {}
+    for spec in a.verdict:
+        if "=" not in spec or ":" not in spec.split("=", 1)[1]:
+            print(f"scanno: REFUSE - {spec!r} is not CLUSTER=GRADE:REASON", file=sys.stderr)
+            return REFUSE
+        cl, rest = spec.split("=", 1)
+        grade, reason = rest.split(":", 1)
+        verdicts[cl.strip()] = (grade.strip(), reason)
+
+    rec = review(mc["candidates"], verdicts,
+                 provenance={"source": "recorded", "reviewer": str(a.reviewer or "unnamed"),
+                             "payload": str(a.payload),
+                             "limit": "a verdict is a reader's note recorded against the run. "
+                                      "It changes no label."})
+    for e in rec["errors"]:
+        print(f"scanno: REFUSE - {e}", file=sys.stderr)
+    if rec["errors"]:
+        return REFUSE
+
+    print(f"{rec['n_graded']} of {rec['n_candidates']} candidate(s) graded"
+          f"{' by ' + a.reviewer if a.reviewer else ''}")
+    for g in rec["grades"]:
+        print(f"  {g:<10} {rec['n_cells_by_grade'].get(g, 0):>7,} cells")
+    if rec["ungraded"]:
+        print(f"  UNGRADED   {rec['n_cells_ungraded']:>7,} cells in cluster(s) "
+              f"{', '.join(rec['ungraded'])}   — ungraded is NOT approved")
+    if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out).write_text(_json.dumps(rec, indent=1, default=str), encoding="utf-8")
+        print(f"wrote {a.out}")
+    if a.out_report:
+        payload["review"] = rec
+        Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out_report).write_text(document(payload), encoding="utf-8")
+        print(f"wrote {a.out_report}")
     return 0
 
 
@@ -1946,16 +1979,6 @@ def main(argv=None):
                         "--cluster-key")
     s.add_argument("--out-key", metavar="OBS_COLUMN", default=None,
                    help="name for the joint-route column (default <--path-key>_joint)")
-    s.add_argument("--review-command", metavar="CMD", dest="review_command",
-                   help="BRING YOUR OWN AGENT, IN THIS RUN. Any command that reads a prompt on "
-                        "stdin and writes a reply on stdout. Each candidate is put to it with "
-                        "the evidence this run measured, the reply is resolved onto adopt / "
-                        "refuse / undecided, and the verdicts are rendered into --out-report. "
-                        "One invocation, one set of results - the review is not a second pass")
-    s.add_argument("--review-provider", metavar="NAME", dest="review_provider",
-                   help="the same, from a hosted provider; the key comes from the environment")
-    s.add_argument("--review-model", metavar="NAME", dest="review_model")
-    s.add_argument("--review-temperature", type=float, default=0.0, dest="review_temperature")
     s.add_argument("--verdicts", type=Path, metavar="JSON",
                    help="where the verdicts are written when --review-command or "
                         "--review-provider is used, and read from when neither is. A candidate "
@@ -1969,6 +1992,24 @@ def main(argv=None):
                         "where a label some samples carry is absent from other samples in the "
                         "same cluster ENTIRELY. Needs --sample-key and --cluster-key")
     s.set_defaults(fn=_compare)
+
+    s = sub.add_parser("joint-review",
+                       help="record a graded verdict against each joint-route candidate and "
+                            "re-render the document. Reads only what the run already wrote")
+    s.add_argument("--payload", required=True, type=Path, metavar="JSON",
+                   help="`joint_route.json`, written beside the document by `scanno compare "
+                        "--out-report`. Everything the page was built from, so recording a "
+                        "verdict costs no clustering, no annotation and no comparison")
+    s.add_argument("--verdict", action="append", default=[], metavar="CLUSTER=GRADE:REASON",
+                   help="e.g. --verdict '20=refuse:every corrected cell falls in one level of a "
+                        "confounded factor'. GRADE is adopt, refuse or undecided; the reason is "
+                        "required and recorded verbatim. Repeatable")
+    s.add_argument("--reviewer", default="", metavar="NAME",
+                   help="who or what graded these, recorded with them")
+    s.add_argument("--out", type=Path, metavar="JSON", help="write the verdicts")
+    s.add_argument("--out-report", type=Path, metavar="HTML",
+                   help="re-render the document with the verdicts in it")
+    s.set_defaults(fn=_joint_review)
 
     s = sub.add_parser("report",
                        help="the report: one cohort document, plus one page per sample")

@@ -234,7 +234,7 @@ check("and the record says silence is not adoption",
 check("a verdict changes NO label - the column is what reconcile wrote",
       "changes no label" in r0["limit"])
 
-print("\n13 - the reviewer is called with EVIDENCE, and its free text is resolved")
+print("\n13 - the request carries the EVIDENCE, and a free-text verdict resolves")
 from scanno.joint import BRIEF, parse_verdict, review_prompt  # noqa: E402
 # The candidate must have been MEASURED with a group column, or it carries no per-level
 # breakdown and the prompt has nothing to show. Building one here rather than asserting on a
@@ -329,6 +329,31 @@ n2, o2, rc2 = reconcile(np.array(la), np.array(lb2ok), np.array(cl), np.array(sm
                         r2["merge_candidates"]["candidates"])
 check("a label route B delivers is left alone", int((n2 == RARE).sum()) == 6)
 check("and nothing is recorded as absorbed", not rc2["absorbed"], str(rc2["absorbed"]))
+
+print("\n16 - the review needs no provider: the run writes, an agent reads, the tool records")
+import inspect  # noqa: E402
+
+import scanno.cli as _cli  # noqa: E402
+src = inspect.getsource(_cli)
+blk = src[src.index("def _compare("):src.index("def _scope(")]
+check("nothing in the compare path constructs a provider",
+      "HTTPProvider" not in blk and "CommandProvider" not in blk,
+      "a provider is built where the review happens")
+check("and no review flag names one",
+      not any(w in src for w in ("--review-command", "--review-provider")))
+check("the adaptor exists as its own verb", "sub.add_parser(\"joint-review\"" in src)
+check("and it reads a PAYLOAD rather than the objects",
+      "--payload" in src and "joint_route.json" in src)
+
+# The recorded verdict is a reader's note with a name on it, and it is not a model call.
+rr = review(cands, {cands[0]["cluster"]: ("adopt", "the two routes already agree on most of it")},
+            provenance={"source": "recorded", "reviewer": "a person"})
+check("the verdict records WHO graded it", rr["provenance"]["reviewer"] == "a person")
+check("and that it was recorded rather than generated",
+      rr["provenance"]["source"] == "recorded")
+check("no key, model or temperature is anywhere in the record",
+      not any(k in rr["provenance"] for k in ("model", "temperature", "provider")),
+      str(sorted(rr["provenance"])))
 
 print("\n" + "=" * 64)
 if fails:
