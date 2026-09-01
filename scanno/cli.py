@@ -1980,9 +1980,10 @@ def main(argv=None):
     s.add_argument("--out-key", metavar="OBS_COLUMN", default=None,
                    help="name for the joint-route column (default <--path-key>_joint)")
     s.add_argument("--verdicts", type=Path, metavar="JSON",
-                   help="where the verdicts are written when --review-command or "
-                        "--review-provider is used, and read from when neither is. A candidate "
-                        "with no verdict is listed as ungraded rather than assumed")
+                   help="verdicts to render into --out-report, from `scanno joint-review`. "
+                        "Where the file does not exist yet it is WRITTEN, recording every "
+                        "candidate as ungraded - a review that has not happened is a result and "
+                        "a candidate with no verdict is never assumed to be approved")
     s.add_argument("--out-report", type=Path, metavar="HTML",
                    help="write the joint-route document: the three annotations, every cluster "
                         "the joint route changed with its credibility, what it cost per label "
