@@ -44,6 +44,26 @@ QC_COLUMNS = ("total_counts", "n_genes", "n_genes_by_counts", "pct_counts_mt",
 NOT_A_FACTOR = {"sample", "barcode", "cell_id", "path", "flag", "_obj", "group"}
 
 
+def sweep_stem(path_key):
+    """`scanno_path_r1p0` -> `scanno_path`; anything else unchanged.
+
+    The split happens only when what follows `_r` PARSES AS A RESOLUTION. Splitting on the bare
+    substring is what shipped, and `_r` occurs inside ordinary column names: it turned
+    `scanno_resolved_path_scope` into `scanno`, so every sweep column written beside that key
+    was looked for under the wrong stem, none matched, and the per-resolution figures reported
+    an object that had never been swept. A heuristic that reads a name is a hypothesis about
+    it; this one now checks.
+    """
+    if "_r" in str(path_key):
+        stem, tag = str(path_key).rsplit("_r", 1)
+        try:
+            float(tag.replace("p", "."))
+            return stem
+        except ValueError:
+            pass
+    return str(path_key)
+
+
 class Context:
     """Everything the reports need. `objects` is [(name, AnnData), ...] read in backed mode
     where possible; the matrix is opened only if a figure that needs it is requested."""
@@ -971,7 +991,7 @@ class Context:
         A = self._matrix(sample)
         if A is None:
             return []
-        stem = self.path_key.rsplit("_r", 1)[0] if "_r" in self.path_key else self.path_key
+        stem = sweep_stem(self.path_key)
         out = []
         for c in A.obs.columns:
             if c.startswith(stem + "_r"):
@@ -988,7 +1008,7 @@ class Context:
             return None
         key = self.path_key
         if resolution is not None:
-            stem = self.path_key.rsplit("_r", 1)[0] if "_r" in self.path_key else self.path_key
+            stem = sweep_stem(self.path_key)
             tag = str(resolution).replace(".", "p")
             for cand in (f"{stem}_r{tag}", f"scanno_path_r{tag}"):
                 if cand in A.obs:
@@ -1011,7 +1031,7 @@ class Context:
         A = self._matrix(sample)
         if A is None:
             return None
-        stem = self.path_key.rsplit("_r", 1)[0] if "_r" in self.path_key else "scanno"
+        stem = sweep_stem(self.path_key)
         raw = str(resolution if resolution is not None else self.chosen_resolution or "")
         # A resolution appears in a column name spelled at least three ways - `leiden_1.0`,
         # `leiden_1p0`, `leiden_r1p0` - depending on which tool wrote it, and `1.0` and `1`

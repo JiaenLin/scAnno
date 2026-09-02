@@ -145,6 +145,50 @@ def sweep_stability(labels_by_res, tree=None, groups=None, depth=None,
     return out
 
 
+def consensus(labels_by_res, depth=None):
+    """The label a cell keeps ACROSS the sweep, and how much of the sweep agrees with it.
+
+    `sweep_stability` answers "which resolution is stable" - a number per RESOLUTION. This
+    answers "which cells are stable" - a label and a fraction per CELL - and they are different
+    questions with different consumers. A route that corrects one route's labels with another's
+    needs the second: a correction resting on cells the sweep agrees about is a different claim
+    from one resting on cells whose identity changes every time the granularity is nudged, and
+    a per-resolution stability score cannot tell those two apart because it has already averaged
+    over the cells.
+
+    `labels_by_res` maps a resolution to an array of one label PATH per cell, every array the
+    same length and in the same cell order - the same input `sweep_stability` takes, so a caller
+    holds one dict and asks it two questions.
+
+    Returns `(labels, agreement)`:
+
+      labels     the per-cell modal path across the sweep
+      agreement  the share of resolutions carrying that path, in (0, 1]. 1.0 means every
+                 resolution agreed; 1/len(sweep) means every resolution said something different
+                 and the modal label won on a tie-break, which is the honest reading.
+
+    SENTINELS ARE NOT SPECIAL-CASED, deliberately. If most of the sweep left a cell UNRESOLVED
+    then UNRESOLVED is what the sweep says about it, and promoting a minority named call over it
+    would be the guess `classify` exists not to make. A consensus of UNRESOLVED simply means no
+    correction can be founded on that cell, which is the conservative direction.
+
+    REFUSES a sweep of fewer than two resolutions, for the same reason `sweep_stability` does:
+    an agreement column that is 1.0 for every cell by construction carries no information and
+    reads exactly like one that was measured.
+    """
+    res = list(labels_by_res)
+    if len(res) < 2:
+        raise ValueError("a consensus needs at least two resolutions to agree or disagree")
+    L = {r: _truncate(labels_by_res[r], depth) for r in res}
+    n = len(L[res[0]])
+    if any(len(L[r]) != n for r in res):
+        raise ValueError("every resolution must label the same cells, in the same order")
+    stack = np.vstack([L[r] for r in res])
+    modal = _modal(stack)
+    agreement = (stack == modal).sum(axis=0) / float(len(res))
+    return modal, agreement.astype(float)
+
+
 def derived_tolerance(values, floor=MIN_TOL):
     """How much a metric moves between ADJACENT resolutions, as the scale of its own noise.
 

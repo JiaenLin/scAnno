@@ -98,6 +98,7 @@ def reconcile(labels, labels_b, clusters, samples, candidates,
                       "from": {str(a): int(b) for a, b in zip(froms, counts)},
                       "samples": sorted(lack),
                       "pct_route_a_agrees": r.get("pct_route_a_agrees"),
+                      "pct_sweep_agrees": r.get("pct_sweep_agrees"),
                       "top_share_pct": r.get("top_share_pct"),
                       "top_sample": r.get("top_sample")})
 
@@ -213,6 +214,13 @@ Grade each on the evidence given, and nothing else:
    tool deliberately does not make.
 4. WHAT THE JOINT ROUTE LOST. It is the coarser partition and destroys populations as well as
    recovering them.
+5. SWEEP AGREEMENT - how much of the joint route's OWN resolution sweep calls these same cells
+   L. A population too rare to form a cluster at one granularity forms one at another, so a call
+   every resolution makes and a call one resolution makes are different evidence even when their
+   agreement and dominance are identical. Low sweep agreement means the correction is a property
+   of the granularity that was chosen rather than of the cells. NOT MEASURED means route B was
+   annotated at one resolution and this cannot be judged - which is not the same as low, and
+   must not be graded as though it were.
 
 "This would make the groups differ" is not a reason to refuse, and "this would make them agree"
 is not a reason to adopt. The reason must be about whether the evidence SEPARATES a merged
@@ -241,6 +249,15 @@ def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=Tru
          f"{cand.get('pct_route_a_agrees')}% of this cluster {cand['label_absent']}",
          f"  SAMPLE DOMINANCE - {cand.get('top_share_pct')}% of it is one sample "
          f"({cand.get('top_sample')})",
+         # How much of route B's OWN resolution sweep carries this label, over exactly the cells
+         # that would move. An absence is stated rather than left blank: a candidate measured
+         # without a sweep and one measured across a sweep that mostly disagreed would otherwise
+         # read identically, and they are opposite findings.
+         (f"  SWEEP AGREEMENT - {cand['pct_sweep_agrees']}% of the joint route's own resolution "
+          f"sweep calls these cells {cand['label_absent']}"
+          if cand.get("pct_sweep_agrees") is not None else
+          "  SWEEP AGREEMENT - NOT MEASURED; route B was annotated at one resolution only, so "
+          "how much this call depends on the granularity is unknown"),
          f"  samples carrying no {cand['label_absent']} anywhere: "
          f"{', '.join(cand.get('samples_lacking') or [])}"]
     if per_sample or cand.get("moving_by_sample"):
@@ -370,11 +387,16 @@ def document(payload) -> str:
              "from": ", ".join(f"{k} {v}" for k, v in sorted(m["from"].items(),
                                                              key=lambda kv: -kv[1])[:3]),
              "route A agrees": f'{m["pct_route_a_agrees"]}%',
+             # An unmeasured sweep is NAMED, not left blank. A candidate whose sweep mostly
+             # disagreed and one measured without a sweep are opposite findings, and an empty
+             # cell reads as the first.
+             "sweep agrees": (f'{m["pct_sweep_agrees"]}%'
+                              if m.get("pct_sweep_agrees") is not None else "not measured"),
              "most one sample": f'{m["top_share_pct"]}% {m["top_sample"]}',
              "samples lacking it": ", ".join(m["samples"])}
             for m in sorted(rec["moved"], key=lambda r: -r["n"])]
-    P.append(_table(["cluster", "to", "cells", "from", "route A agrees", "most one sample",
-                     "samples lacking it"], rows, numeric=("cells",)))
+    P.append(_table(["cluster", "to", "cells", "from", "route A agrees", "sweep agrees",
+                     "most one sample", "samples lacking it"], rows, numeric=("cells",)))
     P.append('<div class="cannot"><b>What this cannot show.</b> ' + _esc(rec["gating"]) + " "
              + _esc(rec["limit"]) + "</div>")
 

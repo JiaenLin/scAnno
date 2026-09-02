@@ -14,7 +14,7 @@ to be reviewable would be unreviewable on a compute node, which is where it runs
 
 | | |
 |---|---|
-| `report/review_request.md` | **read this.** One block per candidate: what the joint route calls the cluster, how many cells would move, what they currently carry, the agreement, the sample dominance, which samples lack the label, where the corrected cells fall across the design, and what this clustering *lost* elsewhere |
+| `report/review_request.md` | **read this.** One block per candidate: what the joint route calls the cluster, how many cells would move, what they currently carry, the agreement, the sample dominance, the sweep agreement, which samples lack the label, where the corrected cells fall across the design, and what this clustering *lost* elsewhere |
 | `report/joint_route.json` | everything the document was built from. `joint-review` reads it, so recording a verdict costs **no clustering, no annotation and no comparison** |
 | `compare/verdicts.json` | what you write. Until you do, it records every candidate as ungraded — which is a result, not a gap |
 
@@ -30,7 +30,7 @@ The measuring stops where the judging starts, and **the judging is yours.** It i
 against the run rather than said in conversation, because a decision taken in a session cannot be
 checked against the run it describes and is gone when the session ends.
 
-## The four criteria
+## The five criteria
 
 1. **Agreement** — the share of the cluster the first route *already* calls that label. High means
    the joint route resolved a population the first route mostly agreed on. Low means it asserts
@@ -44,6 +44,13 @@ checked against the run it describes and is gone when the session ends.
    evaluate for you**, and the reason this step exists.
 4. **What the joint route lost.** It is the coarser partition and absorbs populations as well as
    recovering them. A review quoting only the recoveries is half a review.
+5. **Sweep agreement** — how much of the joint route's *own* resolution sweep calls these same
+   cells that label. A population too rare to form a cluster at one granularity forms one at
+   another, so a call every resolution makes and a call one resolution makes are different
+   evidence **even when their agreement and dominance are identical**. Low means the correction
+   is a property of the granularity that was chosen rather than of the cells. **`not measured`
+   means route B was annotated at one resolution and this cannot be judged** — which is not the
+   same as low, and must not be graded as though it were.
 
 ## Recording
 

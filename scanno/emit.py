@@ -299,6 +299,62 @@ def _uns_safe(v):
     return "" if v is None else v
 
 
+def sweep_path(adata, res, y, flag=None, *, prefix=DEFAULT_PREFIX, suffix="", tag,
+               resolved=False):
+    """ONE column for one resolution of a sweep: the label PATH, and nothing else.
+
+    `annotate_obs` writes five to eleven columns because the answer needs all of them - the
+    label, its depth, its margin, how it was assigned. A SWEEP does not: its columns exist to be
+    read together by `scanno resolution` and `resolution.consensus`, both of which read paths
+    and nothing else. Writing the full set per resolution put sixty-four columns on an object
+    for eight resolutions, of which eight were read.
+
+    The name is `<prefix>_resolved_path<suffix>_r<tag>` - `_r<tag>` LAST, which is where
+    `context.sweep_stem` looks for it, so the per-resolution figures find the sweep by the same
+    rule that names it.
+
+    Returns the column name written.
+    """
+    import pandas as pd
+
+    cols = per_cell(res, y, flag=flag)
+    name = ("resolved_path" if resolved else "path")
+    key = f"{prefix}_{name}{suffix}_r{tag}"
+    adata.obs[key] = pd.Categorical([str(v) for v in cols[name]])
+    return key
+
+
+def consensus_columns(adata, labels, agreement, record, *, prefix=DEFAULT_PREFIX, suffix=""):
+    """The label the SWEEP agrees on, and how much of it agreed. Two columns, one statement.
+
+    They are never written apart. The label alone reads as an ordinary annotation and hides that
+    it was voted; the agreement alone names no label to be about. A consumer that corrects one
+    route with another needs both - which label, and on how much of the sweep it rests - and a
+    reader handed only the first cannot tell a call every resolution made from one that won on a
+    tie-break.
+
+    REFUSES to overwrite, like every other label-writing path here: the consensus sits beside
+    the sweep it was voted from, and a replaced column cannot be reverted to.
+    """
+    import pandas as pd
+
+    key = f"{prefix}_consensus{suffix}"
+    akey = f"{prefix}_consensus_agreement{suffix}"
+    for k in (key, akey):
+        if k in adata.obs:
+            raise ValueError(
+                f"obs[{k!r}] already exists. The consensus ADDS columns beside the sweep it was "
+                f"voted from and never replaces one.")
+    if len(labels) != adata.n_obs or len(agreement) != adata.n_obs:
+        raise ValueError(
+            f"labels/agreement are {len(labels)}/{len(agreement)} for {adata.n_obs} cells")
+    adata.obs[key] = pd.Categorical([str(x) for x in labels])
+    adata.obs[akey] = np.asarray(agreement, dtype=np.float32)
+    adata.uns[f"{prefix}_consensus_provenance{suffix}"] = _uns_safe(dict(record, key=key,
+                                                                        agreement_key=akey))
+    return {"key": key, "agreement_key": akey}
+
+
 def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin"):
     """Write the joint-route label per CELL. The only code path that does.
 

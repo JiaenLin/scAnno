@@ -378,9 +378,18 @@ def _annotate(a):
                 print(f"          only in --l1-tree: {', '.join(only_l1)}")
 
     A = ad.read_h5ad(a.h5ad)
-    if a.cluster_key not in A.obs:
-        print(f"scanno: {a.h5ad} has no obs column {a.cluster_key!r}. Available: "
-              f"{', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
+    # ONE key or many. `a.cluster_key` is collapsed to the FIRST here and never read as a list
+    # again, so every line below this is the single-resolution run it always was - which is the
+    # whole of "adding resolutions changes nothing that was already written".
+    sweep_keys = list(a.cluster_key) if isinstance(a.cluster_key, (list, tuple)) \
+        else [a.cluster_key]
+    seen_k = set()
+    sweep_keys = [k for k in sweep_keys if not (k in seen_k or seen_k.add(k))]
+    a.cluster_key = sweep_keys[0]
+    missing_k = [k for k in sweep_keys if k not in A.obs]
+    if missing_k:
+        print(f"scanno: {a.h5ad} has no obs column(s) {', '.join(map(repr, missing_k))}. "
+              f"Available: {', '.join(list(A.obs.columns)[:12])}", file=sys.stderr)
         return 1
     src = A.raw if (a.use_raw and A.raw is not None) else A
     # WHICH NAMES THE CORPUS WILL BE MATCHED ON. A corpus is keyed by SYMBOL, and an object is
@@ -697,6 +706,65 @@ def _annotate(a):
     # --report and no --out-h5ad raised UnboundLocalError after every library had been
     # annotated. An import scoped to one branch and used in another is invisible until the
     # branch that does not import it runs.
+    # --- THE SWEEP: the SAME walk at every further resolution ----------------------------
+    #
+    # A per-sample clustering cannot separate a population too small to form a cluster in it,
+    # and neither can a joint one at a single granularity. The same cells partitioned finer
+    # reach a size a cluster can hold; partitioned coarser they do not. So the granularity is
+    # not a setting the run happens to have - it is a hypothesis the run can TEST, by walking
+    # every resolution and reading how much of the sweep agrees about each cell.
+    #
+    # Nothing here is a second MODE. It is the same `classify` over the same Z-machinery against
+    # the same tree, the same scope, the same gene background and the same bar - only `y`
+    # differs, which is what a resolution IS. The store is loaded once above and shared, so the
+    # sweep's resolutions are comparable to each other by construction rather than by hope: a
+    # background rebuilt per resolution would make every column a different question.
+    def _res_tag(key):
+        """`leiden_1p0` -> `1p0`. The tag the sweep column is named by, as the key spells it."""
+        t = str(key).rsplit("_", 1)[-1]
+        t = t[1:] if t[:1] == "r" else t
+        try:
+            float(t.replace("p", "."))
+            return t
+        except ValueError:
+            return "".join(ch for ch in str(key) if ch.isalnum())
+
+    sweep = [(_res_tag(a.cluster_key), res, y)]
+    if len(sweep_keys) > 1:
+        from .force import apply_force as _apply_force, resolve_to_leaf as _resolve
+        from .step import node_scorer as _node_scorer
+        print("")
+        print(f"sweep: {len(sweep_keys)} resolutions, one walk each, same tree / scope / "
+              f"background / bar")
+        for k in sweep_keys[1:]:
+            lab_k = A.obs[k].astype(str).values
+            cats_k = sorted(set(lab_k), key=lambda t: (len(t), t))
+            y_k = np.array([cats_k.index(v) for v in lab_k])
+            if flag is not None:
+                M_k, D_k, cn_k = cluster_profile(X[~flag], y_k[~flag], len(cats_k))
+                drop_k = unprofilable(y_k, ~flag, len(cats_k))
+            else:
+                M_k, D_k, cn_k = cluster_profile(X, y_k, len(cats_k))
+                drop_k = None
+            Z_k, usable_k, _st_k = standardise(M_k, D_k, genes, store, exclude=drop_k)
+            res_k = classify(Z_k, usable_k, tree, store=None if asr else store, assertions=asr,
+                             gap_min=a.gap_min, exclude=drop_k)
+            sc_k = None
+            if force_paths:
+                sc_k = _node_scorer(Z_k, usable_k, tree, store=None if asr else store,
+                                   assertions=asr)
+                res_k, _ = _apply_force(res_k, force_paths, counts=cn_k, tree=tree, scorer=sc_k)
+            if a.resolve:
+                if sc_k is None:
+                    sc_k = _node_scorer(Z_k, usable_k, tree, store=None if asr else store,
+                                       assertions=asr)
+                res_k, _ = _resolve(res_k, tree=tree, scorer=sc_k, counts=cn_k)
+            n_un_k = sum(1 for r in res_k if r["path"] == "UNRESOLVED")
+            print(f"    {k:<20} {len(cats_k):>4} clusters   "
+                  f"{len({r['path'] for r in res_k}):>3} label(s)   "
+                  f"{n_un_k} UNRESOLVED")
+            sweep.append((_res_tag(k), res_k, y_k))
+
     from .emit import (annotate_obs, force_provenance, trace_provenance, format_independent_l1,
                        format_plain_labels, format_readiness, format_reindex, independent_l1,
                        lab_readiness, reindex_by_symbol, write_h5ad)
@@ -741,6 +809,58 @@ def _annotate(a):
                 print(line)
             if col not in w:
                 w.append(col)
+
+        # THE SWEEP COLUMNS AND THE VOTE OVER THEM. Inside `write_columns` and not beside the
+        # walk above, because this is the function both --out-h5ad and --report go through, and
+        # a sweep written in only one of them is a report describing columns its object lacks -
+        # the defect this function was factored out to stop.
+        if len(sweep) > 1:
+            from .emit import consensus_columns, sweep_path
+            from .resolution import consensus as _consensus
+            cols_by_tag = {}
+            for tag, res_k, y_k in sweep:
+                key = sweep_path(A, res_k, y_k, flag=flag, prefix=a.label_prefix,
+                                 suffix=a.label_suffix, tag=tag,
+                                 resolved=resolve_rec is not None)
+                cols_by_tag[float(tag.replace("p", "."))] = key
+                w.append(key)
+            labs_by_res = {r: np.asarray(A.obs[c].astype(str))
+                           for r, c in sorted(cols_by_tag.items())}
+            cons, agree = _consensus(labs_by_res)
+            info = consensus_columns(
+                A, cons, agree, {
+                    "resolutions": [float(r) for r in sorted(cols_by_tag)],
+                    "columns": [cols_by_tag[r] for r in sorted(cols_by_tag)],
+                    "cluster_keys": list(sweep_keys),
+                    "store_digest": str(getattr(store, "digest", "")),
+                    "tree": str(a.tree), "scope": str(a.scope or ""),
+                    "gap_min": float(a.gap_min),
+                    "rule": "per-cell modal path across the sweep; agreement is the share of "
+                            "resolutions carrying it. Sentinels are not special-cased - a cell "
+                            "the sweep mostly left UNRESOLVED reads UNRESOLVED.",
+                },
+                prefix=a.label_prefix, suffix=a.label_suffix)
+            w += [info["key"], info["agreement_key"]]
+            full = float((agree == 1.0).mean())
+            print("")
+            print(f"  {info['key']}: the label a cell keeps across {len(sweep)} resolutions   "
+                  f"{len(set(map(str, cons)))} label(s)")
+            print(f"  {info['agreement_key']}: {100*full:.1f}% of cells agree at EVERY "
+                  f"resolution; median agreement {float(np.median(agree)):.2f}")
+            # WHICH resolution the sweep itself prefers - REPORTED, never applied. --cluster-key
+            # decides the run; a tool that silently re-partitioned on its own preference would
+            # deliver an answer for a clustering the caller never named.
+            try:
+                from .resolution import pick_resolution as _pick
+                _p = _pick(labs_by_res, tree=tree,
+                           groups=(np.asarray(A.obs[a.sample_key].astype(str))
+                                   if a.sample_key and a.sample_key in A.obs else None),
+                           depths=(1,))
+                print(f"  the sweep's own preferred resolution is {_p['pick']} "
+                      f"(decided by {_p['reason']}); this run used {a.cluster_key}. "
+                      f"REPORTED, not applied.")
+            except Exception as _e:                      # noqa: BLE001 - reporting only
+                print(f"  could not score the sweep: {_e}")
         return w
 
     if a.out_h5ad:
@@ -1005,8 +1125,13 @@ def _compare(a):
     if a.path_key_b and a.path_key_b not in B.obs:
         print(f"scanno: {a.b} has no obs column {a.path_key_b!r}.", file=sys.stderr)
         return 1
+    if a.agreement_key and a.agreement_key not in B.obs:
+        print(f"scanno: {a.b} has no obs column {a.agreement_key!r}. Annotate route B with more "
+              f"than one --cluster-key first.", file=sys.stderr)
+        return 1
     res = compare(A.obs, B.obs, path_key=a.path_key, path_key_b=a.path_key_b,
-                  sample_key=a.sample_key, cluster_key=a.cluster_key, group_key=a.group_key)
+                  sample_key=a.sample_key, cluster_key=a.cluster_key, group_key=a.group_key,
+                  agreement_key=a.agreement_key)
     print("")
     for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem):
         print(line)
@@ -1022,15 +1147,16 @@ def _compare(a):
         import csv as _csv
         cols = ["cluster", "n_cluster", "label_absent", "label_carried", "samples_with",
                 "samples_lacking", "n_cells", "n_route_a_agrees", "pct_route_a_agrees",
-                "top_sample", "top_share_pct", "moving_by_group"]
+                "pct_sweep_agrees", "top_sample", "top_share_pct", "moving_by_group"]
         Path(a.out_table).parent.mkdir(parents=True, exist_ok=True)
         with open(a.out_table, "w", newline="", encoding="utf-8") as fh:
             w = _csv.DictWriter(fh, fieldnames=cols)
             w.writeheader()
             for r in mc["candidates"]:
-                w.writerow({k: (";".join(r[k]) if isinstance(r[k], list)
-                                else ";".join(f"{a_}={b_}" for a_, b_ in sorted(r[k].items()))
-                                if isinstance(r[k], dict) else r[k]) for k in cols})
+                w.writerow({k: (";".join(r[k]) if isinstance(r.get(k), list)
+                                else ";".join(f"{a_}={b_}"
+                                              for a_, b_ in sorted(r[k].items()))
+                                if isinstance(r.get(k), dict) else r.get(k)) for k in cols})
         print(f"wrote {a.out_table}   {mc['n_candidates']} candidate(s)")
     if a.out_impact:
         mc = res.get("merge_candidates")
@@ -1838,7 +1964,21 @@ def main(argv=None):
 
     s = sub.add_parser("annotate", help="label the clusters of one object")
     s.add_argument("--h5ad", required=True, type=Path)
-    s.add_argument("--cluster-key", required=True)
+    s.add_argument("--cluster-key", required=True, action="append", metavar="OBS_COLUMN",
+                   help="the clustering to label. REPEATABLE: give it once per resolution and "
+                        "the object is walked at each, against the SAME tree, the SAME scope "
+                        "and the SAME gene background - one command, one store digest, one "
+                        "answer per resolution. The FIRST is the run in every other respect: "
+                        "it alone writes the label columns, the table, the report and the "
+                        "independent L1, so adding resolutions changes nothing that was "
+                        "already written. Each further key adds ONE column, "
+                        "`<prefix>_resolved_path<suffix>_r<tag>`, and two more are voted from "
+                        "the family - `<prefix>_consensus<suffix>`, the label a cell keeps "
+                        "across the sweep, and `<prefix>_consensus_agreement<suffix>`, the "
+                        "share of the sweep that agreed. A population too rare to form its own "
+                        "cluster at one granularity forms one at another, and a call that "
+                        "survives the sweep is a different claim from one that does not - "
+                        "neither of which a single resolution can state")
     s.add_argument("--tree", required=True, type=Path)
     s.add_argument("--resolve", action="store_true",
                    help="ALSO write a label column with no holes in it. Every walked cell gets a "
@@ -1968,6 +2108,17 @@ def main(argv=None):
                         "It also turns on the per-cluster crosstab of route A's labels BY "
                         "SAMPLE, and the merge candidates read off it")
     s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
+    s.add_argument("--agreement-key", metavar="OBS_COLUMN",
+                   help="route B's per-cell sweep agreement - `<prefix>_consensus_agreement"
+                        "<suffix>`, written by `scanno annotate` with more than one "
+                        "--cluster-key. With it every candidate carries `pct_sweep_agrees`: how "
+                        "much of route B's OWN resolution sweep carries the label it is "
+                        "offering, over exactly the cells that would move. A population too "
+                        "rare to cluster at one granularity clusters at another, so a call the "
+                        "whole sweep makes and a call one resolution makes are different "
+                        "evidence, and a single-resolution comparison cannot tell them apart. "
+                        "REPORTED, never acted on - the candidate set is identical with and "
+                        "without it")
     s.add_argument("--group-key", metavar="OBS_COLUMN",
                    help="obs column naming the experimental group. With it, the cells a "
                         "candidate would move are tabulated across that column's levels - rule "

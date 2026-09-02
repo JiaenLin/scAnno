@@ -43,7 +43,8 @@ def level(paths, depth):
 
 
 def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key=None,
-            cluster_key=None, group_key=None, sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
+            cluster_key=None, group_key=None, agreement_key=None,
+            sentinels=("EXCLUDED", "UNRESOLVED")) -> dict:
     """Agreement between two annotations over the cells both actually annotated.
 
     `a_obs` and `b_obs` are DataFrames indexed by cell id. Only the intersection is scored, and
@@ -97,6 +98,22 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
         clu = np.asarray(B[cluster_key].astype(str))
         grp = (np.asarray(B[group_key].astype(str))
                if group_key and group_key in B else None)
+        # HOW MUCH OF ROUTE B'S OWN SWEEP AGREES with the label it is offering. A joint
+        # clustering at one granularity states a candidate; the sweep states how much that
+        # candidate depends on the granularity, and those are different facts. A population too
+        # rare to form a cluster at one resolution forms one at another, so a call every
+        # resolution makes and a call one resolution makes are not the same evidence - and a
+        # single-resolution comparison cannot tell them apart, because it never saw the others.
+        #
+        # REPORTED, NEVER ACTED ON. It takes no part in deciding whether a cluster is a
+        # candidate, exactly as `moving_by_group` takes none: a test asserts the candidate set
+        # is identical with and without it. No statistic gates an output here until its
+        # agreement with correctness has been shown, and this one's has not.
+        agr = None
+        if agreement_key and agreement_key in B:
+            _a = pd.to_numeric(pd.Series(np.asarray(B[agreement_key])), errors="coerce")
+            if _a.notna().any():
+                agr = np.asarray(_a, dtype=float)
 
         # Which samples carry no cell of a label ANYWHERE, over the whole comparison rather than
         # within a cluster. A label missing from one cluster but present elsewhere in that sample
@@ -119,9 +136,14 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
             vals, cnt = np.unique(sam[m], return_counts=True)
             top = float(cnt.max() / cnt.sum())
             dominated += top > DOMINANCE
-            rows.append({"cluster": str(c), "n": int(m.sum()),
-                         "top_sample": str(vals[cnt.argmax()]),
-                         "top_share_pct": round(100 * top, 1)})
+            row = {"cluster": str(c), "n": int(m.sum()),
+                   "top_sample": str(vals[cnt.argmax()]),
+                   "top_share_pct": round(100 * top, 1)}
+            if agr is not None:
+                _v = agr[m][~np.isnan(agr[m])]
+                row["sweep_agreement_pct"] = (round(100 * float(_v.mean()), 1)
+                                              if _v.size else None)
+            rows.append(row)
 
             # Route A's labels inside route B's cluster, BY SAMPLE. The pair count reported
             # above is flat over the whole object, so it can say `M -> L: 200` and cannot say
@@ -185,8 +207,17 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                     sel = m & (sam == x) & ~np.isin(pa, list(sentinels)) & (pa != L)
                     for g, n in zip(*np.unique(grp[sel], return_counts=True)):
                         by_group[str(g)] = by_group.get(str(g), 0) + int(n)
+            # The sweep's agreement over EXACTLY the cells that would move - not over the
+            # cluster. A cluster can be stable overall while the cells being corrected inside it
+            # are the unstable ones, and the cluster-level number would report that as safe.
+            sweep_pct = None
+            if agr is not None:
+                sel_a = m & np.isin(sam, s_lack) & ~np.isin(pa, list(sentinels)) & (pa != L)
+                _v = agr[sel_a][~np.isnan(agr[sel_a])]
+                sweep_pct = round(100 * float(_v.mean()), 1) if _v.size else None
             candidates.append({
                 "cluster": str(c), "n_cluster": int(m.sum()),
+                "pct_sweep_agrees": sweep_pct,
                 "label_absent": L, "label_carried": str(M),
                 "samples_with": s_with, "samples_lacking": s_lack,
                 "n_cells": int(sum(moving.values())),
@@ -211,6 +242,14 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
                      "one animal cannot arbitrate anything - read top_share_pct beside every "
                      "row. Which samples are named here is a fact about the samples; whether "
                      "that pattern follows a study's arms is the reader's to judge.",
+            "sweep": ("pct_sweep_agrees is the share of route B's own resolution sweep that "
+                      "carries this label, averaged over exactly the cells that would move. "
+                      "REPORTED, never acted on - it takes no part in whether a cluster is a "
+                      "candidate. None means route B carries no sweep."
+                      if agreement_key else
+                      "route B carries no resolution sweep, so how much a candidate depends on "
+                      "the granularity is NOT MEASURED here. Annotate route B at more than one "
+                      "--cluster-key and pass --agreement-key."),
             "n_candidates": len(candidates),
             "candidates": sorted(candidates, key=lambda r: -r["n_cells"]),
             "lost_labels": _lost_labels(pa, pb, clu, sam, cluster_label, sentinels),
