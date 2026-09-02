@@ -126,6 +126,78 @@ def optional_dests():
     return out
 
 
+def _bound_in(fn):
+    """Every name a function binds: args, assignments, imports, loops, withs, excepts, defs."""
+    out = {a.arg for a in list(fn.args.args) + list(fn.args.kwonlyargs)}
+    if fn.args.vararg: out.add(fn.args.vararg.arg)
+    if fn.args.kwarg: out.add(fn.args.kwarg.arg)
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            out.add(n.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            out |= {(al.asname or al.name.split(".")[0]) for al in n.names}
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out.add(n.name)
+    return out
+
+
+print("\n-1 - an aliased import is bound in every handler that uses it")
+# WHAT THIS CAUGHT. `_rescue` used `_json.dumps` and never imported it. The module imports
+# `json as _json` inside THREE other handlers, so the name reads as familiar and the file
+# parses, the parser wires up, the suites pass - and it raises NameError on a compute node
+# after two hours of clustering. Aliased imports are function-local here by convention, and a
+# convention nothing checks is a convention that holds until it doesn't.
+# MODULE LEVEL ONLY - TREE.body, not ast.walk. Walking the whole tree collects every
+# function-LOCAL import as though it were global, which is exactly the mistake being tested
+# for: three other handlers import `json as _json` locally, so a tree-wide sweep declares the
+# name bound everywhere and the check passes on the very file that raised NameError. Verified
+# in both directions afterwards: red with the import removed, green with it restored.
+_mod_bound = {"__name__", "__file__", "__doc__"}
+for _n in TREE.body:
+    if isinstance(_n, (ast.Import, ast.ImportFrom)):
+        _mod_bound |= {(al.asname or al.name.split(".")[0]) for al in _n.names}
+    elif isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        _mod_bound.add(_n.name)
+    elif isinstance(_n, ast.Assign):
+        _mod_bound |= {t.id for t in _n.targets if isinstance(t, ast.Name)}
+    elif isinstance(_n, ast.Try):
+        for _b in _n.body + [x for h in _n.handlers for x in h.body]:
+            if isinstance(_b, (ast.Import, ast.ImportFrom)):
+                _mod_bound |= {(al.asname or al.name.split(".")[0]) for al in _b.names}
+import builtins as _bi
+_mod_bound |= set(dir(_bi))
+# CLOSURES COUNT. A nested helper reads names from the function that encloses it, so the check
+# has to walk up the nesting - the first version flagged `write_columns` for using `_res_tag`,
+# which its parent defines, and that is correct code. A guard that fires on correct behaviour
+# gets switched off.
+_parent = {}
+for _p in ast.walk(TREE):
+    for _c in ast.iter_child_nodes(_p):
+        _parent[_c] = _p
+
+
+def _enclosing_bound(fn):
+    out, node = set(), _parent.get(fn)
+    while node is not None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out |= _bound_in(node)
+        node = _parent.get(node)
+    return out
+
+
+_unbound = []
+for _fn in [x for x in ast.walk(TREE) if isinstance(x, ast.FunctionDef)]:
+    _have = _bound_in(_fn) | _enclosing_bound(_fn) | _mod_bound
+    for _u in ast.walk(_fn):
+        # only the aliased-import shape: a leading underscore and never bound anywhere.
+        if (isinstance(_u, ast.Name) and isinstance(_u.ctx, ast.Load)
+                and _u.id.startswith("_") and _u.id not in _have):
+            _unbound.append(f"{_fn.name}: {_u.id} (line {_u.lineno})")
+check("no handler uses an aliased import it never binds", not _unbound,
+      "; ".join(sorted(set(_unbound))))
+
 print("\n0 - an optional argument is never coerced as though it were required")
 # WHAT THIS CAUGHT. `--gap-min` defaults to None, which does not mean "no bar" but "the bar
 # classify picks for this weight source". A provenance record built it with `float(a.gap_min)`

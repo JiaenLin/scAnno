@@ -292,6 +292,7 @@ def _rescue(a):
     """Targeted rescue: a label a unit lacks, looked for in that unit alone."""
     import csv as _csv
     import datetime as _dt
+    import json as _json
 
     import numpy as np
     try:
