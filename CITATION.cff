@@ -5,5 +5,5 @@ type: software
 authors:
   - family-names: Lin
     given-names: Jiaen
-version: "0.11.0"
+version: "0.12.0"
 license: MIT

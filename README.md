@@ -3,7 +3,7 @@
 **Hierarchical cell-type annotation that truncates rather than guesses.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-0.11.0-blue.svg)](#status)
+[![Status](https://img.shields.io/badge/status-0.12.0-blue.svg)](#status)
 
 scAnno returns a label at the deepest level the evidence supports and no deeper — `Lymphoid` when
 it cannot separate T from NK, `Lymphoid/T cell` when it can.
@@ -160,6 +160,29 @@ scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
 ```
 
 
+### Rescuing a cell type a sample is missing
+
+```bash
+# annotate each sample at a LADDER of resolutions - the delivered one, then upward
+scanno cluster  --h5ad samples/*.h5ad --out-dir laddered --resolutions 1.0:3.0:0.25
+scanno annotate --h5ad laddered/S1.h5ad --tree tree.json --scope scope.json --store store.npz \
+                --species Mouse --tissue Heart \
+                --cluster-key leiden_1p0 --cluster-key leiden_1p25 --cluster-key leiden_1p5 \
+                --cluster-key leiden_1p75 --cluster-key leiden_2p0 --cluster-key leiden_3p0
+
+# the targeted search: only labels some units carry and others lack, only in the units that lack
+scanno rescue --h5ad annotated/*.h5ad --label-key cell_type_forced --unit-key sample \
+              --sweep-prefix scanno_resolved_path_r --cluster-prefix leiden_ \
+              --from-resolution 1.0 --to-resolution 3.0 --tree tree.json \
+              --out-key cell_type_rescued --out-dir rescued \
+              --out-table impact.csv --out-report rescue.html --out rescue.json
+```
+
+**The ceiling is part of the claim.** Past a granularity a study would report at, an appearance
+stops being evidence that a population was merged and becomes evidence the partition was
+shattered — so `--to-resolution` is a statement, not a budget, and a label not found below it is
+reported as not found rather than chased.
+
 ## Output
 
 `--out-h5ad` writes the input object with columns added and nothing else touched — `X`, `var` and
@@ -175,6 +198,7 @@ scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
 | `scanno_support` | curated tier-1/2 assertions behind the winning node |
 | `scanno_resolved_path` | with `--resolve`: the forced label, no holes, plus `scanno_resolved_origin` |
 | `scanno_resolved_path_r<tag>` | with more than one `--cluster-key`: one column per resolution, the label path and nothing else |
+| `<label>_rescued` | `scanno rescue`: the delivered label with **only** the located clusters relabelled, plus `<label>_rescued_origin` — `kept` or `rescued` per cell |
 | `scanno_sweep_agreement` | the share of the sweep whose label matches the delivered one, per cell. Written only when the sweep has at least two resolutions, because an agreement column that is 1.0 by construction reads exactly like one that was measured. **Evidence only — the sweep votes on nothing** |
 | `scanno_path_joint` | with `compare --out-h5ad`: the joint correction, plus `scanno_path_joint_origin` |
 
@@ -228,7 +252,7 @@ only a percentage. `agent` is an optional second opinion — bring your own key 
 
 ## Status
 
-**0.11.0.**
+**0.12.0.**
 
 | | |
 |---|---|
@@ -239,6 +263,7 @@ only a percentage. `agent` is an optional second opinion — bring your own key 
 | ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
 | ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |
+| ✅ targeted rescue | a rare cell type a unit lacks and another carries is looked for **in that unit alone**, by clustering it more finely step by step and annotating each step normally. On the first step where a cluster comes back as it, **that cluster's cells take the label and nothing else moves** — the finer clustering is discarded, never adopted. A search that finds nothing reports whether the finest clustering reached could even have held the population, so "absent" and "out of reach" are never printed the same way |
 | ✅ resolution sweep | the joint route walked at every granularity against one store and one scope, voted per cell, with each candidate carrying how much of the sweep agrees — a population too rare to cluster at one resolution clusters at another, and one resolution cannot say which happened |
 | ✅ scope: SEAL / KEEP / FORCE | voted across a cohort. A forced call is never pooled with a gap-cleared one: `<prefix>_assignment` records how each cell was assigned and `uns` carries every step's margin |
 | ✅ exclusion, provenance | equivalence to deletion asserted by digest, not only by count |

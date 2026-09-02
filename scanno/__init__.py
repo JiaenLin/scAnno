@@ -18,6 +18,7 @@ from .compare import compare as compare_routes
 from .emit import (annotate_joint, annotate_obs, format_readiness, lab_readiness,
                    per_cell)
 from .joint import reconcile as joint_reconcile
+from .rescue import imbalanced, reach, rescue
 from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cells,
                       flag_digest, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
@@ -29,7 +30,7 @@ from .store import NORM, ProfileStore, build_store, safe_scale
 #: Kept in step with the VERSION file, which is the one a reader checks. They disagreed between
 #: 0.1.0 and 0.2.0 - the package reported a version it had not been for two releases - which is
 #: the same class of defect as a run citing a commit hash that does not exist.
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 __all__ = [
     "build_store", "ProfileStore", "safe_scale", "NORM",

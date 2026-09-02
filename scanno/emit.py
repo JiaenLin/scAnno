@@ -369,6 +369,31 @@ def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin
             "n_categories": int(adata.obs[key].nunique())}
 
 
+def annotate_rescue(adata, labels, origin, record, *, key, origin_suffix="_origin"):
+    """Write the rescued label per CELL. The only code path that does.
+
+    Same door as `annotate_joint`: `classify()` proposes and this module assigns, so there is
+    exactly one place in the package where a label reaches `obs`. It REFUSES to overwrite - the
+    rescued column sits BESIDE the column it corrects, and a tool that replaced one would make
+    reverting impossible and leave no record of which cells moved.
+    """
+    import pandas as pd
+
+    if key in adata.obs:
+        raise ValueError(
+            f"obs[{key!r}] already exists. A rescue ADDS a column beside the annotation it "
+            f"corrects and never replaces one - choose another name with --out-key.")
+    if len(labels) != adata.n_obs or len(origin) != adata.n_obs:
+        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} cells")
+    adata.obs[key] = pd.Categorical([str(x) for x in labels])
+    adata.obs[key + origin_suffix] = pd.Categorical([str(x) for x in origin])
+    adata.uns["scanno_rescue"] = _uns_safe(dict(record, key=key,
+                                                origin_key=key + origin_suffix))
+    return {"key": key, "origin_key": key + origin_suffix,
+            "n_rescued": int(record.get("n_renamed", 0)),
+            "n_categories": int(adata.obs[key].nunique())}
+
+
 def write_h5ad(adata, path, **kw):
     """Write an object every reader can open: plain labels, classic string encoding."""
     from pathlib import Path

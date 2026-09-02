@@ -288,6 +288,129 @@ def _calibrate(a):
     return 0
 
 
+def _rescue(a):
+    """Targeted rescue: a label a unit lacks, looked for in that unit alone."""
+    import csv as _csv
+    import datetime as _dt
+
+    import numpy as np
+    try:
+        import anndata as ad
+    except ImportError:
+        print("scanno: anndata is required for `rescue`", file=sys.stderr)
+        return 1
+    from . import __version__
+    from .emit import annotate_rescue, write_h5ad
+    from .rescue import document, rescue, summarise
+
+    tree = _json.loads(Path(a.tree).read_text(encoding="utf-8")) if a.tree else None
+
+    objs, labels, sweep, clus, units = {}, {}, {}, {}, []
+    for path in a.h5ad:
+        A = ad.read_h5ad(path)
+        u = (str(A.obs[a.unit_key].iloc[0]) if a.unit_key and a.unit_key in A.obs
+             else Path(path).stem.split(".")[0])
+        if u in objs:
+            print(f"scanno: two objects claim unit {u!r}; --unit-key must name a column that "
+                  f"is CONSTANT within each file", file=sys.stderr)
+            return 1
+        if a.label_key not in A.obs:
+            print(f"scanno: {path} has no obs column {a.label_key!r}", file=sys.stderr)
+            return 1
+        # THE RUNGS ARE READ OFF THE OBJECT, not requested. A caller who annotated four
+        # resolutions and asks for six would otherwise get a silent four-rung search.
+        found = {}
+        for c in A.obs.columns:
+            if not str(c).startswith(a.sweep_prefix):
+                continue
+            tag = str(c)[len(a.sweep_prefix):]
+            try:
+                r = float(tag.replace("p", "."))
+            except ValueError:
+                continue
+            k = f"{a.cluster_prefix}{tag}"
+            if k in A.obs:
+                found[r] = (c, k)
+        if len(found) < 2:
+            print(f"scanno: {path} carries fewer than two rungs under {a.sweep_prefix!r} with "
+                  f"matching {a.cluster_prefix!r} columns. Annotate it at several resolutions "
+                  f"first: `scanno annotate --cluster-key ... --cluster-key ...`", file=sys.stderr)
+            return REFUSE
+        objs[u] = (path, A)
+        labels[u] = np.asarray(A.obs[a.label_key].astype(str))
+        sweep[u] = {r: np.asarray(A.obs[c].astype(str)) for r, (c, _k) in found.items()}
+        clus[u] = {r: np.asarray(A.obs[k].astype(str)) for r, (_c, k) in found.items()}
+        units.append(u)
+
+    common = sorted(set.intersection(*(set(sweep[u]) for u in units)))
+    lo = a.from_resolution if a.from_resolution is not None else common[0]
+    hi = a.to_resolution if a.to_resolution is not None else common[-1]
+    rungs = [r for r in common if lo <= r <= hi]
+    if len(rungs) < 2:
+        print(f"scanno: only {len(rungs)} rung(s) between {lo} and {hi}; a search needs at "
+              f"least two. Rungs present in every object: {common}", file=sys.stderr)
+        return REFUSE
+    print(f"{len(units)} unit(s); searching rungs {', '.join(str(r) for r in rungs)}")
+    print(f"  label being corrected: obs[{a.label_key!r}]")
+
+    new, origin, rec = rescue(labels, sweep, clus, rungs, tree=tree)
+    summ = summarise(labels, new)
+
+    print("")
+    print(f"{len(rec['trigger'])} imbalanced label(s) -> {rec['n_targets']} targeted searches")
+    for lab, v in sorted(rec["trigger"].items()):
+        print(f"    {lab:<40} carried by {len(v['with'])}, searched in {len(v['without'])}")
+    print("")
+    print(f"found {rec['n_found']}, not found {rec['n_not_found']}, "
+          f"{rec['n_renamed']:,} cell(s) renamed")
+    for m in rec["moved"]:
+        src = ", ".join(f"{k.split('/')[-1]} {v}" for k, v in
+                        sorted(m["from"].items(), key=lambda kv: -kv[1]))
+        print(f"    {m['label']:<34} {m['unit']:<14} rung {m['rung']:<6} "
+              f"{m['n_renamed']:>6,} cell(s)   from {src}")
+    if rec["not_found"]:
+        print("")
+        print("  nothing found - and whether that means anything depends on whether the "
+              "finest\n  clustering reached could have HELD the population:")
+        for m in rec["not_found"]:
+            print(f"    {m['label']:<34} {m['unit']:<14} "
+                  f"would be {m['expected_cells']:>6.0f} cell(s), finest cluster "
+                  f"{m['mean_cluster_finest']:>6.0f}   "
+                  f"{'a real absence' if m['could_form'] else 'UNDECIDED - out of reach'}")
+
+    out_key = a.out_key or f"{a.label_key}_rescued"
+    if a.out_dir:
+        Path(a.out_dir).mkdir(parents=True, exist_ok=True)
+        for u in units:
+            path, A = objs[u]
+            info = annotate_rescue(A, new[u], origin[u], rec, key=out_key)
+            dest = Path(a.out_dir) / f"{Path(path).stem}.rescued.h5ad"
+            write_h5ad(A, dest)
+            print(f"wrote {dest}   +obs[{info['key']!r}] and obs[{info['origin_key']!r}]")
+    if a.out_table:
+        Path(a.out_table).parent.mkdir(parents=True, exist_ok=True)
+        cols = ["unit", "label", "n_before", "n_after", "n_delta", "pct_before", "pct_after",
+                "pct_delta", "is_sentinel"]
+        with open(a.out_table, "w", newline="", encoding="utf-8") as fh:
+            w = _csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            for r in summ["rows"]:
+                w.writerow({k: r[k] for k in cols})
+        print(f"wrote {a.out_table}   {len(summ['rows'])} unit x label row(s) that change")
+    if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out).write_text(_json.dumps(rec, indent=1, default=str), encoding="utf-8")
+        print(f"wrote {a.out}")
+    if a.out_report:
+        Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.out_report).write_text(document(
+            {"record": rec, "summary": summ, "label_key": a.label_key, "version": __version__,
+             "generated": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}),
+            encoding="utf-8")
+        print(f"wrote {a.out_report}")
+    return 0
+
+
 def _annotate(a):
     """Label the clusters of one object. The main command."""
     import numpy as np
@@ -2102,6 +2225,46 @@ def main(argv=None):
                         "giving scanno_cell_type). The default is chosen so a reader guessing "
                         "which column holds the annotation finds it without being told")
     s.set_defaults(fn=_annotate)
+
+    s = sub.add_parser("rescue",
+                       help="a rare cell type missing from one unit, looked for in that unit "
+                            "alone, and renamed only where a cluster comes back as it")
+    s.add_argument("--h5ad", required=True, nargs="+", type=Path, metavar="H5AD",
+                   help="one object per unit, each already annotated at SEVERAL resolutions "
+                        "(`scanno annotate` with --cluster-key given more than once)")
+    s.add_argument("--label-key", required=True, metavar="OBS_COLUMN",
+                   help="the delivered label being corrected - typically the FORCED column, "
+                        "which has no holes for a zero to hide in")
+    s.add_argument("--sweep-prefix", default="scanno_resolved_path_r", metavar="PREFIX",
+                   help="prefix of the per-resolution label columns; the rest of the name is "
+                        "the resolution (default scanno_resolved_path_r)")
+    s.add_argument("--cluster-prefix", default="leiden_", metavar="PREFIX",
+                   help="prefix of the cluster columns, matched rung for rung against "
+                        "--sweep-prefix (default leiden_)")
+    s.add_argument("--unit-key", default=None, metavar="OBS_COLUMN",
+                   help="obs column naming the unit - sample, donor, library. Must be CONSTANT "
+                        "within each file. Without it the file stem is used")
+    s.add_argument("--from-resolution", type=float, default=None, metavar="R",
+                   help="start the search here, normally the resolution the delivered "
+                        "annotation used. Default: the coarsest rung every object carries")
+    s.add_argument("--to-resolution", type=float, default=None, metavar="R",
+                   help="stop here. THE CEILING IS PART OF THE CLAIM: past a granularity a "
+                        "study would report at, an appearance stops being evidence that a "
+                        "population was merged and becomes evidence the partition was "
+                        "shattered. Default: the finest rung every object carries")
+    s.add_argument("--tree", type=Path, metavar="JSON",
+                   help="the taxonomy. With it only LEAVES are eligible targets: a cell resting "
+                        "on an internal node carries a compartment name, and a compartment is "
+                        "not a population that can be missing from a unit")
+    s.add_argument("--out-key", default=None, metavar="OBS_COLUMN",
+                   help="name of the rescued column (default <label-key>_rescued). "
+                        "`<name>_origin` says per cell whether it was kept or rescued")
+    s.add_argument("--out-dir", type=Path, help="write each object with the rescued columns")
+    s.add_argument("--out", type=Path, metavar="JSON", help="every search and its result")
+    s.add_argument("--out-table", type=Path, metavar="CSV",
+                   help="per unit x label: counts and percentages before and after")
+    s.add_argument("--out-report", type=Path, metavar="HTML", help="the document")
+    s.set_defaults(fn=_rescue)
 
     s = sub.add_parser("compare",
                        help="two annotated objects: how far the labels agree, and whether the "

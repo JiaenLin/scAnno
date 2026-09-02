@@ -122,9 +122,31 @@ puts one: its own command, its own declared and digested artifact, consumed by n
 
 ---
 
-## Direction 2 — resolution-induced absence, and the churn QC that gates it
+## Direction 2 — resolution-induced absence
 
-**Status:** noted 2026-09-02, discussed, **not designed and not built**. Named by the PI.
+**Status: BUILT, 2026-09-02, as `scanno rescue` (0.12.0).** The design below is the PI's; what is
+recorded here is what the discussion got wrong on the way, because all of it was mine.
+
+**The design, as stated:** for a rare cell type a unit lacks and another unit carries, cluster
+*that unit* more finely step by step, annotate each step in the ordinary unbiased way, and on the
+first step where a cluster comes back as the target, **rename that cluster's cells and nothing
+else**. The finer clustering LOCATES; it is never adopted.
+
+**Three errors before it was implemented, in order:**
+
+1. **A grid is not a search.** The first attempt ran a fixed eight-rung grid on every sample and
+   reported "did not appear" for populations the grid could never have separated.
+2. **When the instrument does not reach, the finding is that it does not reach.** The second
+   attempt answered the first by extending the ladder to resolution 32 — 442 to 628 clusters of
+   14 to 24 nuclei per sample. That is dissolving a partition, not refining one, and choosing the
+   range by what makes the answer appear is choosing the analysis on its outcome.
+3. **Adopting the finer annotation is a different claim.** Both attempts measured the whole
+   sample's churn at the located rung — `UNRESOLVED` growth, compartment names taking
+   macrophages, fibroblasts collapsing — and reported it as the cost of the rescue. None of it
+   is a cost, because none of it is adopted. **Only the located cluster moves.** The impact is
+   the renamed cells and the labels they came from, and nothing else.
+
+Everything below was written before the design was understood and is kept for the record.
 
 ### The question it answers
 
