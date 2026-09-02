@@ -1223,6 +1223,20 @@ def _compare(a):
 
         if a.out_h5ad:
             info = annotate_joint(A2, new_labels, origin, record, key=out_key)
+            # THE SWEEP AGREEMENT TRAVELS WITH THE CORRECTION, per cell, onto the object the
+            # correction is delivered in. It is a property of route B measured on these same
+            # barcodes, and leaving it behind in route B's object would mean a reader of the
+            # deliverable could see that a cell was corrected and not how much of the sweep
+            # backed it - which is the one thing that separates a recovered population from a
+            # property of the granularity. NaN for a barcode route B never saw; never 0, which
+            # would read as "the sweep disagreed" rather than "the sweep was not there".
+            if a.agreement_key and a.agreement_key in B.obs:
+                _ag = pd.Series(pd.to_numeric(np.asarray(B.obs[a.agreement_key]),
+                                              errors="coerce"), index=bi)
+                _ag = _ag[~_ag.index.duplicated()].reindex(ai)
+                A2.obs[out_key + "_sweep_agreement"] = np.asarray(_ag, dtype="float32")
+                print(f"    +obs[{out_key + '_sweep_agreement'!r}] from "
+                      f"obs[{a.agreement_key!r}] of route B")
             Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
             write_h5ad(A2, a.out_h5ad)
             print(f"wrote {a.out_h5ad}   +obs[{info['key']!r}] and "
