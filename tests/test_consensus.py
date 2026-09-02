@@ -30,7 +30,7 @@ import pandas as pd
 from scanno.compare import compare
 from scanno.context import sweep_stem
 from scanno.joint import reconcile, review_prompt
-from scanno.resolution import consensus
+from scanno.resolution import cluster_weights, consensus
 
 FAILED = []
 
@@ -62,7 +62,14 @@ check("cells every resolution agreed on read 1.0",
 lab2, agr2 = consensus({0.5: coarse, 1.0: fine, 2.0: fine})
 check("a 2-of-3 call DOES become the consensus label",
       list(lab2[-2:]) == ["Rare", "Rare"], f"got {list(lab2[-2:])}")
-check("with agreement reported, not rounded to certainty", np.allclose(agr2[-2:], 2 / 3))
+# AGREEMENT IS THE SHARE OF THE WEIGHT THAT COULD HAVE VOTED, not of the whole sweep. Two of
+# three resolutions deliver `Rare`, which meets min_support, so the denominator is those two and
+# both carried it: 1.0. Under a plain majority the same cells read 2/3 - the two numbers answer
+# different questions and the column has to say which it is.
+check("agreement is measured against what COULD have voted", np.allclose(agr2[-2:], 1.0),
+      f"got {agr2[-2:]}")
+check("...and against the whole sweep under a plain majority",
+      np.allclose(consensus({0.5: coarse, 1.0: fine, 2.0: fine}, eligible=False)[1][-2:], 2 / 3))
 
 # Sentinels are not special-cased. A cell the sweep mostly could not place reads UNRESOLVED,
 # because promoting a minority named call over it is the guess `classify` exists not to make.
@@ -93,6 +100,72 @@ check("agreement floor is 1/K, never 0", np.allclose(a4, 0.25), f"got {a4}")
 d = {0.5: np.array(["S/Fib/Matri"]), 1.0: np.array(["S/Fib/Quiescent"])}
 l1, ag1 = consensus(d, depth=1)
 check("depth truncates before voting", l1[0] == "S" and ag1[0] == 1.0, f"{l1[0]} {ag1[0]}")
+
+print("")
+print("the vote: a coarse partition cannot outvote what it could not see")
+
+# THE DEFECT THIS SECTION EXISTS FOR, at the shape it was measured in. A rare population is
+# separated by two resolutions of eight and merged by the other six. A plain majority deletes
+# it - and it is exactly the population a resolution sweep was added to recover, so the
+# mechanism would have been reporting the failure it was built to fix.
+#
+# Measured on 100,713 nuclei: `Dendritic cell` at 457 and 561 cells in the two finest of eight
+# resolutions, 0 cells after a plain majority.
+_fine = np.array(["Big"] * 8 + ["Rare"] * 2)
+_coarse = np.array(["Big"] * 10)
+SWEEP = {0.25: _coarse, 0.5: _coarse, 0.75: _coarse, 1.0: _coarse,
+         1.25: _coarse, 1.5: _coarse, 1.75: _fine, 2.0: _fine}
+
+lp, ap = consensus(SWEEP, eligible=False)
+check("a PLAIN MAJORITY deletes a population 2 of 8 resolutions separate",
+      list(lp[-2:]) == ["Big", "Big"], f"got {list(lp[-2:])}")
+le, ae = consensus(SWEEP)
+check("the ELIGIBLE vote keeps it", list(le[-2:]) == ["Rare", "Rare"], f"got {list(le[-2:])}")
+check("and its agreement is 1.0 - every resolution that COULD assert it did",
+      np.allclose(ae[-2:], 1.0), f"got {ae[-2:]}")
+check("cells nothing disagrees about are untouched by either rule",
+      list(le[:8]) == ["Big"] * 8 and list(lp[:8]) == ["Big"] * 8)
+
+# A WEIGHT ALONE IS NOT THE FIX, and the test says so rather than leaving it to be assumed.
+# Weighting by cluster count still lost that population on the real cohort; weighting by the
+# resolution parameter rescued ONE cell of 457.
+w_res = {r: r for r in SWEEP}
+lw, _ = consensus(SWEEP, weights=w_res, eligible=False)
+check("weighting by resolution does NOT rescue it on its own",
+      list(lw[-2:]) == ["Big", "Big"], f"got {list(lw[-2:])}")
+
+# ...and the eligible vote does not DEPEND on the weight, which is what makes it the mechanism
+# rather than a second knob.
+for _name, _w in (("equal", None), ("resolution", w_res),
+                  ("clusters", {r: 10 + 20 * r for r in SWEEP})):
+    _l, _ = consensus(SWEEP, weights=_w)
+    check(f"eligible vote survives weight={_name}", list(_l[-2:]) == ["Rare", "Rare"],
+          f"got {list(_l[-2:])}")
+
+# cluster_weights reads the partition, not the parameter.
+cw = cluster_weights({0.5: np.array([0, 0, 1, 1]), 2.0: np.array([0, 1, 2, 3])})
+check("cluster_weights counts the clusters a partition PRODUCED", cw == {0.5: 2.0, 2.0: 4.0},
+      str(cw))
+
+# Weights must not silently drop a resolution.
+try:
+    consensus(SWEEP, weights={0.25: 1.0})
+    check("REFUSES a weight map missing a resolution", False, "returned instead of raising")
+except ValueError as e:
+    check("REFUSES a weight map missing a resolution", True, str(e)[:44])
+try:
+    consensus(SWEEP, weights={r: 0.0 for r in SWEEP})
+    check("REFUSES a zero weight", False, "returned instead of raising")
+except ValueError as e:
+    check("REFUSES a zero weight", True, str(e)[:44])
+
+# THE NO-OP CASE. Where every resolution delivers every label, eligibility changes nothing and
+# neither does the weight - so this generalises the plain vote rather than replacing it.
+_flat = {r: np.array(["A", "B", "A"]) for r in (0.5, 1.0, 2.0)}
+_a, _ = consensus(_flat)
+_b, _ = consensus(_flat, eligible=False)
+_c, _ = consensus(_flat, weights={0.5: 1.0, 1.0: 5.0, 2.0: 9.0})
+check("with no disagreement all three rules agree", list(_a) == list(_b) == list(_c))
 
 print("")
 print("sweep_stem: finding the sweep that was written")

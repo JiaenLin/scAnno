@@ -826,7 +826,20 @@ def _annotate(a):
                 w.append(key)
             labs_by_res = {r: np.asarray(A.obs[c].astype(str))
                            for r, c in sorted(cols_by_tag.items())}
-            cons, agree = _consensus(labs_by_res)
+            # THE WEIGHT IS MEASURED, NOT CHOSEN. `y_k` is the per-cell cluster index of that
+            # resolution, so how many clusters it produced is already in hand - the resolving
+            # power the partition demonstrated on THIS data, rather than the number that was
+            # asked for. See resolution.consensus for why a weight alone is not sufficient.
+            clusters_by_res = {float(t.replace("p", ".")): yk for t, _r, yk in sweep}
+            if a.consensus_weight == "clusters":
+                from .resolution import cluster_weights
+                wts = cluster_weights(clusters_by_res)
+            elif a.consensus_weight == "resolution":
+                wts = {r: r for r in clusters_by_res}
+            else:
+                wts = None
+            cons, agree = _consensus(labs_by_res, weights=wts,
+                                     eligible=not a.consensus_plain_majority)
             info = consensus_columns(
                 A, cons, agree, {
                     "resolutions": [float(r) for r in sorted(cols_by_tag)],
@@ -839,11 +852,18 @@ def _annotate(a):
                     # or GAP_PROFILE 0.15), and `float(None)` raised after the whole eight-
                     # resolution sweep had been walked. A provenance field must be able to
                     # record "unset", because unset is a real and common answer.
+                    "weight_scheme": str(a.consensus_weight),
+                    "weights": ({str(k): round(float(v), 4) for k, v in sorted(wts.items())}
+                                if wts else "equal"),
+                    "eligible_denominator": (not a.consensus_plain_majority),
                     "gap_min": (None if a.gap_min is None else float(a.gap_min)),
                     "gap_min_note": ("unset - classify used its default for the weight source"
                                      if a.gap_min is None else "given on the command line"),
-                    "rule": "per-cell modal path across the sweep; agreement is the share of "
-                            "resolutions carrying it. Sentinels are not special-cased - a cell "
+                    "rule": "per-cell weighted vote across the sweep. A label's support is "
+                            "divided by the weight of the resolutions that DELIVER it "
+                            "somewhere, not by the whole sweep: a partition holding no such "
+                            "cluster anywhere never scored the question, and missing evidence "
+                            "is not weak evidence. Sentinels are not special-cased - a cell "
                             "the sweep mostly left UNRESOLVED reads UNRESOLVED.",
                 },
                 prefix=a.label_prefix, suffix=a.label_suffix)
@@ -851,9 +871,29 @@ def _annotate(a):
             full = float((agree == 1.0).mean())
             print("")
             print(f"  {info['key']}: the label a cell keeps across {len(sweep)} resolutions   "
-                  f"{len(set(map(str, cons)))} label(s)")
-            print(f"  {info['agreement_key']}: {100*full:.1f}% of cells agree at EVERY "
-                  f"resolution; median agreement {float(np.median(agree)):.2f}")
+                  f"{len(set(map(str, cons)))} label(s)   "
+                  f"weight={a.consensus_weight}"
+                  + (", PLAIN MAJORITY" if a.consensus_plain_majority else ", eligible vote"))
+            print(f"  {info['agreement_key']}: {100*full:.1f}% of cells carry the FULL weight "
+                  f"that could have voted for their label; median "
+                  f"{float(np.median(agree)):.2f}")
+            # WHAT THE VOTE COST AND WHAT IT BOUGHT, against the resolution this run chose. A
+            # consensus that quietly deletes a population is the failure this mechanism exists
+            # to prevent, so it is printed rather than left for a reader to notice.
+            _pt = float(_res_tag(a.cluster_key).replace("p", "."))
+            _prim = np.asarray(A.obs[cols_by_tag[_pt]].astype(str))
+            _sp = {str(x).split("/")[-1] for x in set(_prim.tolist())}
+            _sc = {str(x).split("/")[-1] for x in set(cons.tolist())}
+            _union = set()
+            for _c in cols_by_tag.values():
+                _union |= {str(x).split("/")[-1] for x in set(A.obs[_c].astype(str))}
+            print(f"    labels: {len(_sp)} at {a.cluster_key} -> {len(_sc)} in the consensus "
+                  f"({len(_union)} appear somewhere in the sweep)")
+            for _l in sorted(_union - _sc):
+                print(f"      NOT in the consensus: {_l}")
+            for _l in sorted(_sc - _sp):
+                print(f"      recovered by the sweep: {_l} "
+                      f"({int(sum(1 for x in cons if str(x).split('/')[-1] == _l)):,} cells)")
             # WHICH resolution the sweep itself prefers - REPORTED, never applied. --cluster-key
             # decides the run; a tool that silently re-partitioned on its own preference would
             # deliver an answer for a clustering the caller never named.
@@ -2046,6 +2086,28 @@ def main(argv=None):
                         "walks face the same root child set - see scope.truncate_tree. The "
                         "column is marked in uns['scAnno_L1_provenance'] so a reader can tell "
                         "the two apart. REFUSES a tree deeper than one level")
+    s.add_argument("--consensus-weight", default="clusters",
+                   choices=["clusters", "resolution", "equal"],
+                   help="how much each resolution's vote counts, with more than one "
+                        "--cluster-key. `clusters` (default) weights by how many clusters that "
+                        "partition ACTUALLY produced - the resolving power it demonstrated on "
+                        "this data rather than the number that was asked for, since two "
+                        "datasets at one resolution can differ threefold. `resolution` uses the "
+                        "parameter itself; `equal` gives every resolution the same vote. A "
+                        "coarse partition cannot separate a rare population by construction, so "
+                        "an equal vote lets the resolutions blind to one outvote those that see "
+                        "it. NOTE the weight is the SMALLER half of that fix - see "
+                        "--consensus-plain-majority")
+    s.add_argument("--consensus-plain-majority", action="store_true",
+                   help="count a label's votes over the WHOLE sweep instead of over the "
+                        "resolutions that deliver it somewhere. Off by default, and it is the "
+                        "off state that does the work: a partition holding no such cluster "
+                        "anywhere never scored the question, so counting it against the label "
+                        "treats missing evidence as weak evidence. Measured on a real cohort, a "
+                        "plain majority DELETED a population that two resolutions of eight "
+                        "separated at around five hundred cells, under every weighting; "
+                        "the eligible vote returned it under every weighting. Pass this to get "
+                        "the plain majority back, and to see the difference")
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
     s.add_argument("--assay", default="sc", choices=["sc", "sn"])
