@@ -51,6 +51,12 @@ FORCED = ["Immune/Myeloid/Macrophage"] * 40 + ["Stromal/Fibroblast"] * 20
 JOINT = ["Immune/Myeloid/Macrophage"] * 35 + ["Neural/OnlyInTheJointColumn"] * 5 \
         + ["Stromal/Fibroblast"] * 20
 L1 = ["Immune"] * 40 + ["Stromal"] * 20
+# The rescued column carries its OWN unique label, for the same reason the joint one does: if
+# the rescued block is a neighbouring figure reused under a rescued heading, that label cannot
+# appear in it. It also differs from the joint column, so the two cannot be confused for each
+# other either.
+RESCUED = ["Immune/Myeloid/Macrophage"] * 37 + ["Adipose/OnlyInTheRescuedColumn"] * 3 \
+          + ["Stromal/Fibroblast"] * 20
 
 
 class Fake:
@@ -60,7 +66,8 @@ class Fake:
             "sample": ["S1"] * 30 + ["S2"] * 30,
             "group": ["g1"] * 30 + ["g2"] * 30,
             "cell_type": PATH, "cell_type_forced": FORCED,
-            "my_joint_col": JOINT, "cell_compartment": L1, "cell_compartment_forced": L1,
+            "my_joint_col": JOINT, "my_rescue_col": RESCUED,
+            "cell_compartment": L1, "cell_compartment_forced": L1,
             "cell_type_gap": ["not a number"] * N,
             "total_counts": np.arange(N, dtype=float),
         }, index=[f"c{i}" for i in range(N)])
@@ -71,7 +78,8 @@ class Fake:
 
 ctx = Context([("S", Fake("S"))], path_key="cell_type", sample_key="sample",
               group_key="group", forced_key="cell_type_forced", l1_key="cell_compartment",
-              forced_l1_key="cell_compartment_forced", joint_route_key="my_joint_col")
+              forced_l1_key="cell_compartment_forced", joint_route_key="my_joint_col",
+              rescue_key="my_rescue_col")
 
 print("\n1 - the context reads the joint column as its own")
 check("it is detected", ctx.has_joint_route)
@@ -84,6 +92,19 @@ check("and the forced rows do NOT contain it",
 check("a context given no joint column simply has none",
       not Context([("S", Fake("S"))], path_key="cell_type").has_joint_route)
 
+print("\n1b - and the RESCUED column the same way")
+check("it is detected", ctx.has_rescue)
+rrows = {r["label"]: r["nuclei"] for r in (ctx.rescue_rows() or [])}
+check("its rows come from that column, not the forced or joint one",
+      rrows.get("Adipose/OnlyInTheRescuedColumn") == 3, str(rrows))
+check("and neither neighbour contains it",
+      "Adipose/OnlyInTheRescuedColumn" not in frows
+      and "Adipose/OnlyInTheRescuedColumn" not in rows)
+check("nor does the rescued block carry the joint column's unique label",
+      "Neural/OnlyInTheJointColumn" not in rrows, str(rrows))
+check("a context given no rescued column simply has none",
+      not Context([("S", Fake("S"))], path_key="cell_type").has_rescue)
+
 print("\n2 - the delivered annotation leads and L1 follows")
 with tempfile.TemporaryDirectory() as td:
     write_cohort(ctx, Path(td), title="T", version="0")
@@ -91,7 +112,13 @@ with tempfile.TemporaryDirectory() as td:
 heads = [re.sub(r"<[^>]+>", "", m).strip()
          for m in re.findall(r"<h3>(.*?)</h3>", html, re.S)]
 comp = [h for h in heads if "annotation" in h or "JOINT ROUTE" in h]
-check("the four blocks are present", len(comp) >= 4, str(comp))
+check("the five blocks are present", len(comp) >= 5, str(comp))
+check("the RESCUED block is one of them",
+      any("RESCUED" in h for h in comp), str(comp))
+check("and it names the column it was drawn from",
+      "my_rescue_col" in html, "the block must print its own obs column")
+check("its unique label reaches the page",
+      "Adipose/OnlyInTheRescuedColumn" in html)
 order = {h: i for i, h in enumerate(comp)}
 check("the scope annotation comes before L1",
       order.get("the scope annotation", 99) < order.get("the L1 annotation", -1), str(comp))

@@ -75,7 +75,8 @@ class Context:
                  version="", tree_path="", corpus_path="", species="", tissue="",
                  factors=None, pinned_colours=None, tree=None, gene_key=None,
                  joint_key=None, group_order=None, scope=None, l1_key=None,
-                 forced_key=None, forced_l1_key=None, joint_route_key=None):
+                 forced_key=None, forced_l1_key=None, joint_route_key=None,
+                 rescue_key=None):
         import pandas as pd
 
         self.objects = list(objects)
@@ -113,6 +114,7 @@ class Context:
         # corrections applied. A THIRD reading of the same nuclei, not a better one - the joint
         # partition is the coarser of the two and absorbs populations as well as recovering them.
         self.joint_route_key = joint_route_key or None
+        self.rescue_key = rescue_key or None
         self._group_order = [str(g) for g in (group_order or [])]
         #: Every name searched for a per-call statistic, so an absence can say what it looked for
         #: rather than guessing the names a second time and guessing differently.
@@ -146,6 +148,9 @@ class Context:
             if self.joint_route_key:
                 d["joint_route"] = (obs[self.joint_route_key].astype(str)
                                     if self.joint_route_key in obs else np.full(A.n_obs, ""))
+            if self.rescue_key:
+                d["rescue"] = (obs[self.rescue_key].astype(str)
+                               if self.rescue_key in obs else np.full(A.n_obs, ""))
             if group_key and group_key in obs:
                 d["group"] = obs[group_key].astype(str)
             # Derived from the PATH KEY, not the label key: an annotation swept over several
@@ -216,6 +221,8 @@ class Context:
                               and bool((self.P["forced_l1"].astype(str) != "").any()))
         self.has_joint_route = ("joint_route" in self.P
                                 and bool((self.P["joint_route"].astype(str) != "").any()))
+        self.has_rescue = ("rescue" in self.P
+                           and bool((self.P["rescue"].astype(str) != "").any()))
         self._order = {}
         for dpt in self.levels:
             self._order[dpt] = self._order_for(dpt)
@@ -320,6 +327,17 @@ class Context:
         on which clustering scored them.
         """
         return self._rows_over("joint_route") if self.has_joint_route else None
+
+    def rescue_rows(self):
+        """THE RESCUE — the delivered annotation with ONLY located clusters relabelled.
+
+        Not a re-annotation and not a coarser reading: a rare cell type a unit lacks and another
+        unit carries is looked for in the units that lack it, by clustering those units more
+        finely, and where a cluster comes back as the target THAT CLUSTER'S CELLS take the
+        label. Every other cell keeps what it was delivered with, so the difference between this
+        block and the one it corrects is exactly the rescued set and nothing else.
+        """
+        return self._rows_over("rescue") if self.has_rescue else None
 
     def forced_l1_rows(self):
         """THE L1 ANNOTATION, FORCED — the independent depth-1 walk with nothing left unresolved."""

@@ -1057,6 +1057,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # reader's behalf, and it is placed next to its own original so the difference is the thing
     # on the page rather than a footnote.
     ctx_jr = ctx.joint_route_rows()
+    ctx_rs = ctx.rescue_rows()
     # THE DELIVERED ANNOTATION LEADS. It used to be L1 first, on the reasoning that a reader
     # meets the compartments before the subtypes - but L1 is CONTEXT for the delivered call and
     # is not what anything downstream consumes, so leading with it puts the answer third on the
@@ -1081,6 +1082,13 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
              "third reading of the same nuclei and not a better one, because the joint "
              "partition is the coarser of the two and absorbs populations as well as "
              "recovering them", ctx.joint_route_key),
+            ("the RESCUED annotation", ctx_rs,
+             "the delivered annotation with ONLY the clusters a targeted search located "
+             "relabelled: a rare cell type one unit lacks and another carries, looked for in "
+             "the units that lack it. Every other cell keeps the label it was delivered with, "
+             "so the difference from the FORCED block - which is what it corrects, not the "
+             "joint route above it - is exactly the rescued set and nothing else",
+             ctx.rescue_key),
             ("the L1 annotation", ctx_l1,
              "an INDEPENDENT depth-1 walk - one decision at the root, and no seal at any depth "
              "can move it. Shown after the delivered annotation because it is a CHECK on it, "
@@ -1154,6 +1162,17 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             body.append(A.fig("F106", name=f"F106_composition_forced_{_s}_by_sample",
                               col=_c, by="sample", what=_w))
             body.append(A.fig("F107", name=f"F107_per_sample_forced_{_s}", col=_c, what=_w))
+            continue
+        if _rows is ctx_rs:
+            # Drawn from the RESCUE's own column. Same rule as the joint route below it: a
+            # figure reused from a neighbouring annotation under this heading would be
+            # indistinguishable on the page from one actually drawn here.
+            body.append(A.fig("F106", name="F106_composition_rescued_by_group",
+                              col="rescue", by="group", what=f"the rescued annotation ({_key})"))
+            body.append(A.fig("F106", name="F106_composition_rescued_by_sample",
+                              col="rescue", by="sample", what=f"the rescued annotation ({_key})"))
+            body.append(A.fig("F107", name="F107_per_sample_rescued", col="rescue",
+                              what=f"the rescued annotation ({_key})"))
             continue
         if _rows is ctx_jr:
             # Drawn from the JOINT ROUTE's own column, never the forced figure reused under a

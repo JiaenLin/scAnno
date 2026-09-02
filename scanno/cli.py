@@ -1796,7 +1796,7 @@ def _report(a):
         print(f"  withheld nuclei read from obs[{flag!r}]"
               + ("  (declared upstream)" if declaration else "  (detected)"))
 
-    ctx = Context(objs, joint_route_key=a.joint_route_key,
+    ctx = Context(objs, joint_route_key=a.joint_route_key, rescue_key=a.rescue_key,
                   label_key=a.label_key, path_key=a.path_key,
                   sample_key=a.sample_key, group_key=a.condition_key, joint=joint,
                   panels=panels, chosen_resolution=a.resolution, sweep=sweep, tolerance=tol,
@@ -2381,6 +2381,12 @@ def main(argv=None):
                         "forced annotation with a joint clustering's corrections applied. With "
                         "it the composition section carries a THIRD block drawn from that "
                         "column, beside the two it descends from")
+    s.add_argument("--rescue-key", default=None, metavar="OBS_COLUMN", dest="rescue_key",
+                   help="the rescued column from `scanno rescue --out-key`: the delivered "
+                        "annotation with ONLY the clusters a targeted search located "
+                        "relabelled. With it the composition section carries a block drawn from "
+                        "that column, beside the one it corrects, so the difference on the page "
+                        "is exactly the rescued set and nothing else")
     s.add_argument("--forced-l1-key", default=None, metavar="OBS_COLUMN",
                    help="the FORCED L1 column, `scAnno_L1_resolved<suffix>`. Same treatment for "
                         "the independent depth-1 walk")
