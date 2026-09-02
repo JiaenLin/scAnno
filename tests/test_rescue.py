@@ -51,14 +51,13 @@ check("a label BOTH carry is not a target", "Big" not in t, str(sorted(t)))
 check("a label only one unit has, that no one lacks, cannot arise", "Mid" in t)
 check("no rarity threshold is consulted - imbalance is the whole criterion",
       set(t) == {"Rare", "Mid"}, str(sorted(t)))
-# `Rare` given CHILDREN is an internal node, so a cell resting on it carries a compartment
-# name rather than a population, and it must not be a target. A fixture writing `"Rare": []`
-# declares a leaf and the code was right to keep it - the first version of this check had that
-# backwards and the failure was the test's.
-tl = imbalanced({"A": A, "B": B},
-                tree={"children": {"root": ["Big", "Mid", "Rare"], "Rare": ["Sub1", "Sub2"]}})
-check("with a tree, an INTERNAL node is not a target", "Rare" not in tl, str(sorted(tl)))
-check("...and its leaf siblings still are", "Mid" in tl, str(sorted(tl)))
+# NO TREE, NO VOCABULARY, NO FILTER - asserted on the signature, because the whole point of the
+# removal is that `annotate --scope --resolve` already guarantees what a filter here would
+# re-check, and the filter that used to sit here caused the one error it was meant to prevent.
+import inspect
+_sig = set(inspect.signature(imbalanced).parameters) | set(inspect.signature(rescue).parameters)
+check("imbalanced/rescue take no tree and no vocabulary of their own",
+      not {"tree", "vocabulary", "scope"} & _sig, str(sorted(_sig)))
 
 print("")
 print("the search")

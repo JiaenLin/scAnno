@@ -304,8 +304,6 @@ def _rescue(a):
     from .emit import annotate_rescue, write_h5ad
     from .rescue import document, rescue, summarise
 
-    tree = _json.loads(Path(a.tree).read_text(encoding="utf-8")) if a.tree else None
-
     objs, labels, sweep, clus, units = {}, {}, {}, {}, []
     for path in a.h5ad:
         A = ad.read_h5ad(path)
@@ -354,7 +352,7 @@ def _rescue(a):
     print(f"{len(units)} unit(s); searching rungs {', '.join(str(r) for r in rungs)}")
     print(f"  label being corrected: obs[{a.label_key!r}]")
 
-    new, origin, rec = rescue(labels, sweep, clus, rungs, tree=tree)
+    new, origin, rec = rescue(labels, sweep, clus, rungs)
     summ = summarise(labels, new)
 
     print("")
@@ -2253,10 +2251,6 @@ def main(argv=None):
                         "study would report at, an appearance stops being evidence that a "
                         "population was merged and becomes evidence the partition was "
                         "shattered. Default: the finest rung every object carries")
-    s.add_argument("--tree", type=Path, metavar="JSON",
-                   help="the taxonomy. With it only LEAVES are eligible targets: a cell resting "
-                        "on an internal node carries a compartment name, and a compartment is "
-                        "not a population that can be missing from a unit")
     s.add_argument("--out-key", default=None, metavar="OBS_COLUMN",
                    help="name of the rescued column (default <label-key>_rescued). "
                         "`<name>_origin` says per cell whether it was kept or rescued")

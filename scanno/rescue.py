@@ -51,15 +51,7 @@ RESCUED = "rescued"
 SENTINELS = ("EXCLUDED", "UNRESOLVED")
 
 
-def _leaves(tree):
-    if not tree:
-        return None
-    ch = tree.get("children", {})
-    seen = {c for kids in ch.values() for c in kids} | set(ch)
-    return {n for n in seen if not ch.get(n)}
-
-
-def imbalanced(labels_by_unit, sentinels=SENTINELS, tree=None):
+def imbalanced(labels_by_unit, sentinels=SENTINELS):
     """The trigger set: labels some units carry and others do not. Returns {label: (with, without)}.
 
     A label present everywhere has nothing to explain and a label present nowhere is not a
@@ -69,15 +61,23 @@ def imbalanced(labels_by_unit, sentinels=SENTINELS, tree=None):
 
     NO RARITY THRESHOLD, and none is wanted. Imbalance is the criterion; rarity is its
     consequence, because an abundant population does not go missing from a unit.
+
+    AND NO VOCABULARY CHECK, because `scanno annotate --scope` already made one impossible to
+    need: the seals leave the walk structurally unable to emit a label outside the scope, and
+    `--resolve` pushes every walked cell down to a leaf of that sealed tree. A delivered column
+    produced that way contains the scope's vocabulary and the sentinels, and nothing else.
+
+    A leaf filter used to sit here and it CAUSED the error it was meant to prevent: a node the
+    scope SEALED is terminal by decision while still carrying children in the declared taxonomy,
+    so testing against that taxonomy dropped a label the annotation actually delivers - and it
+    was zero in two units, an imbalance silently never searched. The upstream mechanism is the
+    one to trust; duplicating it here only added a way to disagree with it.
     """
     sent = set(sentinels)
     units = list(labels_by_unit)
     seen = {u: (set(np.asarray(labels_by_unit[u]).astype(str).tolist()) - sent) for u in units}
-    leaves = _leaves(tree)
     out = {}
     for lab in sorted({x for u in units for x in seen[u]}):
-        if leaves is not None and str(lab).split("/")[-1] not in leaves:
-            continue
         have = [u for u in units if lab in seen[u]]
         lack = [u for u in units if lab not in seen[u]]
         if have and lack:
@@ -123,7 +123,7 @@ def reach(n_unit, n_clusters_finest, rate_pct):
 
 
 def rescue(labels_by_unit, sweep_by_unit_rung, clusters_by_unit_rung, rungs,
-           sentinels=SENTINELS, tree=None):
+           sentinels=SENTINELS):
     """Run every targeted search and rename ONLY what each one located.
 
     Returns `(new_by_unit, origin_by_unit, record)`. `new_by_unit[u]` is that unit's label array
@@ -136,7 +136,7 @@ def rescue(labels_by_unit, sweep_by_unit_rung, clusters_by_unit_rung, rungs,
     cell, and a later, more expensive search does not get to take it back. Cells declined for
     that reason are counted and named in the record rather than silently dropped.
     """
-    trig = imbalanced(labels_by_unit, sentinels=sentinels, tree=tree)
+    trig = imbalanced(labels_by_unit, sentinels=sentinels)
     units = list(labels_by_unit)
     sent = set(sentinels)
     # dtype=object, NOT the incoming fixed-width string dtype. A numpy `<U3` array holding
