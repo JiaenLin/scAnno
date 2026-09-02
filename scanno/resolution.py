@@ -145,125 +145,42 @@ def sweep_stability(labels_by_res, tree=None, groups=None, depth=None,
     return out
 
 
-def cluster_weights(clusters_by_res):
-    """{resolution: how many clusters that partition actually produced}.
+def sweep_agreement(labels_by_res, reference, depth=None):
+    """How much of the sweep agrees with a label already chosen. One number per cell.
 
-    THE WEIGHT IS MEASURED, NOT CHOSEN. A coarse partition should not carry the same vote as a
-    fine one, because it cannot separate a rare population by construction - but "coarse" has to
-    be read off the data rather than off the resolution parameter, which is a request and not a
-    result. Two datasets at resolution 0.5 can differ threefold in how many clusters they get,
-    and the one that got more resolved more.
-    """
-    return {r: float(len(np.unique(np.asarray(clusters_by_res[r])))) for r in clusters_by_res}
+    `sweep_stability` answers "which resolution is stable" - per RESOLUTION. This answers "which
+    CELLS are stable", which is the question a route correcting one annotation with another has
+    to ask: a correction resting on cells the sweep agrees about is a different claim from one
+    resting on cells whose identity changes whenever the granularity is nudged, and a
+    per-resolution score has already averaged over the cells.
 
+    `reference` is the label array the run actually delivered - one resolution's annotation, the
+    thing being described. This does NOT vote a new label, and that is deliberate. A voted
+    column is per CELL, while an annotation is per CLUSTER, and `joint.reconcile` reads "route B
+    delivers L" off the label column on the assumption that the two are the same set. They are,
+    for any single-resolution annotation, and they are not for a vote - which spared a label
+    from absorption while leaving it unable to be recovered, because the two directions were
+    then asking different questions. So the sweep reports and does not decide, which is also
+    what `docs/PRINCIPLES.md` 3 asks of any statistic whose agreement with correctness has not
+    been shown.
 
-def consensus(labels_by_res, depth=None, weights=None, eligible=True, min_support=2):
-    """The label a cell keeps ACROSS the sweep, and how much of the sweep agrees with it.
+    Returns a float per cell in [0, 1]: the share of resolutions whose label equals the
+    reference. 1.0 means every granularity agreed; 0.0 means the delivered call is unique to the
+    resolution that made it, which is a real and reportable state.
 
-    `sweep_stability` answers "which resolution is stable" - a number per RESOLUTION. This
-    answers "which cells are stable" - a label and a fraction per CELL - and they are different
-    questions with different consumers. A route that corrects one route's labels with another's
-    needs the second: a correction resting on cells the sweep agrees about is a different claim
-    from one resting on cells whose identity changes every time the granularity is nudged, and
-    a per-resolution stability score cannot tell those two apart because it has already averaged
-    over the cells.
-
-    `labels_by_res` maps a resolution to an array of one label PATH per cell, every array the
-    same length and in the same cell order - the same input `sweep_stability` takes, so a caller
-    holds one dict and asks it two questions.
-
-    WHY A PLAIN MAJORITY IS A MERGE MACHINE
-    ---------------------------------------
-    A coarse partition cannot separate a rare population: it has no cluster to put it in, so it
-    labels those cells whatever absorbed them. An unweighted count therefore lets the
-    resolutions that are BLIND to a population outvote the ones that see it, and the vote is
-    biased toward merging exactly where the sweep was supposed to help. Measured on a real
-    cohort: a rare immune population was separated at two resolutions of eight, at roughly five
-    hundred cells each, and the plain majority deleted it - the one population that sweep had
-    been added to recover.
-
-    Two things fix that, and only the second is sufficient:
-
-    `weights`   a mapping {resolution: weight}. A coarse partition's vote counts for less.
-                `cluster_weights()` derives one from the number of clusters each partition
-                produced. Defaults to equal. ON ITS OWN THIS IS NOT ENOUGH and the numbers say
-                so: weighting by cluster count still deleted that population, and weighting by
-                the resolution parameter rescued ONE cell of it - a label of size 1 is noise
-                wearing the name of a finding.
-
-    `eligible`  the vote for a label is taken among the resolutions that DELIVER that label
-                somewhere, not among all of them. A partition holding no such
-                cluster anywhere has no opinion about whether this cell is one; it never scored
-                the question. This is `store.safe_scale`'s rule - MISSING EVIDENCE IS NOT WEAK
-                EVIDENCE - and the same rule `compare` applies to samples, which count as
-                lacking a label only when they carry it nowhere. With it the same population
-                came back under EVERY weighting, so the answer stops depending on the weight.
-                Default True; pass False for a plain majority.
-
-    `min_support`  how many resolutions must DELIVER a label before it may use the restricted
-                denominator. Default 2, and without it the rule is not a vote: a label produced
-                by exactly one resolution has an eligible set of one, scores 1.0 for every cell
-                that resolution assigns it, and therefore always wins - which makes the result
-                the union of everything any single partition found, not a consensus. Two is the
-                smallest number for which "the sweep replicates it" means anything, and it is
-                the same bar this module already sets on itself: a sweep of one resolution is
-                refused outright, for the same reason. A label below the bar falls back to its
-                plain share of the whole sweep, where a majority can still carry it.
-
-    Returns `(labels, agreement)`:
-
-      labels     the per-cell winning path
-      agreement  the winner's share of the weight that COULD have carried it - support divided
-                 by the weight of the eligible resolutions, in (0, 1]. With `eligible=False`
-                 the denominator is the whole sweep and this is the plain share. 1.0 means every
-                 resolution that could assert this label did.
-
-    SENTINELS ARE NOT SPECIAL-CASED, deliberately. If most of the sweep left a cell UNRESOLVED
-    then UNRESOLVED is what the sweep says about it, and promoting a minority named call over it
-    would be the guess `classify` exists not to make. A consensus of UNRESOLVED simply means no
-    correction can be founded on that cell, which is the conservative direction.
-
-    REFUSES a sweep of fewer than two resolutions, for the same reason `sweep_stability` does:
-    an agreement column that is 1.0 for every cell by construction carries no information and
-    reads exactly like one that was measured.
+    REFUSES a sweep of fewer than two resolutions: an agreement column that is 1.0 for every
+    cell by construction carries no information and reads exactly like one that was measured.
     """
     res = list(labels_by_res)
     if len(res) < 2:
-        raise ValueError("a consensus needs at least two resolutions to agree or disagree")
+        raise ValueError("agreement needs at least two resolutions to agree or disagree")
     L = {r: _truncate(labels_by_res[r], depth) for r in res}
-    n = len(L[res[0]])
+    ref = _truncate(reference, depth)
+    n = len(ref)
     if any(len(L[r]) != n for r in res):
         raise ValueError("every resolution must label the same cells, in the same order")
     stack = np.vstack([L[r] for r in res])
-
-    w = np.ones(len(res), dtype=float)
-    if weights is not None:
-        missing = [r for r in res if r not in weights]
-        if missing:
-            raise ValueError(f"no weight for resolution(s) {missing}")
-        w = np.array([float(weights[r]) for r in res], dtype=float)
-        if not np.all(w > 0):
-            raise ValueError("every weight must be positive; a zero weight silently drops a "
-                             "resolution from the sweep it is supposed to be part of")
-
-    labs = sorted(set(stack.ravel().tolist()))
-    best = np.full(n, -1.0)
-    out = np.empty(n, dtype=object)
-    for lab in labs:
-        hit = (stack == lab)
-        support = (hit * w[:, None]).sum(axis=0)
-        # THE DENOMINATOR IS WHAT COULD HAVE VOTED, not what did. A resolution delivering this
-        # label nowhere had no cluster to score it in and is not counter-evidence.
-        can = hit.any(axis=1)
-        den = (float(w[can].sum())
-               if (eligible and int(can.sum()) >= int(min_support)) else float(w.sum()))
-        score = support / den
-        # Strictly greater, over labels visited in sorted order: a tie goes to the label that
-        # sorts first, so the result does not depend on dict ordering.
-        take = score > best
-        best[take] = score[take]
-        out[take] = lab
-    return out.astype(str), best.astype(float)
+    return (stack == ref).sum(axis=0) / float(len(res))
 
 
 def derived_tolerance(values, floor=MIN_TOL):

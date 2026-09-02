@@ -22,8 +22,8 @@ from .exclude import (EXCLUDED, ExclusionMismatch, as_mask, exclusion_record_cel
                       flag_digest, unprofilable)
 from .neighbours import cluster_neighbourhood, label_flow
 from .query import DETECT_FLOOR, cluster_profile, standardise
-from .resolution import (consensus, derived_tolerance, format_report, pick_resolution,
-                         sweep_stability)
+from .resolution import (derived_tolerance, format_report, pick_resolution,
+                         sweep_agreement, sweep_stability)
 from .store import NORM, ProfileStore, build_store, safe_scale
 
 #: Kept in step with the VERSION file, which is the one a reader checks. They disagreed between

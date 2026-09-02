@@ -324,35 +324,24 @@ def sweep_path(adata, res, y, flag=None, *, prefix=DEFAULT_PREFIX, suffix="", ta
     return key
 
 
-def consensus_columns(adata, labels, agreement, record, *, prefix=DEFAULT_PREFIX, suffix=""):
-    """The label the SWEEP agrees on, and how much of it agreed. Two columns, one statement.
+def sweep_agreement_column(adata, agreement, record, *, prefix=DEFAULT_PREFIX, suffix=""):
+    """ONE column: how much of the resolution sweep agrees with the label this run delivered.
 
-    They are never written apart. The label alone reads as an ordinary annotation and hides that
-    it was voted; the agreement alone names no label to be about. A consumer that corrects one
-    route with another needs both - which label, and on how much of the sweep it rests - and a
-    reader handed only the first cannot tell a call every resolution made from one that won on a
-    tie-break.
+    It describes the annotation beside it and does not replace or compete with it. An earlier
+    version wrote a voted LABEL here as well; that column was per cell where an annotation is
+    per cluster, and `joint.reconcile` reads "route B delivers L" off the label column on the
+    assumption that those two are the same set. Reporting is the whole job.
 
-    REFUSES to overwrite, like every other label-writing path here: the consensus sits beside
-    the sweep it was voted from, and a replaced column cannot be reverted to.
+    REFUSES to overwrite, like every other column-writing path here.
     """
-    import pandas as pd
-
-    key = f"{prefix}_consensus{suffix}"
-    akey = f"{prefix}_consensus_agreement{suffix}"
-    for k in (key, akey):
-        if k in adata.obs:
-            raise ValueError(
-                f"obs[{k!r}] already exists. The consensus ADDS columns beside the sweep it was "
-                f"voted from and never replaces one.")
-    if len(labels) != adata.n_obs or len(agreement) != adata.n_obs:
-        raise ValueError(
-            f"labels/agreement are {len(labels)}/{len(agreement)} for {adata.n_obs} cells")
-    adata.obs[key] = pd.Categorical([str(x) for x in labels])
-    adata.obs[akey] = np.asarray(agreement, dtype=np.float32)
-    adata.uns[f"{prefix}_consensus_provenance{suffix}"] = _uns_safe(dict(record, key=key,
-                                                                        agreement_key=akey))
-    return {"key": key, "agreement_key": akey}
+    key = f"{prefix}_sweep_agreement{suffix}"
+    if key in adata.obs:
+        raise ValueError(f"obs[{key!r}] already exists.")
+    if len(agreement) != adata.n_obs:
+        raise ValueError(f"agreement is {len(agreement)} for {adata.n_obs} cells")
+    adata.obs[key] = np.asarray(agreement, dtype=np.float32)
+    adata.uns[f"{prefix}_sweep_provenance{suffix}"] = _uns_safe(dict(record, key=key))
+    return {"key": key}
 
 
 def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin"):

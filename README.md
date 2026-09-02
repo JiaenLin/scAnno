@@ -149,10 +149,10 @@ scanno annotate --h5ad joint.h5ad --tree tree.json \
                 --scope scope.json --store store.npz --species Mouse --tissue Heart --resolve
 
 # the third column, the document, and the tables — route A is corrected, never replaced.
-# --path-key-b reads the SWEEP CONSENSUS, so a correction rests on cells the sweep agrees about
+# route B is still ONE resolution's annotation; the sweep says how much of it agrees, per cell
 scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
-               --path-key cell_type_forced --path-key-b scanno_consensus \
-               --agreement-key scanno_consensus_agreement \
+               --path-key cell_type_forced --path-key-b scanno_resolved_path \
+               --agreement-key scanno_sweep_agreement \
                --sample-key sample --cluster-key leiden_1p0 --group-key group \
                --out-h5ad delivered.h5ad --out-key cell_type_joint_route \
                --out-report joint_route.html --out-table candidates.csv \
@@ -175,7 +175,7 @@ scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
 | `scanno_support` | curated tier-1/2 assertions behind the winning node |
 | `scanno_resolved_path` | with `--resolve`: the forced label, no holes, plus `scanno_resolved_origin` |
 | `scanno_resolved_path_r<tag>` | with more than one `--cluster-key`: one column per resolution, the label path and nothing else |
-| `scanno_consensus` | the label a cell keeps **across the sweep**, with `scanno_consensus_agreement` — the share of the weight that *could* have voted for it. Written only when the sweep has at least two resolutions, because an agreement column that is 1.0 by construction reads exactly like one that was measured |
+| `scanno_sweep_agreement` | the share of the sweep whose label matches the delivered one, per cell. Written only when the sweep has at least two resolutions, because an agreement column that is 1.0 by construction reads exactly like one that was measured. **Evidence only — the sweep votes on nothing** |
 | `scanno_path_joint` | with `compare --out-h5ad`: the joint correction, plus `scanno_path_joint_origin` |
 
 Three properties, asserted in `tests/test_emit.py`:
@@ -240,7 +240,6 @@ only a percentage. `agent` is an optional second opinion — bring your own key 
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
 | ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |
 | ✅ resolution sweep | the joint route walked at every granularity against one store and one scope, voted per cell, with each candidate carrying how much of the sweep agrees — a population too rare to cluster at one resolution clusters at another, and one resolution cannot say which happened |
-| ✅ the vote is not a plain majority | a coarse partition cannot separate a rare population **by construction**, so an equal count lets the resolutions blind to one outvote those that see it. A label's support is divided by the weight of the resolutions that deliver it *somewhere* — missing evidence is not weak evidence — and coarse partitions weigh less, by the number of clusters they actually produced |
 | ✅ scope: SEAL / KEEP / FORCE | voted across a cohort. A forced call is never pooled with a gap-cleared one: `<prefix>_assignment` records how each cell was assigned and `uns` carries every step's margin |
 | ✅ exclusion, provenance | equivalence to deletion asserted by digest, not only by count |
 | ✅ calibration, resolution, kNN diagnostic, two-route check, agent | all built and tested |
