@@ -98,6 +98,78 @@ def reads_of(handler):
     return out
 
 
+def optional_dests():
+    """Every dest argparse can hand the handler as None.
+
+    A dest is optional when it declares `default=None`, or declares no default at all with no
+    `action` to supply one and no `required=True` to guarantee a value. That is argparse's own
+    rule, read off the same calls argparse reads.
+    """
+    calls = [n for n in ast.walk(TREE) if isinstance(n, ast.Call)
+             and getattr(n.func, "attr", None) == "add_argument"]
+    out = set()
+    for call in calls:
+        d = dest_of(call)
+        if not d:
+            continue
+        kw = {k.arg: k.value for k in call.keywords}
+        if "default" in kw:
+            if isinstance(kw["default"], ast.Constant) and kw["default"].value is None:
+                out.add(d)
+            continue
+        if "action" in kw:
+            continue
+        req = kw.get("required")
+        if isinstance(req, ast.Constant) and req.value is True:
+            continue
+        out.add(d)
+    return out
+
+
+print("\n0 - an optional argument is never coerced as though it were required")
+# WHAT THIS CAUGHT. `--gap-min` defaults to None, which does not mean "no bar" but "the bar
+# classify picks for this weight source". A provenance record built it with `float(a.gap_min)`
+# and raised TypeError - on PBS 702931, AFTER an eight-resolution sweep had been walked, at the
+# last statement before anything was written. Coercing an optional is a whole class of that
+# failure and it is invisible until the option is left out, which is the common case.
+# A COERCION UNDER A NONE-CHECK IS CORRECT AND MUST NOT BE FLAGGED. The first version of this
+# check flagged `None if a.gap_min is None else float(a.gap_min)` - the fix for the very defect
+# it was written for - because it read the call and not the guard around it. A gate that fires
+# on correct behaviour gets switched off, and this file has now learned that twice.
+def _guarded(fn, param, attr):
+    """Call nodes inside an `if`/`ifexp` whose test asks whether `param.attr` is None."""
+    safe = set()
+    for n in ast.walk(fn):
+        if not isinstance(n, (ast.If, ast.IfExp)):
+            continue
+        t = ast.unparse(n.test)
+        if f"{param}.{attr}" not in t or "None" not in t:
+            continue
+        for part in ((n.body if isinstance(n.body, list) else [n.body])
+                     + (n.orelse if isinstance(n.orelse, list) else [n.orelse])):
+            safe |= {id(c) for c in ast.walk(part) if isinstance(c, ast.Call)}
+    return safe
+
+
+_opt = optional_dests()
+_bad = []
+for _h in [n.name for n in ast.walk(TREE)
+           if isinstance(n, ast.FunctionDef) and n.name.startswith("_")]:
+    _fn = next(n for n in ast.walk(TREE)
+               if isinstance(n, ast.FunctionDef) and n.name == _h)
+    if not _fn.args.args:
+        continue
+    _p = _fn.args.args[0].arg
+    for _n in ast.walk(_fn):
+        if (isinstance(_n, ast.Call) and getattr(_n.func, "id", "") in ("float", "int")
+                and len(_n.args) == 1 and isinstance(_n.args[0], ast.Attribute)
+                and getattr(_n.args[0].value, "id", "") == _p
+                and _n.args[0].attr in _opt
+                and id(_n) not in _guarded(_fn, _p, _n.args[0].attr)):
+            _bad.append(f"{_h}: {ast.unparse(_n)}")
+check("no float()/int() over an argument that can be None", not _bad, "; ".join(_bad))
+check("the rule found some optionals to check against", len(_opt) > 10, f"{len(_opt)} optionals")
+
 print("\n1 - the parser map reads")
 pmap = build_parser_map()
 check("handlers were found", len(pmap) >= 6, f"{len(pmap)}: {sorted(pmap)}")

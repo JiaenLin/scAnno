@@ -834,7 +834,14 @@ def _annotate(a):
                     "cluster_keys": list(sweep_keys),
                     "store_digest": str(getattr(store, "digest", "")),
                     "tree": str(a.tree), "scope": str(a.scope or ""),
-                    "gap_min": float(a.gap_min),
+                    # AS GIVEN, not coerced. `--gap-min` defaults to None, which is not "no
+                    # bar" but "the bar classify picks for this weight source" (GAP_CORPUS 0.30
+                    # or GAP_PROFILE 0.15), and `float(None)` raised after the whole eight-
+                    # resolution sweep had been walked. A provenance field must be able to
+                    # record "unset", because unset is a real and common answer.
+                    "gap_min": (None if a.gap_min is None else float(a.gap_min)),
+                    "gap_min_note": ("unset - classify used its default for the weight source"
+                                     if a.gap_min is None else "given on the command line"),
                     "rule": "per-cell modal path across the sweep; agreement is the share of "
                             "resolutions carrying it. Sentinels are not special-cased - a cell "
                             "the sweep mostly left UNRESOLVED reads UNRESOLVED.",
