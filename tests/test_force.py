@@ -419,19 +419,49 @@ def test_the_l1_column_is_untouched_by_seal_and_by_force():
     assert check_scope(scope(root="FORCE"), l1)               # root FORCE is refused, not run
 
 
+def _calls(fn, name):
+    return [n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == name]
+
+
+def _guarded_by(fn, test_src):
+    """Every Call node sitting inside an `if <test_src>:` block of `fn`."""
+    out = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.If) and ast.unparse(n.test) == test_src:
+            for b in n.body:
+                out |= {id(c) for c in ast.walk(b) if isinstance(c, ast.Call)}
+    return out
+
+
 def test_force_is_applied_to_the_deep_walk_and_never_to_the_independent_l1():
-    """AST, not behaviour: the guarantee is that the L1 result never reaches `apply_force`."""
+    """AST, not behaviour: the guarantee is that the L1 result never reaches `apply_force`.
+
+    COUNTED to one until the resolution sweep was added, which legitimately forces once per
+    further resolution - the sweep is annotated against the SAME scope or it is not comparable
+    to the run it is a sweep of. A count of one asserted "there is exactly one caller", which
+    was never the guarantee; the guarantee is WHICH ARGUMENT reaches it, and that survives any
+    number of callers. A guard that fires on correct behaviour gets switched off.
+    """
     src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    used = [n for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "apply_force"]
-    assert len(used) == 1, f"{len(used)} apply_force() call(s) in _annotate"
-    assert getattr(used[0].args[0], "id", "") == "res", ast.unparse(used[0])
-    # the second walk still happens, with the same bar and the same withheld set
-    two = [n for n in ast.walk(fn)
-           if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "classify"]
-    assert [c.args[2].id for c in two] == ["tree", "l1_tree"]
+    used = _calls(fn, "apply_force")
+    assert used, "no apply_force() call in _annotate"
+    for c in used:
+        got = getattr(c.args[0], "id", "")
+        assert got in ("res", "res_k"), f"apply_force({got}) - the L1 walk must never reach it"
+        assert "l1" not in got, ast.unparse(c)
+    # THE INDEPENDENT L1 IS WALKED EXACTLY ONCE, and every other walk is against --tree. The
+    # sweep adds walks; it must add them against the same tree as the run, never against l1.
+    trees = [getattr(c.args[2], "id", ast.unparse(c.args[2])) for c in _calls(fn, "classify")]
+    assert trees.count("l1_tree") == 1, trees
+    assert set(trees) == {"tree", "l1_tree"}, trees
+    # ...and the L1 is resolved against l1_tree while every other resolve uses tree.
+    rl = [ast.unparse(k.value) for c in _calls(fn, "resolve_to_leaf") for k in c.keywords
+          if k.arg == "tree"]
+    assert rl.count("l1_tree") == 1, rl
+    assert set(rl) <= {"tree", "l1_tree"}, rl
 
 
 def test_the_independent_l1_column_still_says_it_is_independent_under_a_scope():
@@ -464,8 +494,13 @@ def test_without_a_scope_the_annotate_path_is_untouched():
     assert "if force_paths:" in body, "the reassignment must be gated on the scope"
     assert _stmt("force_rec = None") in body
     assert "assignment=force_rec is not None" in body, "the column must be gated too"
-    # nothing may seal or force outside those two guards
-    assert body.count("apply_force(") == 1 and body.count("seal_tree(") == 1
+    # NOTHING MAY SEAL OR FORCE OUTSIDE THOSE GUARDS. Expressed as "every call site is inside
+    # an `if force_paths:`", not as "there is one call site": the resolution sweep forces once
+    # per further resolution, against the same scope, and a count would have refused that while
+    # the property it protects - no forcing without a scope - held throughout.
+    for site in _calls(fn, "apply_force"):
+        assert id(site) in _guarded_by(fn, "force_paths"), ast.unparse(site)
+    assert body.count("seal_tree(") == 1
 
     opts = _annotate_parser()
     assert "--scope" in opts, sorted(opts)
@@ -819,10 +854,21 @@ def test_a_name_at_two_positions_is_refused_because_the_trace_is_keyed_by_bare_n
 
 # ============================================================ 7. the walk itself is unchanged
 
-#: sha256 of scanno/classify.py as of the commit that added --scope. The requirement is not
-#: "classify still works" but "classify was NOT TOUCHED": a FORCE that needed the walk edited
-#: would not be the same walk, and every gap in the output would mean two different things.
-CLASSIFY_SHA = "9096b9aef108e88c9678009ab6fa522aa1cb9cac11485433db1ccfbaeef2c8ba"
+#: sha256 of scanno/classify.py. The requirement is not "classify still works" but "classify was
+#: NOT TOUCHED": a FORCE that needed the walk edited would not be the same walk, and every gap in
+#: the output would mean two different things.
+#:
+#: RE-PINNED, OUT LOUD, as this guard demands. Two edits since the --scope commit, both to what
+#: the walk RECORDS and neither to what it decides:
+#:   868c23d  the trace gained `second` and `scores` - what each call beat, and by how much.
+#:            A run could say `Neural, gap 0.64` and nothing about what Neural beat, so the
+#:            reason for a call had to be reconstructed from a marker table instead of read.
+#: Every invariant this test exists for is checked below and still holds: the argument list is
+#: unchanged, the walk mentions no scope/force/SEAL/assignment, the gap constants are 0.30/0.15,
+#: and `trace[-1]["top"]` is still `order[srt[0]]`. A digest cannot tell an added trace key from
+#: a changed decision, so the AST checks are the substance and this line is the tripwire that
+#: makes someone come and look.
+CLASSIFY_SHA = "3fff480805db7642c895180ad616ee30d9457895eb1e2ef9fdb30d2b9fa8be93"
 
 
 def test_classify_py_is_not_touched_by_the_scope_feature():

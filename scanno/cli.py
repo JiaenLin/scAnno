@@ -731,8 +731,8 @@ def _annotate(a):
 
     sweep = [(_res_tag(a.cluster_key), res, y)]
     if len(sweep_keys) > 1:
-        from .force import apply_force as _apply_force, resolve_to_leaf as _resolve
-        from .step import node_scorer as _node_scorer
+        from .force import apply_force, resolve_to_leaf
+        from .step import node_scorer
         print("")
         print(f"sweep: {len(sweep_keys)} resolutions, one walk each, same tree / scope / "
               f"background / bar")
@@ -751,14 +751,14 @@ def _annotate(a):
                              gap_min=a.gap_min, exclude=drop_k)
             sc_k = None
             if force_paths:
-                sc_k = _node_scorer(Z_k, usable_k, tree, store=None if asr else store,
-                                   assertions=asr)
-                res_k, _ = _apply_force(res_k, force_paths, counts=cn_k, tree=tree, scorer=sc_k)
+                sc_k = node_scorer(Z_k, usable_k, tree,
+                                   store=None if asr else store, assertions=asr)
+                res_k, _ = apply_force(res_k, force_paths, counts=cn_k, tree=tree, scorer=sc_k)
             if a.resolve:
                 if sc_k is None:
-                    sc_k = _node_scorer(Z_k, usable_k, tree, store=None if asr else store,
-                                       assertions=asr)
-                res_k, _ = _resolve(res_k, tree=tree, scorer=sc_k, counts=cn_k)
+                    sc_k = node_scorer(Z_k, usable_k, tree,
+                                       store=None if asr else store, assertions=asr)
+                res_k, _ = resolve_to_leaf(res_k, tree=tree, scorer=sc_k, counts=cn_k)
             n_un_k = sum(1 for r in res_k if r["path"] == "UNRESOLVED")
             print(f"    {k:<20} {len(cats_k):>4} clusters   "
                   f"{len({r['path'] for r in res_k}):>3} label(s)   "

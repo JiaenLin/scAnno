@@ -134,20 +134,38 @@ def test_classify_py_is_not_touched_by_the_l1_feature():
 
 
 def test_the_independent_l1_is_a_second_call_not_a_second_mode():
-    """`cli._annotate` must call `classify` twice, with the same arguments but a different tree."""
+    """`cli._annotate` must reach the L1 tree by CALLING `classify` again, not by a mode flag.
+
+    Counted at exactly two until the resolution sweep was added, which walks once per further
+    resolution against `--tree`. Two was never the guarantee - the guarantee is that the L1 tree
+    is reached by one more CALL, with the same bar and the same withheld set as the walk it is
+    compared against. That property is what is asserted now, and it holds for any number of
+    resolutions.
+    """
     src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
     calls_ = [n for n in ast.walk(fn)
               if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "classify"]
-    assert len(calls_) == 2, f"{len(calls_)} classify() call(s) in _annotate"
+    assert len(calls_) >= 2, f"{len(calls_)} classify() call(s) in _annotate"
     trees = [c.args[2].id for c in calls_]
-    assert trees == ["tree", "l1_tree"], trees
-    # the same bar and the same withheld set in both, or the two columns are not comparable
+    assert trees.count("l1_tree") == 1, trees
+    assert set(trees) == {"tree", "l1_tree"}, trees
+    # ONE bar everywhere. A sweep walked at a different gap would not be a sweep of this run.
     for c in calls_:
         kw = {k.arg: ast.unparse(k.value) for k in c.keywords}
         assert kw["gap_min"] == "a.gap_min", kw
-        assert kw["exclude"] == "drop", kw
+    # THE WITHHELD SET IS THE ONE BELONGING TO THAT CALL'S OWN CLUSTERING - `drop` for the run
+    # and its L1, `drop_k` for a sweep resolution, because which clusters are unprofilable is a
+    # property of the partition. The L1 must share the RUN's, or the two columns it is compared
+    # against are not comparable.
+    by_tree = {}
+    for c in calls_:
+        kw = {k.arg: ast.unparse(k.value) for k in c.keywords}
+        by_tree.setdefault(c.args[2].id, set()).add(kw["exclude"])
+    assert by_tree["l1_tree"] == {"drop"}, by_tree
+    assert by_tree["tree"] <= {"drop", "drop_k"}, by_tree
+    assert "drop" in by_tree["tree"], by_tree
 
 
 # ================================================== 2. the column name, and the sweep collision
