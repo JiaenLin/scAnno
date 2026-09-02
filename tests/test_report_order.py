@@ -105,6 +105,39 @@ check("nor does the rescued block carry the joint column's unique label",
 check("a context given no rescued column simply has none",
       not Context([("S", Fake("S"))], path_key="cell_type").has_rescue)
 
+print("\n1c - the sweep is found whichever walk named it")
+# `--resolve` renames the whole per-resolution family, and the reader knows the sweep by
+# `path_key`, which names the HONEST column. A run that forced every rung therefore wrote
+# `<...>_resolved_path_r*` and the reader looked for `<...>_path_r*`, found nothing, and
+# reported an object that had never been swept. The second stem is tried ONLY when the first
+# finds nothing, so this can turn an absence into a figure and cannot change one that draws.
+
+
+class Swept(Fake):
+    def __init__(self, name, resolved):
+        super().__init__(name)
+        stem = "cell_type_forced" if resolved else "cell_type"
+        for tag in ("1p0", "2p0"):
+            self.obs[f"{stem}_r{tag}"] = FORCED if resolved else PATH
+
+
+_honest = Context([("S", Swept("S", resolved=False))], path_key="cell_type",
+                  forced_key="cell_type_forced")
+_forced = Context([("S", Swept("S", resolved=True))], path_key="cell_type",
+                  forced_key="cell_type_forced")
+check("an honest sweep is found under path_key, as always",
+      [c for _r, c, _t in _honest.sweep_keys("S")] == ["cell_type_r1p0", "cell_type_r2p0"],
+      str(_honest.sweep_keys("S")))
+check("a FORCED sweep is found under forced_key",
+      [c for _r, c, _t in _forced.sweep_keys("S")]
+      == ["cell_type_forced_r1p0", "cell_type_forced_r2p0"], str(_forced.sweep_keys("S")))
+check("an object with neither family returns nothing",
+      Context([("S", Fake("S"))], path_key="cell_type",
+              forced_key="cell_type_forced").sweep_keys("S") == [])
+check("and the honest result does not depend on forced_key being set",
+      Context([("S", Swept("S", resolved=False))], path_key="cell_type").sweep_keys("S")
+      == _honest.sweep_keys("S"))
+
 print("\n2 - the delivered annotation leads and L1 follows")
 with tempfile.TemporaryDirectory() as td:
     write_cohort(ctx, Path(td), title="T", version="0")

@@ -1005,20 +1005,38 @@ class Context:
         return None
 
     def sweep_keys(self, sample):
-        """The per-resolution label columns this object actually carries, in numeric order."""
+        """The per-resolution label columns this object actually carries, in numeric order.
+
+        TWO STEMS, TRIED IN ORDER, because `--resolve` renames the whole family. A sweep written
+        by the honest walk is `<prefix>_path<suffix>_r<tag>` and one written with `--resolve` is
+        `<prefix>_resolved_path<suffix>_r<tag>` - and an object carries one form or the other,
+        never both, so there is nothing to disambiguate. The reader knows the sweep by
+        `path_key`, which names the HONEST column, so a run that forced every rung wrote a
+        family the reader then looked for under the wrong stem and reported an object that had
+        never been swept.
+
+        `forced_key` is tried only when the first stem finds nothing, so an object carrying the
+        honest family returns exactly what it always did: this can turn an absence into a
+        figure and cannot change one that already draws.
+        """
         A = self._matrix(sample)
         if A is None:
             return []
-        stem = sweep_stem(self.path_key)
-        out = []
-        for c in A.obs.columns:
-            if c.startswith(stem + "_r"):
-                tag = c[len(stem) + 2:]
-                try:
-                    out.append((float(tag.replace("p", ".")), c, tag))
-                except ValueError:
-                    continue
-        return sorted(out)
+        for key in (self.path_key, self.forced_key):
+            if not key:
+                continue
+            stem = sweep_stem(key)
+            out = []
+            for c in A.obs.columns:
+                if c.startswith(stem + "_r"):
+                    tag = c[len(stem) + 2:]
+                    try:
+                        out.append((float(tag.replace("p", ".")), c, tag))
+                    except ValueError:
+                        continue
+            if out:
+                return sorted(out)
+        return []
 
     def labels(self, sample, depth, resolution=None):
         A = self._matrix(sample)
