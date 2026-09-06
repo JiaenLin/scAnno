@@ -1,0 +1,46 @@
+# What can be added to scAnno. Read by `sch dev map`; see the harness's sch/dev/points.py.
+tool: scanno
+devpoints: 1
+terms: docs/forbidden_terms.txt
+
+tests:
+  command: ["{python}", "tests/run_all.py"]
+
+# Clustering is step one of every annotation path and the cheapest end-to-end exercise that
+# still writes an object: it resolves the input, honours the seed, and writes its own status.
+fixture:
+  command: ["{python}", "-m", "scanno.cli", "cluster",
+            "--h5ad", "{observations}", "--out", "{out}/clustered.h5ad",
+            "--resolutions", "0.5", "--seed", "0"]
+  products: ["clustered.h5ad"]
+  timeout: 1800
+
+baseline_dir: tests/baselines
+
+points:
+  mechanism:
+    what: a way of putting a label on a cluster, or of declining to
+    lives: scanno
+    must_declare: [what it SEES, the sentinel it uses when it declines, its escapes as ask and
+                   decision pairs, what it CANNOT show, state_version]
+    example: rescue
+    tests: [tests/test_adversarial.py]
+    proves: >
+      it runs, it routes every refusal through the status contract with a reason and a fix, and
+      it declines with the ONE sentinel definition rather than a string of its own
+    cannot_prove: >
+      that a label is correct - no test in this repository can, and a mechanism whose SPEC claims
+      accuracy is claiming something only a marker review establishes
+    notes: >
+      scAnno has no registry table: mechanisms are wired in cli.py. That is why this point
+      declares none, and why `must_declare` carries more weight here than in the other tools -
+      the declaration is the only place the contract is visible.
+
+  sentinel:
+    what: a named not-a-call - the annotator declining, which is a different fact from a label
+    lives: scanno/sentinels.py
+    must_declare: [what declining means here, what a reader must not do with it]
+    example: UNRESOLVED
+    tests: [tests/test_adversarial.py]
+    proves: "it is defined once and imported everywhere, so no module invents its own spelling"
+    cannot_prove: "that downstream tools treat it as not-a-call rather than as a population"
