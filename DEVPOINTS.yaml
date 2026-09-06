@@ -1,7 +1,10 @@
 # What can be added to scAnno. Read by `sch dev map`; see the harness's sch/dev/points.py.
 tool: scanno
 devpoints: 1
-terms: docs/forbidden_terms.txt
+# The word list this repository must not contain lives OUTSIDE it, in the project that owns
+# the cohort: $SCANNO_FORBIDDEN_TERMS, the convention tests/test_portability.py already uses.
+# A tool that ships the vocabulary in order to check that it does not ship the vocabulary
+# has shipped it.
 
 tests:
   command: ["{python}", "tests/run_all.py"]
