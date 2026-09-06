@@ -47,7 +47,7 @@ from .force import BY_GAP, FROM_WALK
 #: viewer has to be told about by hand.
 DEFAULT_PREFIX = "scanno"
 
-UNRESOLVED = "UNRESOLVED"
+from .sentinels import UNRESOLVED  # noqa: E402 — one definition
 
 
 def per_cell(res, y, flag=None):

@@ -59,8 +59,7 @@ BASE_HUES = ["#E04B3A", "#3D5A8A", "#2FA88B", "#F2A07B", "#8B7FB8", "#6BA83F",
              "#946B2D", "#D94F9A", "#55A868", "#DD8452", "#B07AA1", "#64B5CD",
              "#7F7F7F", "#76B7B2", "#F28E2B", "#59A14F"]
 
-UNRESOLVED = "UNRESOLVED"
-EXCLUDED = "EXCLUDED"
+from .sentinels import UNRESOLVED, EXCLUDED  # noqa: E402 — one definition
 
 #: Two greys, not one. See rule 2.
 SENTINELS = {UNRESOLVED: "#B8B8B8", EXCLUDED: "#5A5A5A"}

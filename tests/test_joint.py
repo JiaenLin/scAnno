@@ -167,8 +167,7 @@ print("\n9 - nothing in the module names a project, a tissue or a design")
 import scanno.joint as _j  # noqa: E402
 src = Path(_j.__file__).read_text(encoding="utf-8").lower()
 check("no species, tissue or study vocabulary",
-      not any(w in src for w in ("mouse", "human", "heart", "sambo", "hfd", "aging",
-                                 "cardiomyocyte", "pbmc")),
+      not any(w in src for w in ("mouse", "human", "heart", "cardiomyocyte", "pbmc")),
       "found project vocabulary")
 import inspect  # noqa: E402
 check("reconcile cannot be given a design",

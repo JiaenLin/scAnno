@@ -1,5 +1,5 @@
 # The environment scAnno's results were produced in, captured from a working install rather
-# than composed from bounds. Every version here ran the SAMBO cohort end to end on 2026-08-16.
+# than composed from bounds. Every version here ran the reference cohort end to end on 2026-08-16.
 #
 # WHY A LOCK AND NOT A RANGE. `pyproject.toml` declares `scanpy>=1.10` because scAnno's decision
 # layer genuinely tolerates a range. Its RESULTS do not: clustering is not bit-reproducible

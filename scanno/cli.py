@@ -20,6 +20,9 @@ import sys
 from pathlib import Path
 
 REFUSE = 2
+STATE_VERSION = 1      # the numbers, versioned: bump when the same inputs would give different labels
+
+from . import status as _ST  # noqa: E402
 
 
 def _selftest(_):
@@ -223,24 +226,23 @@ def _calibrate(a):
 
     if not same and not a.harmonise:
         spread = ", ".join(f"{k}:{v:,}" for k, v in sizes.items())
-        print(f"scanno: REFUSE — the datasets do not share a gene space ({spread}); "
+        _ST.refuse(f"the datasets do not share a gene space ({spread}); "
               f"the intersection is {len(keep):,}."
               f"\n        Pass --harmonise to intersect them explicitly. Doing it "
               f"silently would make"
-              f"\n        the store's coverage depend on which atlas loaded first.",
-              file=sys.stderr)
+              f"\n        the store's coverage depend on which atlas loaded first.")
         return REFUSE
     if not same:
         med = int(np.median(list(sizes.values())))
         print(f"  harmonised to {len(keep):,} shared genes "
               f"({', '.join(f'{k} {v:,}' for k, v in sizes.items())})")
         if len(keep) < a.min_shared_genes:
-            print(f"scanno: REFUSE — only {len(keep):,} genes are shared, below "
+            _ST.refuse(f"only {len(keep):,} genes are shared, below "
                   f"--min-shared-genes {a.min_shared_genes:,}."
                   f"\n        A store this narrow cannot represent most cell types, and "
                   f"every downstream"
                   f"\n        score would be computed on whatever the thinnest atlas "
-                  f"happened to include.", file=sys.stderr)
+                  f"happened to include.")
             return REFUSE
         if len(keep) < 0.5 * med:
             print(f"  REVIEW  the intersection is {100*len(keep)/med:.0f}% of the median "
@@ -267,8 +269,8 @@ def _calibrate(a):
     store = build_store(stream(), ctx)
     asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
     if not asr:
-        print(f"scanno: REFUSE — the corpus has nothing for {a.species}/{a.tissue} at "
-              f"tier<={a.min_tier}. There is no panel to calibrate.", file=sys.stderr)
+        _ST.refuse(f"the corpus has nothing for {a.species}/{a.tissue} at "
+              f"tier<={a.min_tier}. There is no panel to calibrate.")
         return REFUSE
     cal = calibrate(store, asr, tree, ctx)
     out = save(cal, store, a.out)
@@ -452,12 +454,12 @@ def _annotate(a):
         try:
             verdicts = scope_verdicts(scope)
         except ValueError as e:
-            print(f"scanno: REFUSE - --scope {a.scope} is {e}", file=sys.stderr)
+            _ST.refuse(f"--scope {a.scope} is {e}")
             return REFUSE
         problems = check_scope(scope, tree)
         if problems:
-            print(f"scanno: REFUSE - --scope {a.scope} cannot be walked against --tree "
-                  f"{a.tree}:", file=sys.stderr)
+            _ST.refuse(f"--scope {a.scope} cannot be walked against --tree "
+                  f"{a.tree}:")
             for p in problems:
                 print(f"        - {p}", file=sys.stderr)
             return REFUSE
@@ -484,11 +486,10 @@ def _annotate(a):
         l1_tree = json.loads(Path(a.l1_tree).read_text(encoding="utf-8"))
         d = tree_depth(l1_tree)
         if d != 1:
-            print(f"scanno: REFUSE - --l1-tree {a.l1_tree} is a depth-{d} tree.\n"
+            _ST.refuse(f"--l1-tree {a.l1_tree} is a depth-{d} tree.\n"
                   f"        The L1 column holds one level and nothing below it. Build the tree "
                   f"with\n"
-                  f"        `scanno scope --out-l1-tree`, which emits exactly this.",
-                  file=sys.stderr)
+                  f"        `scanno scope --out-l1-tree`, which emits exactly this.")
             return REFUSE
         only_deep, only_l1 = root_child_diff(tree, l1_tree)
         if only_deep or only_l1:
@@ -544,9 +545,9 @@ def _annotate(a):
         sc.pp.log1p(tmp)
         X = tmp.X
     elif float(np.min(head)) < 0:
-        print("scanno: REFUSE - .X contains negative values, so it is scaled rather than"
+        _ST.refuse(".X contains negative values, so it is scaled rather than"
               "\n        log-normalised. Pass --use-raw, or supply an object whose .X is"
-              "\n        log1p counts.", file=sys.stderr)
+              "\n        log1p counts.")
         return REFUSE
 
     lab = A.obs[a.cluster_key].astype(str).values
@@ -569,7 +570,7 @@ def _annotate(a):
 
     decision = up.decide(A, explicit=a.exclude_flag, disabled=a.no_exclude)
     if decision.refuse:
-        print(f"scanno: REFUSE - {decision.refuse}", file=sys.stderr)
+        _ST.refuse(f"{decision.refuse}")
         return REFUSE
     for line in decision.lines:
         print(line)
@@ -609,29 +610,29 @@ def _annotate(a):
               "          score is not fully independent of what else was sequenced in it.\n"
               "          Use ONE store across every sample if you intend to compare them.")
     else:
-        print("scanno: REFUSE - no gene background.\n"
+        _ST.refuse("no gene background.\n"
               "        Pass --store from `scanno calibrate`, or "
               "--background-from-clusters to\n"
               "        derive one from this object and accept that scores are then not\n"
-              "        independent of its composition.", file=sys.stderr)
+              "        independent of its composition.")
         return REFUSE
 
     # `drop` goes to BOTH: the usable-gene set is `any` over clusters, so without it here an
     # excluded cluster still decides which genes the kept ones are scored on.
     Z, usable, st = standardise(M, D, genes, store, exclude=drop)
     if st["ood_covered"] < OOD_MIN_COVERED:
-        print(f"scanno: REFUSE - the background covers only "
+        _ST.refuse(f"the background covers only "
               f"{100*st['ood_covered']:.0f}% of the genes this object expresses "
               f"(floor {100*OOD_MIN_COVERED:.0f}%).\n"
-              f"        It cannot speak to this data.", file=sys.stderr)
+              f"        It cannot speak to this data.")
         return REFUSE
 
     asr = None
     if a.db:
         asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
         if not asr:
-            print(f"scanno: REFUSE - the corpus has nothing for {a.species}/{a.tissue} "
-                  f"at tier<={a.min_tier}.", file=sys.stderr)
+            _ST.refuse(f"the corpus has nothing for {a.species}/{a.tissue} "
+                  f"at tier<={a.min_tier}.")
             return REFUSE
         # The guard that exists for exactly this and was never called here. Without it an
         # accession-keyed object against a symbol-keyed corpus returns UNRESOLVED for every
@@ -641,7 +642,7 @@ def _annotate(a):
         try:
             check_gene_space(asr, genes)
         except GeneSpaceMismatch as e:
-            print(str(e), file=sys.stderr)      # it already says "scanno: REFUSE - ..."
+            _ST.refuse(str(e).replace("scanno: REFUSE - ", "", 1), fix="pass --harmonise, or a store built on this object's gene space")
             return REFUSE
     tree["genes"] = store.genes
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
@@ -672,9 +673,9 @@ def _annotate(a):
         seen = {s["cluster"] for s in stuck}
         stuck += [t for t in inner if t["assignment"] == BY_FORCE and t["cluster"] not in seen]
         if stuck:
-            print(f"scanno: REFUSE - {len(stuck)} cluster(s) still terminate on an internal node "
+            _ST.refuse(f"{len(stuck)} cluster(s) still terminate on an internal node "
                   f"after reassignment, so this object would deliver a compartment name where "
-                  f"the\n        scope says a subtype belongs:", file=sys.stderr)
+                  f"the\n        scope says a subtype belongs:")
             for s in sorted(stuck, key=lambda s: s["cluster"]):
                 print(f"        - cluster {s['cluster']} on {s['node']}", file=sys.stderr)
             for line in format_force(force_rec, gap_min=a.gap_min):
@@ -1066,23 +1067,21 @@ def _cluster(a):
         print(f"scanno: {e}", file=sys.stderr)
         return 1
     if not res:
-        print("scanno: REFUSE - no resolutions to compute.", file=sys.stderr)
+        _ST.refuse("no resolutions to compute.")
         return REFUSE
 
     inputs = list(a.h5ad)
     if len(inputs) > 1 and a.out:
-        print("scanno: REFUSE - --out names ONE file and you gave "
+        _ST.refuse("--out names ONE file and you gave "
               f"{len(inputs)} inputs. Use --out-dir; each object is written as "
-              "<stem>_clustered.h5ad, so the pieces cannot silently overwrite each other.",
-              file=sys.stderr)
+              "<stem>_clustered.h5ad, so the pieces cannot silently overwrite each other.")
         return REFUSE
     if len(inputs) > 1 and a.split_by:
-        print("scanno: REFUSE - --split-by splits ONE object into groups; with several inputs "
-              "they are already separate. Pass the files, or pass one object and --split-by.",
-              file=sys.stderr)
+        _ST.refuse("--split-by splits ONE object into groups; with several inputs "
+              "they are already separate. Pass the files, or pass one object and --split-by.")
         return REFUSE
     if len(inputs) == 1 and not a.split_by and not a.out:
-        print("scanno: REFUSE - one object and no --split-by needs --out.", file=sys.stderr)
+        _ST.refuse("one object and no --split-by needs --out.")
         return REFUSE
 
     print(f"resolutions: {', '.join(str(r) for r in res)}   seed {a.seed}")
@@ -1126,12 +1125,16 @@ def _cluster(a):
                 info = cluster(piece, resolutions=res, n_top_genes=a.n_top_genes,
                                n_pcs=a.n_pcs, n_neighbors=a.n_neighbors, seed=a.seed)
             except (ValueError, AssertionError) as e:
-                print(f"scanno: REFUSE - {e}", file=sys.stderr)
+                _ST.refuse(f"{e}")
                 return REFUSE
             print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
                   f"raw counts kept in layers['counts']")
             if name is not None:
-                p = (out_dir or Path(".")) / f"{name}_clustered.h5ad"
+                if out_dir is None:
+                    _ST.refuse("--split-by needs --out-dir; a tool never writes into the working directory",
+                               fix="pass --out-dir <directory inside the project>")
+                    return REFUSE
+                p = out_dir / f"{name}_clustered.h5ad"
             elif out_dir:
                 # Named from the INPUT's stem, so ten libraries land in ten files rather than
                 # taking turns overwriting one.
@@ -1202,7 +1205,7 @@ def _background(a):
         n_total += int(A.n_obs)
         print(f"  {tag:<28} {A.n_obs:>8,} cells  {len(set(lab)):>4} clusters")
     if not parts:
-        print("scanno: REFUSE - no objects given.", file=sys.stderr)
+        _ST.refuse("no objects given.")
         return REFUSE
 
     store = build_store(parts, {"species": a.species, "tissue": a.tissue, "assay": a.assay})
@@ -1457,7 +1460,7 @@ def _joint_review(a):
     verdicts = {}
     for spec in a.verdict:
         if "=" not in spec or ":" not in spec.split("=", 1)[1]:
-            print(f"scanno: REFUSE - {spec!r} is not CLUSTER=GRADE:REASON", file=sys.stderr)
+            _ST.refuse(f"{spec!r} is not CLUSTER=GRADE:REASON")
             return REFUSE
         cl, rest = spec.split("=", 1)
         grade, reason = rest.split(":", 1)
@@ -1469,7 +1472,7 @@ def _joint_review(a):
                              "limit": "a verdict is a reader's note recorded against the run. "
                                       "It changes no label."})
     for e in rec["errors"]:
-        print(f"scanno: REFUSE - {e}", file=sys.stderr)
+        _ST.refuse(f"{e}")
     if rec["errors"]:
         return REFUSE
 
@@ -1611,13 +1614,12 @@ def _report(a):
             continue
         objs.append((Path(src).stem.replace("_annotated", ""), A))
     if missing:
-        print(f"scanno: REFUSE - {len(missing)} object(s) carry neither {a.label_key!r} nor "
+        _ST.refuse(f"{len(missing)} object(s) carry neither {a.label_key!r} nor "
               f"{path_key!r}: {', '.join(missing[:4])}\n"
-              f"        Annotate them first, or name the column with --label-key.",
-              file=sys.stderr)
+              f"        Annotate them first, or name the column with --label-key.")
         return REFUSE
     if not objs:
-        print("scanno: REFUSE - no objects given.", file=sys.stderr)
+        _ST.refuse("no objects given.")
         return REFUSE
 
     # --l1-key must name a SECOND walk's answer, not the deep walk's own level-1 prefix. Both
@@ -1626,24 +1628,22 @@ def _report(a):
     # section exists to report, and refusing it would refuse the good outcome.
     if a.l1_key:
         if a.l1_key == path_key or a.l1_key == a.label_key:
-            print(f"scanno: REFUSE - --l1-key {a.l1_key!r} is the deep walk's own column.\n"
+            _ST.refuse(f"--l1-key {a.l1_key!r} is the deep walk's own column.\n"
                   f"        The section would compare that column with itself and report 100%\n"
                   f"        agreement, which measures nothing. Annotate a depth-1 tree with\n"
-                  f"        `scanno annotate --l1-tree` and name the column it writes.",
-                  file=sys.stderr)
+                  f"        `scanno annotate --l1-tree` and name the column it writes.")
             return REFUSE
         deep = sorted({str(v) for _n, A in objs if a.l1_key in A.obs
                        for v in A.obs[a.l1_key].astype(str) if "/" in str(v)})
         if deep:
-            print(f"scanno: REFUSE - --l1-key {a.l1_key!r} holds {len(deep)} value(s) below\n"
+            _ST.refuse(f"--l1-key {a.l1_key!r} holds {len(deep)} value(s) below\n"
                   f"        level 1, e.g. {', '.join(deep[:3])}. That is a PATH column, not an\n"
                   f"        L1 column: it was written by a deep walk, so comparing it against\n"
-                  f"        the deep walk's root is not an independent measurement.",
-                  file=sys.stderr)
+                  f"        the deep walk's root is not an independent measurement.")
             return REFUSE
         if not any(a.l1_key in A.obs for _n, A in objs):
-            print(f"scanno: REFUSE - no object carries {a.l1_key!r}. A silently absent L1\n"
-                  f"        column renders as a cohort that never had one.", file=sys.stderr)
+            _ST.refuse(f"no object carries {a.l1_key!r}. A silently absent L1\n"
+                  f"        column renders as a cohort that never had one.")
             return REFUSE
 
     # The flag is DISCOVERED, not assumed: an object carrying an upstream provenance declaration
@@ -1679,7 +1679,7 @@ def _report(a):
         from .corpus import load_assertions
         from .report import panels_by_depth
         if not (a.db and a.tree):
-            print("scanno: REFUSE - --panels auto needs --db and --tree.", file=sys.stderr)
+            _ST.refuse("--panels auto needs --db and --tree.")
             return REFUSE
         asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
         tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
@@ -1775,9 +1775,9 @@ def _report(a):
     if a.scope:
         scope = json.loads(Path(a.scope).read_text(encoding="utf-8"))
         if not isinstance(scope, dict) or "nodes" not in scope:
-            print(f"scanno: REFUSE - {a.scope} is not a `scanno scope --out` result "
+            _ST.refuse(f"{a.scope} is not a `scanno scope --out` result "
                   f"(no 'nodes' key). Rendering it would put an unrecognised file on the page "
-                  f"under a heading that claims it is the scope.", file=sys.stderr)
+                  f"under a heading that claims it is the scope.")
             return REFUSE
         _seals = [n for n, v in scope["nodes"].items() if v.get("verdict") == "SEAL"]
         _lost = sum(sum(d.values()) for d in (scope.get("removed_labels") or {}).values())
@@ -1879,7 +1879,7 @@ def _embed(a):
     for spec in (a.label_obs or []):
         old, _, new = str(spec).partition("=")
         if not old:
-            print(f"scanno embed: REFUSE - cannot parse --label-obs {spec!r}", file=sys.stderr)
+            _ST.refuse(f"embed: cannot parse --label-obs {spec!r}", fix="COLUMN=LABEL[,LABEL...]")
             return 2
         label_map[old] = new or old
 
@@ -1996,9 +1996,8 @@ def _panel(a):
         print(f"scanno: cannot read {a.db}: {e}", file=sys.stderr)
         return 1
     if not asr:
-        print(f"scanno: REFUSE — no assertions for {a.species}/{a.tissue} at "
-              f"tier<={a.min_tier}. The corpus cannot speak to this context.",
-              file=sys.stderr)
+        _ST.refuse(f"no assertions for {a.species}/{a.tissue} at "
+              f"tier<={a.min_tier}. The corpus cannot speak to this context.")
         return REFUSE
     rows = sorted(((c, len(g)) for c, g in asr.items()), key=lambda r: -r[1])
     print(f"{a.species} / {a.tissue}   tier<={a.min_tier}   "
@@ -2042,8 +2041,7 @@ def _refuse_retired(argv) -> int | None:
     """Refuse a retired option by name, with the measurement that retired it."""
     for opt, why in RETIRED_OPTIONS.items():
         if any(t == opt or t.startswith(opt + "=") for t in (argv or [])):
-            print(f"scanno: REFUSE - {opt} was removed in 0.3.0.\n\n        {why}\n",
-                  file=sys.stderr)
+            _ST.refuse(f"{opt} was removed in 0.3.0.\n\n        {why}\n")
             return REFUSE
     return None
 
@@ -2057,6 +2055,10 @@ def main(argv=None):
 
     s = sub.add_parser("selftest", help="run the adversarial suite")
     s.set_defaults(fn=_selftest)
+
+    s = sub.add_parser("describe", help="what this tool declares: needs, provides, sees, sentinels, "
+                                        "gates, escapes, cannot_show, state_version (JSON)")
+    s.set_defaults(fn=_describe)
 
     s = sub.add_parser("cluster", help="step 1: cluster at every resolution, and select nothing")
     s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
@@ -2638,7 +2640,8 @@ def main(argv=None):
     s.add_argument("--votes", type=int, default=1,
                    help="ask each cluster this many times and report the agreement rate. A "
                         "label that changes between identical calls is a finding")
-    s.add_argument("--out", type=Path, default=Path("scanno_agent.csv"))
+    s.add_argument("--out", type=Path, required=True,
+                   help="where the answers go; a tool never chooses where a project's output lands")
     s.set_defaults(fn=_agent)
 
     s = sub.add_parser("resolution",
@@ -2660,8 +2663,118 @@ def main(argv=None):
                         "Absent, distinct labels are counted and are SAID to be")
     s.set_defaults(fn=_resolution)
 
+    for sp in sub.choices.values():
+        sp.add_argument("--status-dir", type=Path, default=None,
+                        help="where STATUS.<cmd>.json and the seal go (default: beside the primary output)")
+        sp.add_argument("--by", default=None,
+                        help="who lifted a refusal with an escape flag; recorded beside the flag")
     a = p.parse_args(argv)
-    return a.fn(a)
+    return _with_status(a, argv)
+
+
+# ---------------------------------------------------------------------------- the status contract
+
+CANNOT_SHOW = [
+    "A label is the best-supported node of the declared tree for a cluster's markers; it is not "
+    "evidence that the cell type exists in this tissue, and a tree that lacks the right type "
+    "yields the nearest wrong one.",
+    "UNRESOLVED and EXCLUDED are not cell types: never a population in a composition, never a "
+    "denominator. A forced column has no holes and every forced cell is marked as such.",
+    "A resolution sweep reports; it does not vote. The delivered label is the one the declared "
+    "resolution produced, and agreement across the sweep is a number beside it, not a decision.",
+    "Composition is over the nuclei the upstream QC kept; a differential filter upstream is a "
+    "differential composition here, and nothing in this tool can undo it.",
+    "The marker store is a reference the caller supplied: species, tissue and the corpus behind "
+    "it are declarations, and the annotation is only as portable as they are.",
+]
+
+ESCAPE_FLAGS = ("no_exclude", "background_from_clusters", "gap_min")
+
+
+def _describe(a):
+    """The tool's declaration, for a reader or a host that will not read the code."""
+    from . import __version__, sentinels as SN
+    d = {"contract": "1.0", "profile": "single-cell/1.0", "name": "scanno", "version": __version__,
+         "commit": _ST.commit(), "state_version": STATE_VERSION, "class": "method", "layer": "stack",
+         "reversible": True,
+         "summary": "hierarchical cell-type annotation: walk a declared tree over cluster markers, "
+                    "force nothing without saying so, and report what the sweep agrees on",
+         "needs": ["matrix/{lognorm}", "column/{cluster}"],
+         "references": ["tree (JSON taxonomy)", "store.npz or a CellMarker-schema SQLite"],
+         "provides": ["column/{prefix}_cell_type", "column/{prefix}_path", "column/{prefix}_depth",
+                      "column/{prefix}_gap", "column/{prefix}_survival", "column/{prefix}_support",
+                      "column/{prefix}_resolved_path", "column/{prefix}_assignment",
+                      "column/{prefix}_sweep_agreement", "column/scAnno_L1", "table/*", "report/report.json"],
+         "sees": [], "sentinels": list(SN.SENTINELS), "sentinel_aliases": SN.ALIASES,
+         "gates": {"scope": "a scope that cannot be walked against the tree refuses",
+                   "scale": "a scaled matrix (negative X) refuses",
+                   "ood": "a cluster below the out-of-distribution floor is UNRESOLVED, never guessed",
+                   "exclusion": "an upstream flag the object declares withholds those nuclei as EXCLUDED"},
+         "escapes": [{"flag": "--no-exclude", "lifts": "the upstream exclusion", "recorded": "STATUS.annotate.json escapes[]"},
+                     {"flag": "--background-from-clusters", "lifts": "the calibrated store", "recorded": "STATUS.annotate.json escapes[]"},
+                     {"flag": "--gap-min", "lifts": "the descent threshold", "recorded": "STATUS.annotate.json escapes[]"}],
+         "cannot_show": CANNOT_SHOW,
+         "status_files": ["STATUS.<cmd>.json", "RUNNING.<cmd>.txt", "SEALED.<cmd>.txt", "FAILED.<cmd>.txt"],
+         "commands": sorted(k for k in _COMMANDS), "language": "python", "entry": "scanno.cli",
+         "needs_env": True}
+    print(json.dumps(d, indent=1, sort_keys=True, default=str))
+    return 0
+
+
+_COMMANDS = ("selftest", "cluster", "background", "annotate", "rescue", "compare", "joint-review",
+             "report", "embed", "lab", "scope", "readme", "panel", "calibrate", "store-info", "agent",
+             "resolution", "describe")
+
+
+def _escapes(a) -> list:
+    out = []
+    for flag in ESCAPE_FLAGS:
+        v = getattr(a, flag, None)
+        if v:
+            out.append({"ask": {"gate": flag.replace("_", "-"), "refused": "the default this flag lifts"},
+                        "decision": {"flag": "--" + flag.replace("_", "-"), "value": v,
+                                     "by": getattr(a, "by", None), "when": _ST._now()}})
+    return out
+
+
+def _with_status(a, argv):
+    """Run a command inside the status contract: STATUS.<cmd>.json partial first, the outcome
+    last, RUNNING replaced by SEALED or FAILED, a crash sealed before it is reported, and a bad
+    input reported in one line rather than a traceback."""
+    from . import __version__
+    if a.cmd in ("describe", "selftest"):
+        return a.fn(a)
+    d = _ST.status_dir(a)
+    esc = _escapes(a)
+    for e in esc:
+        if not e["decision"]["by"]:
+            print(f"scanno: NOTE - {e['decision']['flag']} lifts a default and no --by names who "
+                  f"lifted it; recorded without a person", file=sys.stderr)
+    if d is not None:
+        _ST.begin(d, a.cmd, version=__version__, state_version=STATE_VERSION, sees=[],
+                  cannot_show=CANNOT_SHOW, argv=list(argv) if argv is not None else None, escapes=esc)
+    try:
+        rc = a.fn(a)
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
+        # A missing --tree, an unreadable scope, a column that is not there: named, not traced.
+        msg = f"{type(e).__name__}: {e}"
+        print(f"scanno: ERROR - {msg}\n        (a bad input; pass --help for what each flag expects)", file=sys.stderr)
+        if d is not None:
+            _ST.finish(d, a.cmd, status="failed", headline=msg, exit_code=1)
+        return 1
+    except BaseException as e:                                       # noqa: BLE001
+        if d is not None:
+            _ST.finish(d, a.cmd, status="failed", headline=f"{type(e).__name__}: {str(e)[:200]}", exit_code=1)
+        raise
+    if d is not None:
+        if rc == REFUSE:
+            _ST.finish(d, a.cmd, status="refused", headline=_ST.LAST_REFUSAL.get("reason", "refused"),
+                       exit_code=rc, refusal=dict(_ST.LAST_REFUSAL) or None)
+        else:
+            _ST.finish(d, a.cmd, status="ok" if rc == 0 else "failed", exit_code=rc or 0,
+                       headline={"annotate": "annotated", "report": "document written", "cluster": "clustered",
+                                 "rescue": "targeted rescue done", "compare": "compared"}.get(a.cmd, "done"))
+    return rc
 
 
 if __name__ == "__main__":

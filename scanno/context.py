@@ -29,9 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 
-EXCLUDED = "EXCLUDED"
-UNRESOLVED = "UNRESOLVED"
-SENTINELS = (EXCLUDED, UNRESOLVED)
+from .sentinels import EXCLUDED, UNRESOLVED, SENTINELS  # noqa: F401 — one definition
 MIN_FLAGGED_PER_ANIMAL = 30      # below this a per-animal flagged-vs-kept comparison is noise
 DETECT_FLOOR = 0.05              # a gene detected in under 5% of nuclei is not ranked
 

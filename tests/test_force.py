@@ -736,9 +736,11 @@ def test_the_library_names_no_node_no_sample_and_no_cohort_size():
     A literal `/10` shipped in `format_report` once: on seven samples it printed "7/10" and
     nobody reading it would have known. This is the check that keeps its kin out.
     """
+    # Cell types and tissue words of the study this was built against. The cohort's and the
+    # site's NAMES are not spelled here: tests/test_portability.py loads them from a file
+    # outside the repository.
     cohort = ("Cardiomyocyte", "Endothelial", "Fibroblast", "Matrifibrocyte", "Pericyte",
-              "Macrophage", "Mesothelial", "Endocardial", "Lymphoid", "Aging", "Young",
-              "SAMBO", "mouse_heart")
+              "Macrophage", "Mesothelial", "Endocardial", "Lymphoid")
     # EVERY module, not a list of four. A guard naming its own files stops covering the package
     # the moment a module is added, and the newest module is the likeliest to carry a leak.
     for mod in sorted(x.name for x in (ROOT / "scanno").glob("*.py")):
@@ -778,8 +780,10 @@ def test_force_declares_no_threshold_at_all():
     # cannot arrive as a new module-level name; the RESOLVED_* entries are the vocabulary of the
     # `resolved_origin` column, so the check below asserts they are strings rather than numbers,
     # which is the property that actually matters.
-    assert set(top) == {"SEP", "ROOT", "FORCE", "SEAL", "BY_GAP", "BY_FORCE", "EXCLUDED",
-                        "ASSIGNMENTS", "FROM_WALK", "FROM_INTERNAL", "FROM_ROOT", "UNRESOLVED",
+    # EXCLUDED and UNRESOLVED arrive by import from scanno/sentinels.py — the one definition —
+    # and tests/test_status_contract.py asserts they are the same objects everywhere.
+    assert set(top) == {"SEP", "ROOT", "FORCE", "SEAL", "BY_GAP", "BY_FORCE",
+                        "ASSIGNMENTS", "FROM_WALK", "FROM_INTERNAL", "FROM_ROOT",
                         "RESOLVED_ORIGINS"}, top
     for s in mod.body:
         if not isinstance(s, ast.Assign):

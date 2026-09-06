@@ -56,7 +56,7 @@ from test_scope import A, TREE, paths                                        # n
 
 
 def scope_json(paths_by_sample, tree, *, min_support=1.0, min_reach=2, descend_rule="any",
-               path_key="scanno_path_r1p0", tree_path="mouse_heart_tree.json"):
+               path_key="scanno_path_r1p0", tree_path="tree.json"):
     """The payload `scanno scope --out` writes, built by the calls `cli._scope` makes.
 
     Constructed rather than transcribed so a change to the vote reaches this file: a hand-written

@@ -185,8 +185,9 @@ reported as not found rather than chased.
 
 ## Output
 
-`--out-h5ad` writes the input object with columns added and nothing else touched — `X`, `var` and
-`obsm` come out as they went in.
+`--out-h5ad` writes the input object with columns added; `X` and `obsm` come out as they went in.
+`var` is re-keyed by `gene_symbol` by default (the accession is kept in `var['gene_id']`); pass
+`--out-gene-key ""` to leave `var_names` alone.
 
 | column | is |
 |---|---|
@@ -207,6 +208,23 @@ Three properties, asserted in `tests/test_emit.py`:
 - a flagged cell is `EXCLUDED` whatever its cluster was called — the exclusion is per cell
 - a statistic of a call that was not made is `NaN`, never `0`
 - a cluster with no call raises rather than being labelled something plausible
+
+## What a command leaves behind
+
+scAnno is several commands that compose into one run directory, so each seals itself beside its
+own output. Four states are distinguishable from the filesystem alone:
+
+| file | written | says |
+|---|---|---|
+| `STATUS.<cmd>.json` | first as `partial`, last with the outcome | `ok` · `partial` (it died) · `refused` with the `fix` the refusal named · `failed`; the commit read from `.git` by file, the job, the products on disk, and every escape flag as an ask/decision pair with `--by` |
+| `RUNNING.<cmd>.txt` | at start | replaced at exit by one of the two below |
+| `SEALED.<cmd>.txt` | exit 0 | the products listed |
+| `FAILED.<cmd>.txt` | anything else | a crash is sealed before it is reported; a bad input is one line, not a traceback |
+
+`--status-dir` chooses the directory; the default is beside the command's primary output.
+`scanno describe` prints the declaration — needs, provides, `sees` (empty: an annotator is shown
+no labels), the sentinels and their aliases, gates, escapes, `cannot_show`, `state_version` — as
+JSON, for a host or a reader that will not read the code.
 
 ## Upstream provenance
 

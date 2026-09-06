@@ -75,7 +75,7 @@ import numpy as np
 
 #: The label an excluded nucleus receives. Upper case and not a cell type in any taxonomy, so a
 #: consumer that treats it as one is making an obvious error rather than a quiet one.
-EXCLUDED = "EXCLUDED"
+from .sentinels import EXCLUDED  # noqa: E402 — one definition
 
 
 class ExclusionMismatch(ValueError):

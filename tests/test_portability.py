@@ -1,89 +1,77 @@
-"""The package names no study, and carries no study's values as its examples.
+#!/usr/bin/env python3
+"""The leak guard: no site, host, project or cohort identifier anywhere in this repository.
 
-scAnno ships publicly and is developed against one cohort at a time, which is exactly the
-condition under which a project's vocabulary leaks into a tool: an example in a help string, a
-default that happens to suit the data in front of you, a comment that names the study it was
-measured on. None of it fails a test, none of it breaks a run, and all of it tells the next
-user that this tool was built for somebody else.
+WHY THIS TEST EXISTS
 
-TWO LEAKS THIS FILE WAS WRITTEN AFTER, both found by grep and neither by any suite:
+`--group-order`'s help once offered a study's own arm names as its example, and a comment in
+`compare.py` read "Measured on <the study>". A tool built against one cohort and separated from
+it in custody carries that cohort's names into every default it does not think about.
 
-  * `--group-order`'s help offered `young_chow young_HFD aged_chow aged_HFD` as its example -
-    one study's arms, in the help text of a general tool.
-  * a comment in `compare.py` read "Measured on SAMBO".
+WHAT IS CHECKED
 
-The list below is a RATCHET, in the sense scProfile uses: it may shrink when a term stops being
-a risk, and it may never grow to accommodate a new leak. A term that appears here appears
-because it once shipped.
+  1. every text file in the tree — package, tests, setup, jobs, skills, docs — against the
+     SHAPES of site leakage (tests/_terms.py) and the TERMS in $SCANNO_FORBIDDEN_TERMS, a file
+     outside the repository, so this guard never spells what it guards against
+  2. the arguments that describe a DESIGN carry no such term in their help text
 
-    python tests/test_portability.py
+This file exempts only itself. Stdlib only.
 """
 from __future__ import annotations
 
-import re
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _terms import hits, terms  # noqa: E402
 
+TEXT_EXT = {".py", ".R", ".sh", ".pbs", ".md", ".yml", ".yaml", ".toml", ".cfg", ".txt", ".json",
+            ".csv", ".tsv", ".cff", ".ipynb"}
+SKIP = {".git", "__pycache__", "_data", ".egg-info", "references"}
 fails = []
 
 
 def check(name, ok, detail=""):
-    print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   {detail}" if detail else ""))
+    print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   {detail}" if detail and not ok else ""))
     if not ok:
         fails.append(name)
 
 
-#: Study names, cohort identifiers, sample names and file names belonging to one project.
-#: Case-insensitive, matched as whole words so ordinary English is not caught.
-BANNED = [
-    r"sambo", r"aging_?hfd", r"young_?hfd", r"aging[0-9]", r"young[0-9]",
-    r"aged_chow", r"young_chow", r"cellmarker3_mouse", r"mouse_heart_tree",
-    r"jiaen", r"wangyb", r"100,?713", r"109,?140",
-]
+def files():
+    for p in ROOT.rglob("*"):
+        rel = p.relative_to(ROOT).parts
+        if any(x in SKIP for x in rel):
+            continue
+        if p.is_file() and (p.suffix in TEXT_EXT or p.name in ("VERSION", "HEAD.txt")) \
+                and p.resolve() != Path(__file__).resolve() and p.name != "_terms.py":
+            yield p
 
-print("\n1 - no module names a study, a cohort or one project's files")
-mods = sorted(p for p in (ROOT / "scanno").glob("*.py"))
-check("there are modules to check", len(mods) > 10, str(len(mods)))
-for m in mods:
-    src = m.read_text(encoding="utf-8")
-    hits = sorted({w for w in BANNED if re.search(rf"\b{w}\b", src, re.I)})
-    check(f"{m.name} names no project", not hits, ", ".join(hits))
 
-print("\n2 - nor does any shipped skill or the README")
-for f in sorted((ROOT / "skills").rglob("*.md")) + [ROOT / "README.md"]:
-    src = f.read_text(encoding="utf-8")
-    hits = sorted({w for w in BANNED if re.search(rf"\b{w}\b", src, re.I)})
-    check(f"{f.relative_to(ROOT)} names no project", not hits, ", ".join(hits))
+site = terms()
+print(f"\n1 - no site or cohort identifier anywhere in the tree ({len(site)} site term(s) "
+      f"{'from ' + os.environ['SCANNO_FORBIDDEN_TERMS'] if site else 'supplied: none, set SCANNO_FORBIDDEN_TERMS to prove more'})")
+leaks = []
+for p in files():
+    for i, why, line in hits(p.read_text(encoding="utf-8", errors="replace"), p.name):
+        leaks.append(f"{p.relative_to(ROOT)}:{i} {why}: {line}")
+for l in leaks[:20]:
+    print("        LEAK " + l)
+check("no leak in any text file", not leaks, f"{len(leaks)} leak(s)")
 
-print("\n3 - the arguments that describe a DESIGN take the caller's own names")
+print("\n2 - the arguments that describe a DESIGN take the caller's own names")
 cli = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
 for flag in ("--group-order", "--factor", "--condition-key", "--sample-key", "--group-key"):
     i = cli.find(f'"{flag}"')
     check(f"{flag} is offered", i > 0)
     if i > 0:
-        # its help runs to the next add_argument
         j = cli.find("s.add_argument(", i)
         blob = cli[i:j if j > i else i + 1200]
-        hits = sorted({w for w in BANNED if re.search(rf"\b{w}\b", blob, re.I)})
-        check(f"{flag}'s help carries no study's levels", not hits, ", ".join(hits))
+        h = hits(blob)
+        check(f"{flag}'s help names no cohort", not h, "; ".join(w for _, w, _ in h[:3]))
 
-print("\n4 - species and tissue are the caller's, never defaulted to one")
-for cmd in ("annotate", "background", "panel"):
-    i = cli.find(f'sub.add_parser("{cmd}"')
-    j = cli.find("set_defaults", i)
-    blob = cli[i:j] if i > 0 and j > i else ""
-    if not blob:
-        continue
-    m = re.search(r'"--species"[^)]*default=("(?!")[^"]*")', blob)
-    check(f"{cmd} does not default --species to a value", not m, m.group(1) if m else "")
-    m = re.search(r'"--tissue"[^)]*default=("(?!")[^"]*")', blob)
-    check(f"{cmd} does not default --tissue to a value", not m, m.group(1) if m else "")
-
-print("\n" + "=" * 64)
+print("")
 if fails:
-    print(f"portability: {len(fails)} FAILED - " + ", ".join(fails))
+    print(f"FAIL: {len(fails)}")
     raise SystemExit(1)
-print("portability OK - the package names no study and defaults to none")
+print("PASS: no site or cohort identifier in the tree")

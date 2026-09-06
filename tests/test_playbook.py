@@ -165,8 +165,10 @@ check("names are declared per-project, not hardcoded as truth",
       "<- your file" in md or "EDIT THESE" in md)
 
 print("\nG. no cohort is named — this ships in a public repo")
-for leak in ("sambo", "aging_hfd", "young_hfd", "100,713", "109,140"):
-    check(f"no {leak!r}", leak not in md.lower())
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _terms import hits as _hits  # noqa: E402
+_h = _hits(md)
+check("no site or cohort identifier in the playbook", not _h, "; ".join(f"{i}: {w}" for i, w, _ in _h[:4]))
 
 print("")
 if fails:

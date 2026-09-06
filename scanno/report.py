@@ -49,8 +49,7 @@ try:                                                                      # prag
 except Exception:                                                         # noqa: BLE001
     HAVE_MPL = False
 
-EXCLUDED = "EXCLUDED"
-UNRESOLVED = "UNRESOLVED"
+from .sentinels import EXCLUDED, UNRESOLVED  # noqa: E402 — one definition
 
 # A colour-blind-safe qualitative set. Sentinels are grey on purpose: EXCLUDED and UNRESOLVED are
 # not cell types and should not look like one more population in the legend.

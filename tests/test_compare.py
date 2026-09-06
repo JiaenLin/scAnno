@@ -122,7 +122,7 @@ print("\n8 - two routes annotated under DIFFERENT column names can be compared a
 # The routes are separate objects, and the ordinary way to stop a second annotation colliding
 # with the first is `--label-suffix`. `compare` had ONE key for both, so the only comparable
 # pair was two routes sharing a column NAME - the one thing you cannot do when both annotations
-# live in one object. Cost, measured on SAMBO: the joint-vs-per-sample comparison this module
+# live in one object. Cost, measured on the reference cohort: the joint-vs-per-sample comparison this module
 # was written for could not address the promoted per-sample column (`cell_type_forced`) and the
 # joint route's own (`scanno_resolved_path_scope`) in one call, and so was never run.
 A = obs(["A/x", "A/y"])

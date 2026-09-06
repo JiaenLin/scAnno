@@ -196,7 +196,7 @@ def test_depth_general():
 def test_sample_rows():
     """An object named for its FILE must still find its own rows.
 
-    `Aging1.filtered.h5ad` gives an object named `Aging1.filtered` whose obs says `Aging1`.
+    `S1.filtered.h5ad` gives an object named `S1.filtered` whose obs says `S1`.
     Matching per-sample rows on obs alone returned an empty frame, and every per-sample figure
     then reported a named absence — "no QC columns in obs" — for objects that carried them.
     A lookup failure that renders as a finding is worse than a crash.
@@ -209,7 +209,7 @@ def test_sample_rows():
         def __init__(self, name, n=40):
             self.n_obs = n
             self.obs = pd.DataFrame({
-                "sample": ["Aging1"] * n,                       # NOT the object name
+                "sample": ["S1"] * n,                       # NOT the object name
                 "scanno_path": ["Immune/Myeloid"] * n,
                 "total_counts": np.arange(n, dtype=float),
                 "pct_counts_mt": np.ones(n),
@@ -218,11 +218,11 @@ def test_sample_rows():
             self.obsm, self.layers, self.X = {}, {}, None
             self.var_names = self.var.index
 
-    ctx = Context([("Aging1.filtered", Fake("Aging1.filtered"))], path_key="scanno_path")
-    r = ctx.sample_rows("Aging1.filtered")
+    ctx = Context([("S1.filtered", Fake("S1.filtered"))], path_key="scanno_path")
+    r = ctx.sample_rows("S1.filtered")
     check("rows found by OBJECT name", len(r) == 40, f"got {len(r)}")
     check("its QC columns are visible", "total_counts" in r and r["total_counts"].notna().any())
-    check("obs-name lookup still works too", len(ctx.sample_rows("Aging1")) == 40)
+    check("obs-name lookup still works too", len(ctx.sample_rows("S1")) == 40)
 
     # THE INVARIANT. Every object this context holds must be able to find its own rows. If it
     # cannot, that is a defect and it must RAISE - never return empty, because empty becomes a
@@ -232,7 +232,7 @@ def test_sample_rows():
     try:
         ctx.P.loc[:, "_obj"] = "renamed"
         ctx.P.loc[:, "sample"] = "renamed"
-        ctx.sample_rows("Aging1.filtered")
+        ctx.sample_rows("S1.filtered")
         raised = False
     except LookupError as e:
         raised = "bug in scAnno" in str(e)

@@ -140,9 +140,10 @@ SEAL = "SEAL"
 #: How a cluster's label was arrived at — the values of the `<prefix>_assignment` column.
 #: `EXCLUDED` is the third because a withheld nucleus was assigned by NOTHING, and calling that
 #: `gap` would claim a decision that was never taken.
+from .sentinels import EXCLUDED, UNRESOLVED  # noqa: E402 — one definition
+
 BY_GAP = "gap"
 BY_FORCE = "forced"
-EXCLUDED = "EXCLUDED"
 ASSIGNMENTS = (BY_GAP, BY_FORCE, EXCLUDED)
 
 
@@ -418,7 +419,7 @@ def apply_force(res, force_paths, counts=None, tree=None, scorer=None, sep=SEP):
 FROM_WALK = "walk"            # the walk reached a leaf on its own; nothing was forced
 FROM_INTERNAL = "forced"      # pushed down from an internal node the walk stopped on
 FROM_ROOT = "root_forced"     # was UNRESOLVED: pushed from the root itself
-UNRESOLVED = "UNRESOLVED"     # could not be pushed, and nothing was invented
+# UNRESOLVED (imported above): could not be pushed, and nothing was invented
 RESOLVED_ORIGINS = (FROM_WALK, FROM_INTERNAL, FROM_ROOT, UNRESOLVED, EXCLUDED)
 
 

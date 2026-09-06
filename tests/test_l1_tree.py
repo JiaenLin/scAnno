@@ -236,7 +236,7 @@ def test_a_derived_l1_carries_no_such_mark():
 def test_disagreement_with_the_derived_l1_is_counted_not_hidden():
     """L2..Ln stay the DEEP walk's, so a differing L1 leaves the object internally inconsistent.
 
-    Measured on the real cohort the two agree on all 109,140 nuclei, because both walks face the
+    Measured on the reference cohort the two agree on every nucleus, because both walks face the
     same root child set. That is a property of the trees, not a guarantee of the code, and a
     hand-built --l1-tree can break it — so it is counted and printed rather than assumed.
     """

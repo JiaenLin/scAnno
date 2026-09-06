@@ -46,9 +46,7 @@ import copy
 
 SEP = "/"
 ROOT = "root"
-EXCLUDED = "EXCLUDED"
-UNRESOLVED = "UNRESOLVED"
-SENTINELS = (EXCLUDED, UNRESOLVED)
+from .sentinels import EXCLUDED, UNRESOLVED, SENTINELS  # noqa: E402 — one definition
 
 #: Seal any node where a sample that REACHED it declined to descend. Unanimity is the default
 #: because a split one animal would not make is a split the cohort cannot be asked to compare
