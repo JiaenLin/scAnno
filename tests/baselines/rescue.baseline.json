@@ -9,14 +9,12 @@
   "clustered.h5ad"
  ],
  "measured_over": 2,
- "not_execution_stable": [
-  "SEALED.cluster.txt::bytes"
- ],
+ "not_execution_stable": [],
  "products": {
   "SEALED.cluster.txt": {
    "bytes": 203,
    "kind": "opaque",
-   "sha256": "b73339108a28c4e9"
+   "sha256": "b1d0599c6df71733"
   },
   "STATUS.cluster.json": {
    "kind": "json",
