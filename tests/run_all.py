@@ -22,6 +22,19 @@ the repository or there is no gate, only whatever the last person happened to ty
 
 VERIFY IT BY MAKING IT FAIL. Drop a file that exits non-zero into tests/ and confirm this
 reports RED. A gate that has never been seen to fail proves nothing about the runs it passed.
+
+WHY `--jobs` EXISTS, AND WHY IT DEFAULTS TO 1
+
+One subprocess per suite is the point of this runner and is not negotiable: an exit code is then
+a fact about one file. But ISOLATION AND SERIALISATION ARE INDEPENDENT, and this ran them one at
+a time. Each subprocess re-imports the whole stack, so the wall clock is dominated by the same
+imports repeated once per suite.
+
+`--jobs N` runs N of those subprocesses at once. Each is still its own process with its own exit
+code, and results are collected and reported in FILE ORDER rather than completion order, so the
+report is identical to the serial one. It defaults to 1 because suites sharing a temporary path
+would collide, and that is a property of the suites rather than of the runner - the default may
+only be raised for a suite set MEASURED to give the same result both ways.
 """
 from __future__ import annotations
 
@@ -38,6 +51,7 @@ def main(argv=None):
     pat = None
     if "-k" in argv:
         pat = argv[argv.index("-k") + 1]
+    jobs = int(argv[argv.index("--jobs") + 1]) if "--jobs" in argv else 1
 
     files = sorted(p for p in HERE.glob("test_*.py") if pat is None or pat in p.name)
     if not files:
@@ -49,15 +63,24 @@ def main(argv=None):
     env = {**__import__("os").environ, "PYTHONPATH": str(ROOT)}
 
     failed, skipped = [], []
-    for f in files:
+
+    def one(f):
         r = subprocess.run([sys.executable, str(f)], cwd=str(ROOT), env=env,
                            capture_output=True, text=True)
-        out = (r.stdout or "") + (r.stderr or "")
+        return f, r.returncode, (r.stdout or "") + (r.stderr or "")
+
+    if jobs > 1:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+            outcomes = list(pool.map(one, files))     # file order, not completion order
+    else:
+        outcomes = [one(f) for f in files]
+    for f, code, out in outcomes:
         # A SKIP is not a PASS. It is reported on its own line so a missing dependency cannot
         # be read as a suite that ran.
         if "SKIP" in out:
             skipped.append(f.name)
-        if r.returncode != 0:
+        if code != 0:
             failed.append(f.name)
             print(f"RED   {f.name}   exit={r.returncode}")
             print("".join(f"      {ln}\n" for ln in out.strip().splitlines()[-12:]))
