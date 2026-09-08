@@ -7,7 +7,10 @@ devpoints: 1
 # has shipped it.
 
 tests:
-  command: ["{python}", "tests/run_all.py"]
+  # `--jobs {jobs}` is filled from the scheduler's allocation, or the CPU count off a
+  # scheduler. One subprocess per suite either way; only the waiting is removed. Measured
+  # IDENTICAL to the serial report on this suite set (PBS 707231) before being turned on.
+  command: ["{python}", "tests/run_all.py", "--jobs", "{jobs}"]
 
 # Clustering is step one of every annotation path and the cheapest end-to-end exercise that
 # still writes an object: it resolves the input, honours the seed, and writes its own status.
