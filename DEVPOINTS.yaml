@@ -27,8 +27,15 @@ points:
   mechanism:
     what: a way of putting a label on a cluster, or of declining to
     lives: scanno
-    must_declare: [what it SEES, the sentinel it uses when it declines, its escapes as ask and
-                   decision pairs, what it CANNOT show, state_version]
+    # PROSE, DELIBERATELY. A bare identifier here is checked against the artefact at
+    # `lives`; a sentence is printed for a person. These requirements are satisfied in
+    # other files - the declaration module, the run record - so as checked keys they
+    # would look for them where they are not and fail every existing one.
+    must_declare: ["what it SEES",
+                   "the sentinel it uses when it declines, imported from scanno/sentinels.py",
+                   "its escapes, as ask and decision pairs",
+                   "what it CANNOT show",
+                   "a state_version in the run record it produces"]
     example: rescue
     tests: [tests/test_adversarial.py]
     proves: >
