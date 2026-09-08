@@ -254,6 +254,39 @@ Exit code 2 is a refusal.
 only a percentage. `agent` is an optional second opinion — bring your own key — and never replaces
 `annotate`.
 
+## Part of a family
+
+Four tools share one contract. Each works on its own, and they fit together:
+
+| tool | does |
+|---|---|
+| [scQC](https://github.com/JiaenLin/scQC) | quality control, and who set each threshold |
+| [scAnno](https://github.com/JiaenLin/scAnno) | cell-type labels, only as deep as the evidence goes |
+| [scIntegrate](https://github.com/JiaenLin/scIntegrate) | whether you need batch integration, and which method |
+| [scProfile](https://github.com/JiaenLin/scProfile) | communication, velocity, pseudotime, differential expression |
+
+[single-cell-harness](https://github.com/JiaenLin/single-cell-harness) runs them as one stack, so a
+decision made in one can be taken back later and every tool downstream is told what that costs.
+
+## Changing this tool
+
+Using scAnno and changing it are different jobs, and the second one has its own suite.
+`DEVPOINTS.yaml` in the root says what can be added here — mechanisms and sentinels — and what each one has to
+declare. The suite lives in the harness:
+
+```bash
+git clone https://github.com/JiaenLin/single-cell-harness.git ../single-cell-harness
+alias sch='PYTHONPATH=../single-cell-harness python3 -m sch'
+
+sch dev map --root .                            # what plugs in here, and what it must declare
+sch dev new mechanism my_mechanism       # a skeleton, a spec written before the code, and a test
+sch dev check --point mechanism --name my_mechanism   # checks, cheapest first
+```
+
+Every check prints what it does **not** prove, so a green run is not read as more than it is. Two
+of them run your addition against the same synthetic cohort written twice, with every column
+renamed — code that asks for a role passes both, code that knows a column name passes one.
+
 ## Documentation
 
 | | |
