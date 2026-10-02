@@ -124,7 +124,7 @@ print("\n2 - end to end: symbols present, so the corpus can address the object")
 with tempfile.TemporaryDirectory() as tmp:
     obj, db, tr = build(tmp, True), corpus(tmp), tree(tmp)
     r = run("annotate", "--h5ad", obj, "--cluster-key", "cluster", "--tree", tr, "--db", db,
-            "--species", "Mouse", "--tissue", "Heart", "--background-from-clusters")
+            "--species", "Mouse", "--tissue", "Heart", "--assay", "sn", "--background-from-clusters")
     out = r.stdout + r.stderr
     check("it says which var column it read",
           "gene_symbol" in out and "gene names from" in out,
@@ -138,7 +138,7 @@ print("\n3 - end to end: no symbols, names cannot match - REFUSE, not a table of
 with tempfile.TemporaryDirectory() as tmp:
     obj, db, tr = build(tmp, False), corpus(tmp), tree(tmp)
     r = run("annotate", "--h5ad", obj, "--cluster-key", "cluster", "--tree", tr, "--db", db,
-            "--species", "Mouse", "--tissue", "Heart", "--background-from-clusters")
+            "--species", "Mouse", "--tissue", "Heart", "--assay", "sn", "--background-from-clusters")
     out = r.stdout + r.stderr
     check("exit code is 2 (REFUSE), not 0", r.returncode == 2, f"rc={r.returncode}")
     check("and it says so", "REFUSE" in out, [ln for ln in out.splitlines() if "REFUSE" in ln][:1])
@@ -154,7 +154,7 @@ print("\n4 - --gene-key names the column explicitly, and a wrong one is refused"
 with tempfile.TemporaryDirectory() as tmp:
     obj, db, tr = build(tmp, True), corpus(tmp), tree(tmp)
     r = run("annotate", "--h5ad", obj, "--cluster-key", "cluster", "--tree", tr, "--db", db,
-            "--species", "Mouse", "--tissue", "Heart", "--background-from-clusters",
+            "--species", "Mouse", "--tissue", "Heart", "--assay", "sn", "--background-from-clusters",
             "--gene-key", "nope")
     out = r.stdout + r.stderr
     check("a var column that does not exist is refused", r.returncode != 0, f"rc={r.returncode}")

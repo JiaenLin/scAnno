@@ -2092,7 +2092,11 @@ def main(argv=None):
     s.add_argument("--out", required=True, type=Path, help="store.npz")
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
-    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
+    # cohort that forgot the flag was described to the agent and recorded as whole cells - the
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
+    s.add_argument("--assay", required=True, choices=["sc", "sn"],
+                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
     s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
                    help="var column holding the gene names, defaulting to var['gene_symbol'] "
                         "when present. Must match what `annotate` uses or the background "
@@ -2164,7 +2168,11 @@ def main(argv=None):
                         "the two apart. REFUSES a tree deeper than one level")
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
-    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
+    # cohort that forgot the flag was described to the agent and recorded as whole cells - the
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
+    s.add_argument("--assay", required=True, choices=["sc", "sn"],
+                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
     s.add_argument("--db", type=Path, help="marker corpus (corpus weight path)")
     s.add_argument("--store", type=Path, help="store.npz from `scanno calibrate`")
     s.add_argument("--background-from-clusters", action="store_true",
@@ -2590,7 +2598,11 @@ def main(argv=None):
     s.add_argument("--out", required=True, type=Path)
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
-    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
+    # cohort that forgot the flag was described to the agent and recorded as whole cells - the
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
+    s.add_argument("--assay", required=True, choices=["sc", "sn"],
+                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
     s.add_argument("--min-tier", type=int, default=4)
     s.add_argument("--harmonise", action="store_true",
                    help="intersect gene spaces across datasets, explicitly and reported")
@@ -2621,7 +2633,11 @@ def main(argv=None):
                         "corpus call itself (used for comparison and NEVER shown to it)")
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
-    s.add_argument("--assay", default="sc", choices=["sc", "sn"])
+    # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
+    # cohort that forgot the flag was described to the agent and recorded as whole cells - the
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
+    s.add_argument("--assay", required=True, choices=["sc", "sn"],
+                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--provider", default="openai", choices=sorted(_http_presets()),
                    help="hosted API; the key comes from the environment and is never stored")

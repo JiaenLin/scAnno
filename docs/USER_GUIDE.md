@@ -52,10 +52,10 @@ Label the clusters of one object.
 
 ```bash
 scanno annotate --h5ad sample.h5ad --cluster-key leiden_1.0 --tree tree.json \
-                --species Human --tissue Blood \
+                --species Human --tissue Blood --assay sc|sn \
                 --db corpus.db  |  --store calib/store.npz \
                 [--background-from-clusters] [--use-raw] [--gap-min 0.30] \
-                [--assay sc|sn] [--min-tier 4] [--out labels.tsv] \
+                [--min-tier 4] [--out labels.tsv] \
                 [--out-h5ad annotated.h5ad] [--label-prefix scanno]
 ```
 

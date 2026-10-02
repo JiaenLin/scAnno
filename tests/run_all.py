@@ -82,7 +82,9 @@ def main(argv=None):
             skipped.append(f.name)
         if code != 0:
             failed.append(f.name)
-            print(f"RED   {f.name}   exit={r.returncode}")
+            # `code`, not `r.returncode`: `r` lives in `one()`, so a red suite raised NameError
+            # here and the runner died before printing why - the one case it exists for.
+            print(f"RED   {f.name}   exit={code}")
             print("".join(f"      {ln}\n" for ln in out.strip().splitlines()[-12:]))
         else:
             print(f"green {f.name}" + ("   (contains a SKIP)" if "SKIP" in out else ""))
