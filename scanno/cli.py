@@ -533,6 +533,18 @@ def _annotate(a):
                       (src.var[gene_key] if gene_key else src.var_names)])
     print(f"gene names from {'var[' + repr(gene_key) + ']' if gene_key else 'var_names'}"
           f"   e.g. {', '.join(genes[:3])}")
+    # THE DECLARED SPECIES, AGAINST THE DATA (single-cell-harness ADR-0027, N2). It filtered the
+    # corpus and was never compared with the object; with symbols upper-cased on both sides, a
+    # corpus of one species scored another's genes in silence.
+    from .species_check import check as _species_check
+    _why, _note = _species_check(a.species, src.var, src.var_names)
+    if _note:
+        print(_note)
+    if _why:
+        _ST.refuse(_why, fix="declare the species the gene identifiers name, with a corpus for it; "
+                             "scAnno has no ortholog map, so a corpus of another species cannot be used",
+                   code="species_contradicted")
+        return REFUSE
 
     # Counts or already normalised? Measured, not assumed - feeding scaled or raw values
     # to a scorer expecting log1p returns a number for the wrong quantity.
