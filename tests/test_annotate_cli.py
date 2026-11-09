@@ -16,7 +16,9 @@ change that breaks the behaviour. Each property is now RUN, on the synthetic sam
   4. a depth-2 --l1-tree is refused (exit 2, naming the tree) BEFORE the object is read;
   5. --l1-tree and --scope are annotate's options and not another command's;
   6. a FORCE node whose children cannot be scored: the cluster stranded on it keeps the walk's
-     label with assignment `unforceable`, and the run completes (B1-033).
+     label with assignment `unforceable`, and the run completes (B1-033);
+  7. a FORCED chain that stops on an internal node - the one refusal B1-033 keeps - still exits
+     2 with nothing written (the push is broken on purpose, in-process).
 
 The sample: tests/_cohort.py's five populations, clustered so that T and B cells share one cluster.
 That cluster's profile sits between two siblings, so the walk stops on `Lymphoid` - a stranded
@@ -208,6 +210,39 @@ if (work / "blind" / "x.h5ad").exists():
               "unforceable", 0) > 0)
 else:
     check("the object is written", False)
+
+print("\n7 - a forced chain that stops on an internal node is still REFUSED, through the CLI")
+# The one refusal B1-033 keeps: a FORCED row ending on an internal node is a recursion that stopped
+# short, and would deliver a compartment name one level down. The recursion cannot produce one, so
+# `force.push_to_leaf` is replaced, in this process, by a broken one: a single step that lands back
+# on the FORCE node and reports no refusal. Before B1-034 this was an AST read of `if stuck:` in
+# cli._annotate; the verifier showed `if False and stuck:` passing every suite (W021 fix-up).
+import scanno.force as _force  # noqa: E402
+
+_real_push = _force.push_to_leaf
+
+
+def _broken_push(cid, path, first, tree=None, scorer=None, sep="/"):
+    return [{"to": path.split(sep)[-1], "path": path, "margin": 0.0, "survival": 1.0,
+             "cover": 1.0}], ""
+
+
+_force.push_to_leaf = _broken_push
+try:
+    rc7, out7 = here("annotate", *BASE, "--tree", work / "tree.json",
+                     "--scope", scope_file(work / "force7.json", TREE, ("Lymphoid",)),
+                     "--status-dir", work / "short", "--out-h5ad", work / "short" / "x.h5ad")
+finally:
+    _force.push_to_leaf = _real_push
+check("the run refuses (exit 2)", rc7 == 2 and "REFUSE" in out7, f"rc={rc7} {out7[-300:]}")
+st7 = {}
+try:
+    st7 = json.loads((work / "short" / "STATUS.annotate.json").read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    pass
+check("STATUS records the refusal", st7.get("status") == "refused", str(st7.get("status")))
+check("and nothing was written", not (work / "short" / "x.h5ad").exists())
+check("the real push is back for whatever runs next", _force.push_to_leaf is _real_push)
 
 import shutil  # noqa: E402
 

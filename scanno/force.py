@@ -69,9 +69,10 @@ for reading the margins: every one of them is reported.
 
 So every cell carries HOW it was assigned and HOW FAR it was pushed:
 
-  `<prefix>_assignment`    `gap` | `forced` | `EXCLUDED`, one value per cell, no missing values.
-                           The vocabulary is UNCHANGED, so a filter written against the older
-                           column still selects exactly the forced cells.
+  `<prefix>_assignment`    `gap` | `forced` | `EXCLUDED` | `unforceable`, one value per cell, no
+                           missing values. `unforceable` is a cell stranded on a FORCE node whose
+                           children cannot be scored: it keeps the walk's label. A filter written
+                           against the older column still selects exactly the forced cells.
   `<prefix>_force_depth`   how many forced steps stand behind that cell's label: 0 where the
                            walk produced it, 1 where it was pushed once, 2 where the push landed
                            on an internal node and had to be pushed again. Zero for a withheld

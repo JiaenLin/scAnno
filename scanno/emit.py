@@ -153,7 +153,7 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     `scanno_path_r0p25 … scanno_path_r2p0` rather than the resolution buried in the middle.
 
     `assignment=True` adds TWO columns, which are one statement and are never written apart:
-    `<prefix>_assignment<suffix>` — `gap` / `forced` / `EXCLUDED` per cell — and
+    `<prefix>_assignment<suffix>` — `gap` / `forced` / `EXCLUDED` / `unforceable` per cell — and
     `<prefix>_force_depth<suffix>`, the number of forced steps behind that cell's label. They are
     OPT-IN rather than always written because a run with no scope has nothing to distinguish:
     every row would read `gap` and 0, and a column that can only hold one value is a column a
@@ -998,7 +998,8 @@ def force_provenance(adata, record, prefix=DEFAULT_PREFIX, suffix="", scope=""):
 
     Returns the key written. The pair is deliberate and mirrors `independent_l1`:
 
-      obs[`<prefix>_assignment<suffix>`]   per CELL, one of `gap` / `forced` / `EXCLUDED` — the
+      obs[`<prefix>_assignment<suffix>`]   per CELL, one of `gap` / `forced` / `EXCLUDED` /
+                                           `unforceable` — the
                                            part a filter or a groupby needs, and the part that
                                            survives `anndata.concat`.
       obs[`<prefix>_force_depth<suffix>`]  per CELL, how many forced steps produced that label.
