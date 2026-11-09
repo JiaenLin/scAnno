@@ -27,8 +27,12 @@ Check what the corpus knows about your tissue before anything else:
 scanno panel --db corpus.db --species Human --tissue Blood --top 10
 ```
 
-If that refuses, the corpus has nothing for your context and no amount of tuning will
-help. Exit code 2.
+The species and tissue are matched to the corpus's own spellings (`human`, `Homo sapiens` and
+`Human` are one species; `blood` is `Blood`). If the corpus names no such tissue for the species,
+`panel` refuses (exit 2) and lists the tissues it does name, most curated first: pick one, or pass
+`--tissue-fallback species` to read every tissue of the species. That flag, and `--marker-species`
+for a species the corpus has no rows for, are escapes: printed as REVIEW and recorded in STATUS
+and in the annotated object.
 
 ## 3 · Declare a tree
 

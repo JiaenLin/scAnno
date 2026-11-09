@@ -250,6 +250,19 @@ this first.** Corpus coverage is wildly uneven — plenty of contexts have thous
 claims and a handful have almost none, and the difference decides whether annotation is
 possible at all.
 
+`panel`, `annotate`, `calibrate`, `agent` and `report --panels auto` read the same rows. The
+species is matched through its common or scientific name and the tissue case-insensitively, both
+to the spelling the corpus uses; a context the corpus writes differently is printed as `corpus
+context: ...`. A tissue the corpus does not name for the species is refused with the tissues it
+does name, most curated first - `annotate` refuses before reading the object. Two escapes, on
+`panel` and `annotate`, each printed as REVIEW and recorded in STATUS (`escapes[]`, `corpus`) and
+in the annotated object's `uns['scanno_context']['corpus']`:
+
+| flag | reads | the cost |
+|---|---|---|
+| `--tissue-fallback species` | every tissue of the species, pooled by MAX | a marker claimed in another tissue counts here |
+| `--marker-species SPECIES` | that species' corpus, matched by upper-cased symbol | a case-match ortholog heuristic: renamed genes and expanded families are missed |
+
 ---
 
 ## `scanno calibrate`

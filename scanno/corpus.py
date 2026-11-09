@@ -7,10 +7,19 @@ atlas is not a general tool.
 The corpus is NOT distributed with scAnno, and no `scanno` command builds it: the user ingests
 a release they fetch themselves into the six-column `assertion` table below (README, Install),
 the same way scQC ships a reference registry and not a genome.
+
+WHICH ROWS A RUN READS. `resolve` turns the declared species and tissue into the corpus's own
+spellings: the species through species_check.normalise ('human', 'Homo sapiens' -> Human), the
+tissue case-insensitively. A context that resolves to one spelling of each is queried with exactly
+the statement this module always used. A tissue the corpus does not name is refused WITH the
+species' tissues listed, so the next attempt is not a guess; `--tissue-fallback species` reads
+every tissue of the species instead, and `--marker-species` reads another species' markers - both
+escapes, printed as REVIEW and recorded (single-cell-harness B1-031).
 """
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -20,19 +29,133 @@ import numpy as np
 TIER_W = {1: 8.0, 2: 4.0, 3: 2.0, 4: 1.0, 5: 0.25}
 
 
-def load_assertions(db, species: str, tissue: str, min_tier: int = 4) -> dict:
+class CorpusMiss(ValueError):
+    """The corpus cannot speak to the declared context. Carries the refusal's fix and code."""
+
+    def __init__(self, reason, fix="", code=""):
+        super().__init__(reason)
+        self.reason, self.fix, self.code = reason, fix, code
+
+
+@dataclass
+class Context:
+    """The corpus rows a run reads: the corpus's own spellings, as resolved from a declaration.
+
+    `species` and `tissues` are tuples of values that occur in the corpus. `tissues` is None when
+    every tissue of the species is read (`--tissue-fallback species`). `notes` are the lines a
+    reader must see, each starting with what it is (REVIEW for an escape).
+    """
+    species: tuple
+    tissues: tuple | None
+    declared: dict = field(default_factory=dict)
+    notes: list = field(default_factory=list)
+    escapes: dict = field(default_factory=dict)
+
+    def where(self):
+        """(sql, params) selecting this context's rows. ONE spelling of each is the statement
+        this module always used, so a context that resolves to itself reads exactly the same."""
+        if len(self.species) == 1 and self.tissues is not None and len(self.tissues) == 1:
+            return "species=? AND tissue_class=?", [self.species[0], self.tissues[0]]
+        sql = f"species IN ({','.join('?' * len(self.species))})"
+        params = list(self.species)
+        if self.tissues is not None:
+            sql += f" AND tissue_class IN ({','.join('?' * len(self.tissues))})"
+            params += list(self.tissues)
+        return sql, params
+
+    def single(self):
+        """(species, tissue) when the context is one spelling of each, else None."""
+        if len(self.species) == 1 and self.tissues is not None and len(self.tissues) == 1:
+            return self.species[0], self.tissues[0]
+        return None
+
+    def as_record(self):
+        return {"declared": dict(self.declared), "species": list(self.species),
+                "tissues": (list(self.tissues) if self.tissues is not None else "every tissue"),
+                "escapes": dict(self.escapes)}
+
+
+def _ro(db):
+    return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+
+
+def resolve(db, species, tissue, *, tissue_fallback=None, marker_species=None,
+            top=8) -> Context:
+    """The corpus context a declaration names. Raises CorpusMiss, with the alternatives, when the
+    corpus has no such species or tissue and no escape was given.
+
+    `marker_species` (an escape) reads another species' markers; `species` stays the object's,
+    for the species check. `tissue_fallback="species"` (an escape) reads every tissue of the
+    species when the declared tissue is not one the corpus names.
+    """
+    from .species_check import normalise
+    want = marker_species or species
+    con = _ro(db)
+    try:
+        have = [r[0] for r in con.execute("SELECT DISTINCT species FROM assertion")
+                if r[0] is not None]
+        sp = tuple(sorted(v for v in have if normalise(v) == normalise(want)))
+        if not sp:
+            raise CorpusMiss(
+                f"the corpus has no species {want!r}; it has: {', '.join(sorted(map(str, have)))}",
+                fix=("declare the species the corpus calls it, or read another species' markers "
+                     "with --marker-species (an escape, recorded)"), code="corpus_species")
+        q = ",".join("?" * len(sp))
+        tissues = con.execute(
+            f"SELECT tissue_class, SUM(evidence_tier<=2), COUNT(*) FROM assertion "
+            f"WHERE species IN ({q}) GROUP BY tissue_class ORDER BY 2 DESC, 3 DESC, 1",
+            sp).fetchall()
+    finally:
+        con.close()
+    t_want = str(tissue or "").strip().lower()
+    ti = tuple(sorted(t for t, _c, _n in tissues if str(t or "").strip().lower() == t_want))
+    declared = {"species": species, "tissue": tissue}
+    escapes, notes = {}, []
+    if marker_species:
+        declared["marker_species"] = marker_species
+        escapes["marker_species"] = marker_species
+        notes.append(f"REVIEW  --marker-species {marker_species}: markers are read from the "
+                     f"{'/'.join(sp)} corpus and matched to this object's genes by upper-cased "
+                     f"symbol - a case-match ortholog heuristic that misses renamed genes and "
+                     f"expanded families")
+    if not ti:
+        if tissue_fallback == "species":
+            escapes["tissue_fallback"] = "species"
+            notes.append(f"REVIEW  --tissue-fallback species: the corpus names no tissue "
+                         f"{tissue!r} for {'/'.join(sp)}, so markers are read from all "
+                         f"{len(tissues)} of its tissue classes - every tissue's claims, pooled")
+            return Context(sp, None, declared, notes, escapes)
+        listed = ", ".join(f"{t} ({c:,})" for t, c, _n in tissues[:top])
+        raise CorpusMiss(
+            f"the corpus names no tissue {tissue!r} for {'/'.join(sp)}. Its tissue classes with "
+            f"the most curated assertions: {listed}"
+            + (f", and {len(tissues) - top} more" if len(tissues) > top else ""),
+            fix=("pass one of them with --tissue, or --tissue-fallback species to read every "
+                 "tissue of the species (an escape, recorded)"), code="corpus_tissue")
+    if sp != (want,) or ti != (tissue,):
+        notes.append(f"corpus context: {'/'.join(sp)} / {'/'.join(ti)} "
+                     f"(declared {want!r} / {tissue!r})")
+    return Context(sp, ti, declared, notes, escapes)
+
+
+def load_assertions(db, species, tissue, min_tier: int = 4) -> dict:
     """{cell_name: {GENE: w_bib}} for one context.
 
         w_bib = TIER_W[tier] x (ln(1 + n_pmids) + 1)
 
     Publication counts are logged so 200 papers beats 6 by about 2x rather than 33x; tier
     dominates. Duplicate assertions for one (cell, gene) take the MAX, never the sum.
+
+    `species` is the corpus's own spelling, or a `Context` from `resolve` (then `tissue` is
+    ignored); a Context of several tissues pools their claims, still by MAX.
     """
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    ctx = species if isinstance(species, Context) else Context((species,), (tissue,))
+    where, params = ctx.where()
+    con = _ro(db)
     rows = con.execute(
         "SELECT cell_name, symbol_norm, evidence_tier, n_pmids FROM assertion "
-        "WHERE species=? AND tissue_class=? AND evidence_tier<=? AND symbol_norm!=''",
-        (species, tissue, min_tier)).fetchall()
+        f"WHERE {where} AND evidence_tier<=? AND symbol_norm!=''",
+        (*params, min_tier)).fetchall()
     con.close()
     out: dict = {}
     for cell, sym, tier, npm in rows:
@@ -205,11 +328,12 @@ def node_support(db, species, tissue, node_patterns, max_tier=2):
 
     Reported beside every call so a reader can see the difference.
     """
-    import sqlite3
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    ctx = species if isinstance(species, Context) else Context((species,), (tissue,))
+    where, params = ctx.where()
+    con = _ro(db)
     rows = con.execute(
-        "SELECT cell_name, COUNT(*) FROM assertion WHERE species=? AND tissue_class=? "
-        "AND evidence_tier<=? GROUP BY 1", (species, tissue, max_tier)).fetchall()
+        f"SELECT cell_name, COUNT(*) FROM assertion WHERE {where} "
+        "AND evidence_tier<=? GROUP BY 1", (*params, max_tier)).fetchall()
     con.close()
     out = {}
     for node, pats in node_patterns.items():

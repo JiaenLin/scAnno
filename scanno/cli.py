@@ -89,14 +89,19 @@ def _agent(a):
     tree["genes"] = store.genes
 
     corpus = None
+    species, tissue = a.species, a.tissue
     if a.db:
-        asr = load_assertions(str(a.db), a.species, a.tissue, min_tier=4)
+        cctx = _corpus_context(a, escapes=False)
+        if cctx is None:
+            return REFUSE
+        species, tissue = cctx.single() or (cctx.species[0], (cctx.tissues or (a.tissue,))[0])
+        asr = load_assertions(str(a.db), cctx, None, min_tier=4)
         check_gene_space(asr, store.genes)
         corpus = classify(Z, usable, tree, store=None, assertions=asr)
         print("the corpus call is computed for COMPARISON and is never shown to the model")
 
     rows = annotate_agentic(prov, Z, usable, store.genes, tree, db=a.db, top_n=a.top_n,
-                            votes=a.votes, species=a.species, tissue=a.tissue, assay=a.assay,
+                            votes=a.votes, species=species, tissue=tissue, assay=a.assay,
                             corpus_calls=corpus, log=print)
     for r, c in zip(rows, cats):
         r["cluster_id"], r["n_cells"] = c, int(counts[r["cluster"]])
@@ -276,7 +281,10 @@ def _calibrate(a):
                    A.obs[r["label_key"]].astype(str).values, r["provenance"])
 
     store = build_store(stream(), ctx)
-    asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
+    corpus_ctx = _corpus_context(a, escapes=False)
+    if corpus_ctx is None:
+        return REFUSE
+    asr = load_assertions(a.db, corpus_ctx, None, a.min_tier)
     if not asr:
         _ST.refuse(f"the corpus has nothing for {a.species}/{a.tissue} at "
               f"tier<={a.min_tier}. There is no panel to calibrate.")
@@ -473,6 +481,28 @@ def _objects_assay(objs, *, what, fix):
     return (said[0] if said else None), recs, False
 
 
+def _corpus_context(a, *, escapes=True):
+    """The corpus context `a` declares, resolved to the corpus's own spellings (corpus.resolve).
+
+    Returns the Context, or None after recording a refusal through the status contract. Prints
+    what a reader must see: a spelling the corpus wrote differently, and every escape as REVIEW.
+    A context that is not what was declared, or that an escape widened, is recorded in STATUS.
+    """
+    from .corpus import CorpusMiss, resolve
+    try:
+        ctx = resolve(a.db, a.species, a.tissue,
+                      tissue_fallback=getattr(a, "tissue_fallback", None) if escapes else None,
+                      marker_species=getattr(a, "marker_species", None) if escapes else None)
+    except CorpusMiss as e:
+        _ST.refuse(e.reason, fix=e.fix, code=e.code)
+        return None
+    for line in ctx.notes:
+        print(f"  {line}")
+    if ctx.notes:
+        _ST.record("corpus", ctx.as_record())
+    return ctx
+
+
 def _store_assay(path, run_assay):
     """(why, code) when the store at `path` cannot serve a run of `run_assay`, else (None, "").
 
@@ -541,6 +571,17 @@ def _annotate(a):
             _ST.refuse(why, code=code,
                        fix=f"build a store from this cohort's own {W.units} with `scanno background "
                            f"--assay {a.assay}`, or pass --background-from-clusters")
+            return REFUSE
+
+    # --- the corpus context, resolved BEFORE the object is read ---
+    #
+    # A species or tissue the corpus does not name is refused here, with the tissues it does name,
+    # rather than after the profiling; a spelling the corpus writes differently is resolved to its
+    # own (single-cell-harness B1-031).
+    corpus_ctx = None
+    if a.db:
+        corpus_ctx = _corpus_context(a)
+        if corpus_ctx is None:
             return REFUSE
 
     # --- the decided scope, applied to the tree BEFORE the object is read ---
@@ -781,7 +822,7 @@ def _annotate(a):
 
     asr = None
     if a.db:
-        asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
+        asr = load_assertions(a.db, corpus_ctx, None, a.min_tier)
         if not asr:
             _ST.refuse(f"the corpus has nothing for {a.species}/{a.tissue} "
                   f"at tier<={a.min_tier}.")
@@ -868,7 +909,7 @@ def _annotate(a):
     support = {}
     if a.db:
         from .corpus import node_support
-        support = node_support(a.db, a.species, a.tissue, tree.get("patterns", {}))
+        support = node_support(a.db, corpus_ctx, None, tree.get("patterns", {}))
 
     src_txt = "corpus" if asr else "atlas profiles"
     print("")
@@ -1066,6 +1107,14 @@ def _annotate(a):
         # re-annotate the same cells under the other assay.
         A.uns[CONTEXT_KEY] = {"species": str(a.species), "tissue": str(a.tissue),
                               "assay": str(a.assay)}
+        if corpus_ctx is not None and corpus_ctx.escapes:
+            # Only when an escape widened the corpus: the labels then rest on another species'
+            # markers or on every tissue's, and the object must say so (B1-031).
+            A.uns[CONTEXT_KEY]["corpus"] = {
+                "species": list(corpus_ctx.species),
+                "tissues": (list(corpus_ctx.tissues) if corpus_ctx.tissues is not None
+                            else "every tissue"),
+                "escapes": dict(corpus_ctx.escapes)}
         # ALWAYS, not only when something was forced. The walk computes what every label beat and
         # by how much, at every step, and it was thrown away - a run could give a cluster's label
         # and its margin and nothing about what that label beat, so the reason for a call had to
@@ -1933,7 +1982,12 @@ def _report(a):
         if not (a.db and a.tree):
             _ST.refuse("--panels auto needs --db and --tree.")
             return REFUSE
-        asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
+        from .corpus import CorpusMiss, resolve
+        try:
+            asr = load_assertions(a.db, resolve(a.db, a.species, a.tissue), None, a.min_tier)
+        except CorpusMiss as e:
+            print(f"  NOTE  no marker panels: {e.reason}")
+            asr = {}
         tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
         # SYMBOLS, not accessions. Matching a symbol corpus against Ensembl var_names finds
         # nothing and reports every corpus gene as absent from the object - which is what
@@ -2257,10 +2311,14 @@ def _readme(a):
 
 def _panel(a):
     """Show the corpus panel for one context — what the untrained path would score on."""
+    import sqlite3
     from .corpus import load_assertions
     try:
-        asr = load_assertions(a.db, a.species, a.tissue, a.min_tier)
-    except Exception as e:                                          # noqa: BLE001
+        ctx = _corpus_context(a)
+        if ctx is None:
+            return REFUSE
+        asr = load_assertions(a.db, ctx, None, a.min_tier)
+    except sqlite3.Error as e:
         print(f"scanno: cannot read {a.db}: {e}", file=sys.stderr)
         return 1
     if not asr:
@@ -2268,7 +2326,8 @@ def _panel(a):
               f"tier<={a.min_tier}. The corpus cannot speak to this context.")
         return REFUSE
     rows = sorted(((c, len(g)) for c, g in asr.items()), key=lambda r: -r[1])
-    print(f"{a.species} / {a.tissue}   tier<={a.min_tier}   "
+    tissues = "/".join(ctx.tissues) if ctx.tissues is not None else "every tissue"
+    print(f"{'/'.join(ctx.species)} / {tissues}   tier<={a.min_tier}   "
           f"{len(asr)} cell names, {sum(n for _, n in rows):,} (cell, gene) claims")
     for c, n in rows[:a.top]:
         best = sorted(asr[c].items(), key=lambda kv: -kv[1])[:8]
@@ -2450,6 +2509,14 @@ def main(argv=None):
     # spellings, and what the assay decides, are scanno/assay.py's.
     s.add_argument("--assay", required=True, choices=_ASSAY_CHOICES, help=_ASSAY_HELP)
     s.add_argument("--db", type=Path, help="marker corpus (corpus weight path)")
+    s.add_argument("--tissue-fallback", choices=["species"], default=None,
+                   help="ESCAPE: when the corpus names no tissue --tissue for this species, read "
+                        "every tissue of the species instead of refusing. Printed as REVIEW and "
+                        "recorded in STATUS and in the object")
+    s.add_argument("--marker-species", default=None, metavar="SPECIES",
+                   help="ESCAPE: read the markers of this species' corpus, matched by upper-cased "
+                        "symbol, while --species stays the object's for the species check. For a "
+                        "species the corpus has no rows for. Printed as REVIEW and recorded")
     s.add_argument("--store", type=Path, help="store.npz from `scanno calibrate`")
     s.add_argument("--background-from-clusters", action="store_true",
                    help="derive the gene background from this object; reported as REVIEW")
@@ -2879,6 +2946,14 @@ def main(argv=None):
     s.add_argument("--db", required=True, type=Path)
     s.add_argument("--species", required=True)
     s.add_argument("--tissue", required=True)
+    s.add_argument("--tissue-fallback", choices=["species"], default=None,
+                   help="ESCAPE: when the corpus names no tissue --tissue for this species, read "
+                        "every tissue of the species instead of refusing. Printed as REVIEW and "
+                        "recorded in STATUS and in the object")
+    s.add_argument("--marker-species", default=None, metavar="SPECIES",
+                   help="ESCAPE: read the markers of this species' corpus, matched by upper-cased "
+                        "symbol, while --species stays the object's for the species check. For a "
+                        "species the corpus has no rows for. Printed as REVIEW and recorded")
     s.add_argument("--min-tier", type=int, default=4)
     s.add_argument("--top", type=int, default=20)
     s.set_defaults(fn=_panel)
@@ -2999,7 +3074,8 @@ CANNOT_SHOW = [
     "it are declarations, and the annotation is only as portable as they are.",
 ]
 
-ESCAPE_FLAGS = ("no_exclude", "background_from_clusters", "gap_min")
+ESCAPE_FLAGS = ("no_exclude", "background_from_clusters", "gap_min", "tissue_fallback",
+                "marker_species")
 
 
 def _describe(a):
@@ -3024,7 +3100,9 @@ def _describe(a):
                    "assay": "a store, or an object, recorded under the other assay refuses; so does a store that records none"},
          "escapes": [{"flag": "--no-exclude", "lifts": "the upstream exclusion", "recorded": "STATUS.annotate.json escapes[]"},
                      {"flag": "--background-from-clusters", "lifts": "the calibrated store", "recorded": "STATUS.annotate.json escapes[]"},
-                     {"flag": "--gap-min", "lifts": "the descent threshold", "recorded": "STATUS.annotate.json escapes[]"}],
+                     {"flag": "--gap-min", "lifts": "the descent threshold", "recorded": "STATUS.annotate.json escapes[]"},
+                     {"flag": "--tissue-fallback", "lifts": "the declared tissue: every tissue of the species is read", "recorded": "STATUS.<cmd>.json escapes[] and corpus"},
+                     {"flag": "--marker-species", "lifts": "the declared species, for markers only", "recorded": "STATUS.<cmd>.json escapes[] and corpus"}],
          "cannot_show": CANNOT_SHOW,
          # Which rules depend on the assay and which do not, and where each one's numbers came
          # from. scanno/assay.py is the only copy; docs/USER_GUIDE.md sets it out for a reader.
