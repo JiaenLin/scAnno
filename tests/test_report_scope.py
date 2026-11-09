@@ -12,10 +12,10 @@ than one that raises: nothing anywhere says it is missing.
 So `test_the_section_is_on_the_live_path` asserts the WIRING, and every other test renders the
 section and looks for a value that could only have come from the scope JSON.
 
-The fixture is the reference cohort's real reach/descend pattern, shared with `test_scope.py`. The last group
-of tests re-runs the section on a THREE-sample cohort with unrelated node names, because the one
-failure a human will not notice is the section quoting a number that belongs to the cohort it
-was written for.
+The fixture is `test_scope.py`'s invented ten-sample reach/descend pattern. The last group of
+tests re-runs the section on a THREE-sample cohort with unrelated node names, because the one
+failure a human will not notice is the section quoting a number or a name that belongs to the
+cohort it was written for.
 """
 import html as _html
 import json
@@ -56,7 +56,7 @@ from scanno.assay import words as _words  # noqa: E402
 # The fixtures here were written for a single-nucleus cohort and assert its wording, so they
 # are declared snrna: the nucleus words they check are what an snrna run still writes.
 
-from test_scope import A, TREE, paths                                        # noqa: E402
+from test_scope import A, COHORT, TREE, paths                                        # noqa: E402
 
 
 def scope_json(paths_by_sample, tree, *, min_support=1.0, min_reach=2, descend_rule="any",
@@ -177,7 +177,7 @@ def test_the_drawn_tree_is_rendered_preformatted_and_escaped():
     s = reference_cohort()
     h = render(s)
     assert "<pre class='tree'>" in h
-    assert "Working cardiomyocyte" in h and "SEALED" in h
+    assert "Contractile slow" in h and "SEALED" in h
     body = h.split("<pre class='tree'>", 1)[1].split("</pre>", 1)[0]
     for line in s["tree_lines"]:
         if str(line).strip():
@@ -187,10 +187,10 @@ def test_the_drawn_tree_is_rendered_preformatted_and_escaped():
 
 def test_the_per_node_table_carries_reach_descend_support_and_verdict():
     h = render(reference_cohort())
-    fib = rows_of(h, "Stromal/Fibroblast</span>")
-    assert fib, "no row for the sealed node"
-    assert "10/10" in fib[0] and "0.800" in fib[0] and "SEAL" in fib[0], fib[0]
-    lym = [r for r in rows_of(h, "Immune/Lymphoid</span>") if "0.571" in r]
+    stel = rows_of(h, "Mesenchymal/Stellate</span>")
+    assert stel, "no row for the sealed node"
+    assert "10/10" in stel[0] and "0.800" in stel[0] and "SEAL" in stel[0], stel[0]
+    lym = [r for r in rows_of(h, "Immune/Lymphocyte</span>") if "0.571" in r]
     assert lym and "7/10" in lym[0], lym
     assert "KEEP" in h
     # the glossary: every verdict the vote can return is explained on the page
@@ -201,8 +201,8 @@ def test_the_per_node_table_carries_reach_descend_support_and_verdict():
 def test_the_denominator_is_the_cohort_not_the_reach():
     """4/7 and 4/10 are different statements. `reached` must show which one is on the page."""
     h = render(reference_cohort())
-    lym = [r for r in rows_of(h, "Immune/Lymphoid</span>") if "0.571" in r]
-    assert lym, "no vote row for Immune/Lymphoid"
+    lym = [r for r in rows_of(h, "Immune/Lymphocyte</span>") if "0.571" in r]
+    assert lym, "no vote row for Immune/Lymphocyte"
     assert "7/10" in lym[0], lym[0]              # reached by 7, of a cohort of 10
     assert "4/10" not in lym[0], "support is conditioned on the 7 that reached it"
 
@@ -210,30 +210,31 @@ def test_the_denominator_is_the_cohort_not_the_reach():
 def test_each_seal_is_reported_BY_LABEL_with_counts_not_as_a_category():
     """The project rule: a removal is stated as its members and read, never described."""
     p = paths()
-    p["L03"] += ["Stromal/Fibroblast/Matrifibrocyte"] * 6      # so counts are not all 1
+    quiescent = "Mesenchymal/Stellate/Stellate quiescent"
+    p["S02"] += [quiescent] * 6                               # so counts are not all 1
     s = scope_json(p, TREE)
     h = render(s)
-    for label in ("Matrifibrocyte", "Quiescent fibroblast", "B cell", "NK cell"):
+    for label in ("Stellate quiescent", "Stellate activated", "Lymphocyte T", "Lymphocyte B"):
         assert label in h, f"{label} is removed by a seal and must be NAMED"
-    n = s["removed_labels"]["Stromal/Fibroblast"]["Stromal/Fibroblast/Matrifibrocyte"]
-    assert n == 13, n
-    row = rows_of(h, "Matrifibrocyte")
+    n = s["removed_labels"]["Mesenchymal/Stellate"][quiescent]
+    assert n == len(COHORT[quiescent]) + 6, n               # one cell per sample, plus six
+    row = rows_of(h, "Stellate quiescent")
     assert row and f"{n:,}" in row[-1], row
     assert "nuclei in pass 1" in h
 
 
 def test_a_removed_child_that_held_no_nuclei_is_still_named():
     tree = json.loads(json.dumps(TREE))
-    tree["children"]["Lymphoid"] = ["B cell", "NK cell", "T cell"]
-    tree["patterns"]["T cell"] = ["x"]
+    tree["children"]["Lymphocyte"] = ["Lymphocyte T", "Lymphocyte B", "Lymphocyte NK"]
+    tree["patterns"]["Lymphocyte NK"] = ["x"]
     h = render(scope_json(paths(), tree))
-    assert "T cell" in h, "a seal removes a child whether or not any sample reached it"
-    row = rows_of(h, "T cell")
+    assert "Lymphocyte NK" in h, "a seal removes a child whether or not any sample reached it"
+    row = rows_of(h, "Lymphocyte NK")
     assert row and ">0</td>" in row[-1], row
 
 
 def test_nothing_sealed_says_so_rather_than_rendering_an_empty_table():
-    p = {s: ["Cardiomyocyte/Working cardiomyocyte", "Endothelial/Endocardial"] for s in A}
+    p = {s: ["Epithelial/Basal", "Vascular/Venular"] for s in A}
     h = render(scope_json(p, TREE))
     assert "Nothing was sealed" in h
     assert "no label was removed" in h
@@ -251,7 +252,7 @@ def test_the_cannot_show_note_is_present_and_says_the_three_things():
 def test_stranded_nuclei_at_an_open_node_are_cross_checked_from_the_vote():
     """The drawing has been short by exactly these before, so the section restates the total.
 
-    `Endothelial` and `Stromal` are KEPT and still hold nuclei of their own in this fixture —
+    `Vascular` and `Mesenchymal` are FORCE nodes and still hold nuclei of their own in this fixture —
     the residual disagreement a unanimous vote cannot see. Whatever the drawing says, the
     section computes the number from the vote and puts it on the page.
     """
@@ -263,12 +264,12 @@ def test_stranded_nuclei_at_an_open_node_are_cross_checked_from_the_vote():
                for n, v in s["nodes"].items()
                if n != "root" and v["verdict"] != "SEAL")
     assert int(m.group(1).replace(",", "")) == want > 0
-    assert int(m.group(2)) == 2, "Endothelial and Stromal"
+    assert int(m.group(2)) == 2, "Vascular and Mesenchymal"
 
 
 def test_root_truncation_is_reported_separately_from_stranding():
     p = paths()
-    p["L07"] += ["UNRESOLVED"] * 5
+    p["S07"] += ["UNRESOLVED"] * 5
     h = render(scope_json(p, TREE))
     assert "truncated at the <b>root</b>" in h and "UNRESOLVED" in h
     assert "<b>5</b> nuclei truncated" in h
@@ -281,7 +282,7 @@ def test_a_scope_json_without_tree_lines_names_the_absence():
     h = render(s)
     assert "tree_lines" in h and "predates" in h
     assert "the node table below is unaffected" in h
-    assert "Stromal/Fibroblast" in h              # the rest of the section still renders
+    assert "Mesenchymal/Stellate" in h            # the rest of the section still renders
 
 
 def test_it_writes_the_tables_as_csv_when_given_an_output_directory(tmp_path):
@@ -290,7 +291,7 @@ def test_it_writes_the_tables_as_csv_when_given_an_output_directory(tmp_path):
     assert (tmp_path / "tables" / "scope_removed_labels.csv").exists()
     assert "tables/scope_nodes.csv" in h and "tables/scope_removed_labels.csv" in h
     lost = (tmp_path / "tables" / "scope_removed_labels.csv").read_text(encoding="utf-8")
-    assert "Matrifibrocyte" in lost and "Stromal/Fibroblast" in lost
+    assert "Stellate quiescent" in lost and "Mesenchymal/Stellate" in lost
     nodes = (tmp_path / "tables" / "scope_nodes.csv").read_text(encoding="utf-8")
     assert "nuclei_stopped_here_pass1" in nodes and "children_declared" in nodes
 
@@ -315,8 +316,10 @@ def test_a_three_sample_cohort_never_prints_a_ten():
     assert "/10" not in h
     assert "3/3" in h                                  # root, reached by all three
     assert "Beta1" in h
-    for leaked in ("Fibroblast", "Cardiomyocyte", "Matrifibrocyte", "Lymphoid", "COHORT",
-                   "Aging", "Young"):
+    # The reference fixture's own names, read from it rather than spelled here: none of them may
+    # reach a page rendered from another cohort's scope.
+    theirs = {n for kids in TREE["children"].values() for n in kids} | set(TREE["children"])
+    for leaked in sorted(theirs - {"root"}):
         assert leaked not in h, f"{leaked} belongs to another cohort"
 
 
