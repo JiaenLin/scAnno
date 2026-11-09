@@ -86,7 +86,8 @@ genes = np.array(["TTN", "MYH6", "PTPRC", "CD68"])
 corpus = [{"path": "Cardiomyocyte/Working cardiomyocyte"}, {"path": "Immune/Macrophage"}]
 ev = [{"cell_name": "Cardiomyocyte", "cl": "CL_0000746", "tier": 1, "n_hit": 2,
        "hits": ["TTN", "MYH6"]}]
-p = make_prompt(["TTN", "MYH6"], TREE, ev, ONTOLOGY, species="Mouse", tissue="Heart")
+p = make_prompt(["TTN", "MYH6"], TREE, ev, ONTOLOGY, species="Mouse", tissue="Heart",
+                assay="snrna")
 check("the corpus evidence is shown", "tier 1" in p and "TTN, MYH6" in p)
 check("the standard names are offered", "Cardiac neuron" in p and "CL_0010022" in p)
 check("the taxonomy is offered as PREFERRED, not as the only option",
@@ -95,14 +96,15 @@ check("the model is told the corpus is incomplete", "incomplete" in p and "disag
       "an agent that defers to a thin corpus adds nothing")
 
 prov = StubProvider([reply("Working cardiomyocyte"), reply("Macrophage")])
-rows = annotate_agentic(prov, Z, usable, genes, TREE, corpus_calls=corpus)
+rows = annotate_agentic(prov, Z, usable, genes, TREE, corpus_calls=corpus, assay="snrna")
 leak = [q for q in prov.calls if "Working cardiomyocyte" in q.split("PREFERRED TAXONOMY")[0]]
 check("no prompt reveals the classifier's answer", not leak,
       "an agent shown the corpus call agrees with it and the comparison measures nothing")
 
 print("\n5 · off-tree answers are not scored as disagreements")
 prov = StubProvider([reply("cardiac neuron"), reply("Macrophage")])
-rows = annotate_agentic(prov, Z, usable, genes, TREE, corpus_calls=corpus, ontology=ONTOLOGY)
+rows = annotate_agentic(prov, Z, usable, genes, TREE, corpus_calls=corpus, ontology=ONTOLOGY,
+                        assay="snrna")
 ag = agreement(rows)
 check("only tree-resolved answers are comparable", ag["n_comparable"] == 1,
       f"n_comparable={ag['n_comparable']}")
@@ -113,18 +115,18 @@ check("the off-tree answer is reported separately",
 
 print("\n6 · non-determinism is measured, not hidden")
 prov = StubProvider([reply("Macrophage"), reply("T cell"), reply("Macrophage")])
-r = ask_cluster(prov, ["CD68"], TREE, votes=3)
+r = ask_cluster(prov, ["CD68"], TREE, votes=3, assay="snrna")
 check("the majority answer is returned", r["resolved"] == "Macrophage")
 check("...with the disagreement rate attached", abs(r["consensus"] - 2 / 3) < 1e-9,
       f"consensus {r['consensus']:.2f} of {r['votes']}")
 check("synonyms are counted as ONE answer, not as disagreement",
       ask_cluster(StubProvider([reply("cardiomyocyte"), reply("cardiac muscle cell")]),
-                  ["TTN"], TREE, votes=2)["consensus"] == 1.0,
+                  ["TTN"], TREE, votes=2, assay="snrna")["consensus"] == 1.0,
       "resolution happens before the vote or wording noise reads as instability")
 
 print("\n7 · every call is recorded well enough to be re-read")
 r = ask_cluster(StubProvider([reply("T cell", 0.4, "CD3 positive")]), ["CD3D"], TREE,
-                species="Mouse", tissue="Heart")
+                species="Mouse", tissue="Heart", assay="snrna")
 for k in ("prompt_sha", "raw", "confidence", "reason", "votes", "tier"):
     check(f"{k} is recorded", k in r and r[k] not in (None, ""), str(r[k])[:44])
 
@@ -138,7 +140,7 @@ class Broken:
         raise RuntimeError("no key configured")
 
 
-rows = annotate_agentic(Broken(), Z, usable, genes, TREE)
+rows = annotate_agentic(Broken(), Z, usable, genes, TREE, assay="snrna")
 check("every cluster still returns a row carrying the reason",
       len(rows) == 2 and all(r["resolved"] is None and "no key" in r["error"] for r in rows))
 

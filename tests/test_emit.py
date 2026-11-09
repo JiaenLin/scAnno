@@ -107,6 +107,24 @@ check("gap is NOT zero where excluded (0.0 would sort and average as a real gap)
 check("kept cells keep a real gap", got["gap"][0] > 0 and not np.isnan(got["gap"][0]))
 check("depth is 0 where excluded", got["depth"][1] == 0)
 
+# NOT ONLY WHERE A CELL IS WITHHELD. A walk with nothing to score at the root - fewer than two of
+# its children have a panel - takes no decision at all, and classify() returned gap 0.0 there
+# (README:209 said NaN, never 0; single-cell-harness GAP-031). 0.0 is the gap of a dead heat.
+from scanno.classify import classify  # noqa: E402
+
+_g = np.array([f"G{i}" for i in range(12)])
+_row = classify(np.ones((1, 12)), np.ones(12, dtype=bool),
+                {"children": {"root": ["A", "B"]}, "patterns": {"A": ["a"], "B": ["b"]},
+                 "members": {}, "genes": _g},
+                assertions={"a cell": {"G0": 8.0, "G1": 8.0, "G2": 8.0}})[0]
+check("a walk that decided nothing is UNRESOLVED, with no trace", _row["path"] == "UNRESOLVED"
+      and _row["trace"] == [], f"{_row['path']} trace={len(_row['trace'])}")
+check("and its gap is NaN, not the 0.0 of a dead heat", bool(np.isnan(_row["gap"])),
+      str(_row["gap"]))
+got2 = per_cell([_row], np.array([0, 0]))
+check("the per-cell gap of that call is NaN too", bool(np.isnan(got2["gap"]).all()),
+      str(got2["gap"]))
+
 print("\n5 - a mis-sized flag is refused")
 try:
     per_cell(calls("A"), np.array([0, 0, 0]), flag=np.array([True, False]))
