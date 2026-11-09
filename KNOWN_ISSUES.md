@@ -45,6 +45,25 @@ Human blood, two datasets, 18 populations, all common types. No rare type, no di
 single-nucleus data — and snRNA is the assay this was designed for. Every number in the README is
 an existence proof, not a range.
 
+## Rules chosen on whole cells are used on nuclei unvalidated
+
+`--assay` decides the gene background a run accepts, and the words it writes (USER_GUIDE, "The
+assay"). Three other rules are one rule for both assays, and each was set on human blood, which is
+whole cells: `gap_min` (below), the corpus marker weights, and the store's size floors. The corpus
+records no assay. Its assertions come mostly from whole-cell and tissue studies. A nucleus holds
+little of the cytoplasm's mRNA, so on nuclei a marker that lives there can be under-detected.
+Nothing corrects for that. The tool was nevertheless
+designed for, and has mostly been run on, single-nucleus data. A per-assay value would be a number
+the data has not yet decided, so none is invented here.
+
+## Upstream QC's declaration does not say which assay it was
+
+`annotate` checks `--assay` against the store and against an earlier annotation of the same object
+(`uns['scanno_context']`). It cannot check it against the QC that produced the object, because
+scQC's `uns['scqc']` declaration (`scqc/provenance@1`) records the flag and its digest and no
+assay. An object QC'd as nuclei and annotated as cells is not caught here until that declaration
+carries the assay.
+
 ## `gap_min` is declared, not derived
 
 0.15 for the profile path and 0.30 for the corpus path. Both survived an independent test
@@ -58,10 +77,12 @@ tissue with no atlas. That has never been tested — every result so far is with
 `docs/TRAINING.md` §6 specifies the leave-one-context-out experiment; it needs atlases this
 project does not have.
 
-## Steps 0, 1 and 3 are specified and not built
+## Step 0, ingest, is specified and not built
 
-Only step 2, the classifier, exists — plus `scanno calibrate`, which is offline and separate.
-There is no ingest, no clustering driver, no assign step, no report and no task graph.
+Steps 1 to 3 exist: `scanno cluster`, the classifier, and the assignment that writes labels per
+cell (`annotate --out-h5ad`), with `--report` and `scanno report` beside them. There is still no
+ingest step that validates a samplesheet and the declared tree against the corpus before any work
+starts, and no task graph: each command is run by its caller, in the order its caller chooses.
 
 ## Calibration is bounded by how many independent sources you have
 

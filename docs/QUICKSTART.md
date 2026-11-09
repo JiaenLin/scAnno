@@ -32,8 +32,8 @@ help. Exit code 2.
 
 ## 3 · Declare a tree
 
-A JSON file with three keys. **The tree must be rooted** — that is what lets scAnno
-return `Lymphoid` when it cannot separate T from NK, instead of giving up.
+Save it as `tree.json`: a JSON file with three keys. **The tree must be rooted** — that is what
+lets scAnno return `Lymphoid` when it cannot separate T from NK, instead of giving up.
 
 ```json
 {
@@ -56,31 +56,44 @@ return `Lymphoid` when it cannot separate T from NK, instead of giving up.
 ```
 
 - **`children`** — the tree. Every internal node lists its children; `root` is required.
-- **`patterns`** — substrings matching corpus `cell_name` values. First match wins, so
-  order matters within a node's list: put `lymphatic endothelial` before `endothelial`.
+- **`patterns`** — substrings of corpus `cell_name` values. A cell name joins a node's panel when
+  **any** of the node's patterns occurs in it, so the order within a list does not matter. Names
+  are matched lower-cased: write patterns in lower case, or they match nothing. One name can match
+  two siblings' patterns (`endothelial` and `lymphatic endothelial`), and then it feeds both
+  panels.
 - **`members`** — corpus/atlas cell-type names per node. Needed only for the atlas path;
   leave `{}` when scoring from the corpus.
 
 Nodes are scored only **against their own siblings**, so a node needs to be
 distinguishable from its brothers, not from everything.
 
-## 4 · Annotate
+## 4 · Cluster, then annotate
+
+`sample.h5ad` is one QC'd sample with raw counts in `X` (or in `layers['counts']`).
 
 ```bash
-scanno annotate --h5ad sample.h5ad --cluster-key leiden_1.0 \
+scanno cluster  --h5ad sample.h5ad --out clustered.h5ad --resolutions 1.0
+scanno annotate --h5ad clustered.h5ad --cluster-key leiden_1p0 \
                 --tree tree.json --db corpus.db \
-                --species Human --tissue Blood \
+                --species Human --tissue Blood --assay scrna \
                 --background-from-clusters \
                 --out labels.tsv \
                 --out-h5ad annotated.h5ad
 ```
+
+`cluster` writes one `leiden_<resolution>` column per resolution: `leiden_1p0` for 1.0.
+**`--assay` is required and has no default**: `scrna` for whole cells, `snrna` for nuclei. It
+decides which gene backgrounds a run accepts, since a store of the other assay is refused, and
+whether every page and print says cells or nuclei. See the
+[user guide](USER_GUIDE.md#the-assay-what-depends-on-it-and-what-does-not) for what it does and
+does not change.
 
 `--out` is the per-CLUSTER table. **`--out-h5ad` is the object**, with the label written onto
 every cell — that is the file anything downstream opens. Without it the labels exist only in
 the terminal output below, and `annotate` says so rather than exiting quietly.
 
 ```
-   cluster        n  label                              depth    gap
+   cluster        n  label                              depth    gap  support
    B cells      342  Lymphoid/B cell                        2   1.37
   NK cells      154  Lymphoid/NK cell                       2   0.97
 CD8 T cells      316  Lymphoid/T cell                        2   0.72
@@ -102,7 +115,9 @@ predict correctness. Descent stops below `0.30` on the corpus path.
 
 **In the object**, the same answer is per cell: `scanno_cell_type` (the label),
 `scanno_path`, `scanno_depth`, `scanno_gap`, `scanno_survival` and — with a corpus —
-`scanno_support`. `X`, `var` and `obsm` are untouched.
+`scanno_support`. `X` and `obsm` are untouched. `var` is re-keyed by `var['gene_symbol']` when the
+object has one, with the accession kept in `var['gene_id']`. Pass `--out-gene-key ""` to leave
+`var_names` alone.
 
 `annotate` then reports what a viewer will still need and scAnno cannot supply. An embedding is
 the usual one: scAnno does not compute embeddings, so if `obsm` has none the report says

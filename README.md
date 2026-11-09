@@ -39,19 +39,45 @@ scanno panel --db corpus.db --species Human --tissue Blood --top 10
 ## Run
 
 ```bash
-scanno cluster  --h5ad qc.h5ad --out clustered.h5ad --resolutions 0.5,1.0,2.0 --split-by sample
-
-scanno annotate --h5ad clustered.h5ad --cluster-key leiden --tree tree.json \
-                --db corpus.db --species Mouse --tissue Heart --store store.npz \
-                --out-h5ad annotated.h5ad --report
+scanno cluster    --h5ad qc.h5ad --split-by sample --out-dir clustered --resolutions 0.5,1.0,2.0
+scanno background --h5ad clustered/*_clustered.h5ad --cluster-key leiden_1p0 --out store.npz \
+                  --species Human --tissue Blood --assay scrna
+scanno annotate   --h5ad clustered/S1_clustered.h5ad --cluster-key leiden_1p0 --tree tree.json \
+                  --db corpus.db --store store.npz --species Human --tissue Blood --assay scrna \
+                  --out-h5ad annotated.h5ad --report report.html
 ```
 
-`cluster` normalises, selects variable genes over every gene, runs PCA, neighbours and Leiden at
-every resolution asked for, keeping all of them. It refuses rather than proceeding when it cannot
-find raw counts to preserve. `--split-by` clusters each sample independently — no shared variable
-genes, no joint embedding, no batch key.
+`qc.h5ad` is your QC'd cohort with a `sample` column. `tree.json` is the tree you declare
+([QUICKSTART](docs/QUICKSTART.md) §3), and `corpus.db` is your marker corpus.
 
-`annotate` scores clusters against the tree and writes the annotation per **cell**.
+`cluster` normalises, selects variable genes over every gene, runs PCA, neighbours and Leiden at
+every resolution asked for, keeping all of them, one `leiden_<resolution>` column each (`leiden_1p0`
+for 1.0). It refuses rather than proceeding when it cannot find raw counts to preserve.
+`--split-by` clusters each sample independently — no shared variable genes, no joint embedding, no
+batch key — and writes `<sample>_clustered.h5ad` into `--out-dir`.
+
+`background` builds ONE gene background from every sample's clusters, so a cluster's score does
+not depend on which library it sat in. `annotate` scores clusters against the tree and writes the
+annotation onto every cell (every nucleus, under `--assay snrna`). `--report` writes the HTML
+document and a `report.json` beside it.
+
+### The assay
+
+`--assay` is required on `background`, `annotate`, `calibrate` and `agent`, and it has no default:
+`scrna` for whole cells, `snrna` for nuclei (`sc` and `sn` are accepted as the same two). Single
+cells are not single nuclei, and three things depend on which one you declared:
+
+- **the gene background.** A store records the assay it was built from, and `annotate` refuses a
+  store of the other assay, or one that records none, by name. `--background-from-clusters`
+  builds the background from the object being annotated, so it is always that object's assay.
+- **the words.** Every report, table, figure and print says cells for `scrna` and nuclei for
+  `snrna`. `annotate` records the assay in `uns['scanno_context']`, and `scanno report` reads it
+  from there. It refuses a cohort annotated under both.
+- **what `agent` tells the model** it is annotating.
+
+Every other rule is one rule for both assays: the corpus weights, the descent bar, the walk, the
+normalisation. The [user guide](docs/USER_GUIDE.md#the-assay-what-depends-on-it-and-what-does-not)
+lists each one with where its numbers came from. Most were chosen on whole cells.
 
 ## Weight sources
 
@@ -141,12 +167,29 @@ because a statistic does not gate an output here until it has been shown to sepa
 incorrect calls (`docs/PRINCIPLES.md` §3).
 
 ```bash
+# route A: every sample walked on its own, the walks voted into ONE scope, then every sample
+# annotated against that scope - and the forced columns gathered into one object
+for f in clustered/*_clustered.h5ad; do
+  scanno annotate --h5ad "$f" --cluster-key leiden_1p0 --tree tree.json --db corpus.db \
+                  --store store.npz --species Human --tissue Blood --assay scrna \
+                  --out-h5ad "pass1/$(basename "$f" _clustered.h5ad).h5ad"
+done
+scanno scope --h5ad pass1/*.h5ad --tree tree.json --sample-key sample --out scope.json
+for f in clustered/*_clustered.h5ad; do
+  scanno annotate --h5ad "$f" --cluster-key leiden_1p0 --tree tree.json --scope scope.json \
+                  --db corpus.db --store store.npz --species Human --tissue Blood --assay scrna \
+                  --resolve --out-h5ad "annotated/$(basename "$f" _clustered.h5ad).h5ad"
+done
+scanno embed --h5ad annotated/*.h5ad --out per_sample.h5ad \
+             --label-obs scanno_resolved_path=cell_type_forced
+
 # route B: ONE clustering over every sample together, annotated against the SAME scope,
 # at EVERY resolution — one command, one store digest, one walk per granularity
-scanno cluster  --h5ad cohort.h5ad --out joint.h5ad --resolutions 0.25:2.0:0.25
-scanno annotate --h5ad joint.h5ad --tree tree.json \
+scanno cluster  --h5ad qc.h5ad --out joint.h5ad --resolutions 0.25:2.0:0.25
+scanno annotate --h5ad joint.h5ad --tree tree.json --scope scope.json --db corpus.db \
+                --store store.npz --species Human --tissue Blood --assay scrna --resolve \
                 --cluster-key leiden_1p0 --cluster-key leiden_0p5 --cluster-key leiden_2p0 \
-                --scope scope.json --store store.npz --species Mouse --tissue Heart --resolve
+                --out-h5ad joint_annotated.h5ad
 
 # the third column, the document, and the tables — route A is corrected, never replaced.
 # route B is still ONE resolution's annotation; the sweep says how much of it agrees, per cell
@@ -164,16 +207,19 @@ scanno compare --a per_sample.h5ad --b joint_annotated.h5ad \
 
 ```bash
 # annotate each sample at a LADDER of resolutions - the delivered one, then upward
-scanno cluster  --h5ad samples/*.h5ad --out-dir laddered --resolutions 1.0:3.0:0.25
-scanno annotate --h5ad laddered/S1.h5ad --tree tree.json --scope scope.json --store store.npz \
-                --species Mouse --tissue Heart \
-                --cluster-key leiden_1p0 --cluster-key leiden_1p25 --cluster-key leiden_1p5 \
-                --cluster-key leiden_1p75 --cluster-key leiden_2p0 --cluster-key leiden_3p0
+scanno cluster  --h5ad qc.h5ad --split-by sample --out-dir laddered --resolutions 1.0:3.0:0.25
+for f in laddered/*_clustered.h5ad; do
+  scanno annotate --h5ad "$f" --tree tree.json --scope scope.json --db corpus.db \
+                  --store store.npz --species Human --tissue Blood --assay scrna --resolve \
+                  --cluster-key leiden_1p0 --cluster-key leiden_1p25 --cluster-key leiden_1p5 \
+                  --cluster-key leiden_1p75 --cluster-key leiden_2p0 --cluster-key leiden_3p0 \
+                  --out-h5ad "ladder/$(basename "$f" _clustered.h5ad).h5ad"
+done
 
 # the targeted search: only labels some units carry and others lack, only in the units that lack
-scanno rescue --h5ad annotated/*.h5ad --label-key cell_type_forced --unit-key sample \
+scanno rescue --h5ad ladder/*.h5ad --label-key scanno_resolved_path --unit-key sample \
               --sweep-prefix scanno_resolved_path_r --cluster-prefix leiden_ \
-              --from-resolution 1.0 --to-resolution 3.0 --tree tree.json \
+              --from-resolution 1.0 --to-resolution 3.0 \
               --out-key cell_type_rescued --out-dir rescued \
               --out-table impact.csv --out-report rescue.html --out rescue.json
 ```
@@ -187,14 +233,15 @@ reported as not found rather than chased.
 
 `--out-h5ad` writes the input object with columns added; `X` and `obsm` come out as they went in.
 `var` is re-keyed by `gene_symbol` by default (the accession is kept in `var['gene_id']`); pass
-`--out-gene-key ""` to leave `var_names` alone.
+`--out-gene-key ""` to leave `var_names` alone. `uns['scanno_context']` records the species, tissue
+and assay the run declared.
 
 | column | is |
 |---|---|
 | `scanno_cell_type` | the label, as a categorical |
 | `scanno_path` | the full root-to-leaf path the walk took |
 | `scanno_depth` | how deep it got before the evidence ran out |
-| `scanno_gap` | the decision gap of the accepted step |
+| `scanno_gap` | the margin of the last step the walk took: the step that chose the label or, where the walk stopped above a leaf, the step that declined to go deeper, which is below the bar by construction. NaN where the walk took no step at all |
 | `scanno_survival` | how much of the node's evidence survived the sibling contrast |
 | `scanno_support` | curated tier-1/2 assertions behind the winning node |
 | `scanno_resolved_path` | with `--resolve`: the forced label, no holes, plus `scanno_resolved_origin` |
@@ -245,9 +292,9 @@ states what it cannot show, and a missing limit is counted as a defect on the re
 
 ## Commands
 
-`annotate` · `cluster` · `background` · `scope` · `compare` · `report` · `embed` · `lab` ·
-`readme` · `resolution` · `calibrate` · `panel` · `store-info` · `agent` · `selftest`.
-Exit code 2 is a refusal.
+`annotate` · `cluster` · `background` · `scope` · `rescue` · `compare` · `joint-review` ·
+`report` · `embed` · `lab` · `readme` · `resolution` · `calibrate` · `panel` · `store-info` ·
+`agent` · `describe` · `selftest`. Exit code 2 is a refusal.
 
 `resolution` picks a clustering resolution from the annotation rather than the geometry.
 `compare` scores two annotated objects against each other, naming the confused pairs rather than
@@ -310,7 +357,8 @@ renamed — code that asks for a role passes both, code that knows a column name
 | ✅ classifier | store, gene background, corpus weights, rooted walk with truncation |
 | ✅ validated | human blood: PBMC, two datasets, 18 populations, zero errors on both paths. One dataset is independent with FACS labels |
 | ⚠️ one tissue, one species | every number is an existence proof, not a range |
-| ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically; the gene background would need building for the assay |
+| ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically. The gene background is per assay, and a store of the other assay is refused. The corpus weights and the descent bar are one rule for both and were chosen on whole cells |
+| ✅ assay rules | `--assay` decides the background a run accepts and the words it writes, with no default. Every other rule is one for both, listed with its basis in the user guide |
 | ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
 | ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |

@@ -44,6 +44,47 @@ The fallback is honest about what it costs and is fine for a single object you a
 comparing to anything. **Do not use it per-sample and then compare samples** — that is
 the exact failure above.
 
+**A background is also per assay.** It is measured on a transcriptome, and a nuclear one is not a
+whole-cell one: most of the cytoplasm's mRNA is missing and unspliced RNA is over-represented. A
+store records the assay it was built from, and `annotate --store` refuses a store of the other
+assay, or one that records none. See the next section.
+
+---
+
+## The assay: what depends on it, and what does not
+
+`--assay` is required on `background`, `annotate`, `calibrate` and `agent`, and it has no default.
+`scrna` means whole cells and `snrna` means nuclei. `sc` and `sn`, this tool's original spellings,
+are accepted as the same two. A value is recorded as you declared it and compared canonically, so a
+store recorded as `sn` serves a run declared `snrna`. `scanno report` takes `--assay` only for objects
+annotated before the assay was recorded in `uns['scanno_context']`.
+
+This table is `scanno/assay.py`'s `RULES`, and `scanno describe` prints it as `assay_rules`.
+
+| rule | what | `scrna` | `snrna` | where its numbers came from |
+|---|---|---|---|---|
+| `background` | the gene background: per-gene mean and spread across cell types | built from whole cells | built from nuclei | each cohort's own data. A store records its assay, and `annotate --store` refuses the other assay or none. `--background-from-clusters` is the annotated object's own |
+| `words` | the unit every report, table, figure and print names | cell, cells | nucleus, nuclei | the declared assay. Commands that take no assay say "observation" |
+| `agent_prompt` | what `scanno agent` tells the model it is annotating | single-cell RNA-seq | single-nucleus RNA-seq | the declared assay. A prompt with none is refused |
+| `corpus_weights` | marker weights from the CellMarker-schema corpus | the same | the same | the corpus records no assay, and its assertions come mostly from whole-cell and tissue studies. **On nuclei, a marker whose mRNA sits in the cytoplasm can be under-detected, and nothing corrects for it** |
+| `gap_min` | the descent bar: 0.30 on the corpus path, 0.15 on profiles | the same | the same | declared, and chosen on human blood (PBMC), which is whole cells. **Not calibrated on nuclei** |
+| `detect_floor` | a gene is scored for a cluster only where at least 1% of the cluster detects it | the same | the same | declared in the first release. No calibration on either assay is recorded |
+| `ood_floor` | the background must cover 30% of the genes the object expresses | the same | the same | a check that two gene lists overlap. It measures neither transcriptome |
+| `walk` | the rooted walk: sibling contrast, truncation, the scope vote, `--resolve` | the same | the same | compares siblings' scores with each other. Its only number is `gap_min` |
+| `scope_vote` | a node is sealed unless every sample that reached it descended, and voted on only when two or more samples reached it | the same | the same | declared principles, unanimity and a quorum. They were not fitted to data |
+| `normalisation` | counts to 10,000 per observation then log1p; `cluster`'s 2,000 variable genes, 50 components, 15 neighbours, Leiden | the same | the same | scanpy's conventional defaults, not calibrated on either assay |
+| `store_sizes` | a cell type enters a store at 10 observations and is graded at 50 | the same | the same | set on PBMC, which is whole cells: at 50 the entry floor excluded the two rarest PBMC types ([CLASSIFIER](CLASSIFIER.md)) |
+| `reporting_floors` | what a report shows, never a label: 30 withheld per sample before a per-sample comparison, a 3x ratio between arms, 80% of a cluster from one sample, a 0.1-point floor on the sweep's tolerance | the same | the same | declared. Each is reported and none changes a label |
+| `exclusion` | withholding exactly what upstream QC flagged | the same | the same | scAnno reads the flag and decides nothing. Upstream's own rules are per assay |
+| `species_check` | the declared species against the gene identifiers | the same | the same | identifiers name a species, not an assay |
+
+**"The same" is a statement about the code, not a validation.** Three of those rules were set
+on whole cells and are used on nuclei unvalidated (`corpus_weights`, `gap_min`, `store_sizes`),
+which is recorded in [KNOWN_ISSUES](../KNOWN_ISSUES.md). The family's rule is that nothing
+calibrated on nuclei is lent to cells. No row here records a calibration on nuclei. That is a
+statement about the record, and two rows, `detect_floor` and `reporting_floors`, record no
+calibration of any kind.
+
 ---
 
 ## `scanno annotate`
@@ -51,8 +92,8 @@ the exact failure above.
 Label the clusters of one object.
 
 ```bash
-scanno annotate --h5ad sample.h5ad --cluster-key leiden_1.0 --tree tree.json \
-                --species Human --tissue Blood --assay sc|sn \
+scanno annotate --h5ad sample.h5ad --cluster-key leiden_1p0 --tree tree.json \
+                --species Human --tissue Blood --assay scrna|snrna \
                 --db corpus.db  |  --store calib/store.npz \
                 [--background-from-clusters] [--use-raw] [--gap-min 0.30] \
                 [--min-tier 4] [--out labels.tsv] \
@@ -100,12 +141,15 @@ The same answer, per cell, under `--label-prefix` (default `scanno`):
 | `scanno_cell_type` | the label, as a categorical — the column a reader will look for |
 | `scanno_path` | the full root-to-leaf path |
 | `scanno_depth` | how deep the walk got |
-| `scanno_gap` | the gap of the **accepted** step, not the truncating one |
+| `scanno_gap` | the gap of the **last** step: the accepted one when the walk reached a leaf or ran out of scorable children, the declining one (below the bar) when it truncated on the gap. NaN when no step was taken |
 | `scanno_survival` | share of the node's evidence surviving the sibling contrast |
 | `scanno_support` | curated tier ≤2 assertions, where `--db` was given |
 
-`X`, `var` and `obsm` are the input's. scAnno adds columns; it does not rebuild the object
-around its answer, so an embedding or a symbol column that went in comes out.
+`X` and `obsm` are the input's. scAnno adds columns; it does not rebuild the object around its
+answer, so an embedding or a symbol column that went in comes out. `var` is re-keyed by
+`var['gene_symbol']` when there is one, with every accession kept in `var['gene_id']` and every
+duplicated symbol kept as its own row. `--out-gene-key ""` leaves `var_names` alone.
+`uns['scanno_context']` records the species, tissue and assay the run declared.
 
 Three things this join gets right, each asserted in `tests/test_emit.py`:
 
@@ -137,6 +181,9 @@ somebody still has to run UMAP on, and refusing would be scAnno deciding what th
 | `.X contains negative values` | the matrix is scaled | pass `--use-raw` |
 | `the background covers only N%` | fewer than 30% of expressed genes are in the background | use a background built for this tissue and assay |
 | `the corpus has nothing for X/Y` | no assertions at `--min-tier` | check `scanno panel`; try a neighbouring tissue name |
+| `the store S was built from snrna data ... this run declares scrna` (and the reverse) | the store's recorded assay is the other one | build a store from this cohort's own data with `scanno background --assay ...`, or `--background-from-clusters` |
+| `the store S records no assay` | the store cannot be checked against the run | rebuild it with `scanno background --assay ...` |
+| `X was annotated before as snrna ... this run declares scrna` | the object's `uns['scanno_context']` says the other assay | annotate the object that earlier run started from |
 
 ### Withholding what upstream QC flagged
 
@@ -204,7 +251,7 @@ corpus; the atlases are consumed and never redistributed.
 
 ```bash
 scanno calibrate --manifest atlases.tsv --db corpus.db --tree tree.json \
-                 --species Human --tissue Blood --out calib/ \
+                 --species Human --tissue Blood --assay scrna --out calib/ \
                  [--harmonise] [--min-shared-genes 2000] [--use-raw]
 ```
 

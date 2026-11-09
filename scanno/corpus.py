@@ -4,8 +4,9 @@ This is the path most users take. A curated corpus covers far more species x tis
 contexts than annotated atlases do, and a tool that only works once someone supplies an
 atlas is not a general tool.
 
-The corpus is NOT distributed with scAnno. `scanno build-markers` ingests a release the
-user fetches themselves, the same way scQC ships a reference registry and not a genome.
+The corpus is NOT distributed with scAnno, and no `scanno` command builds it: the user ingests
+a release they fetch themselves into the six-column `assertion` table below (README, Install),
+the same way scQC ships a reference registry and not a genome.
 """
 from __future__ import annotations
 

@@ -1,8 +1,7 @@
 """The `scanno` command.
 
-Deliberately small. There is no driver, no report and no task graph, so the CLI exposes what
-actually exists rather than pretending to a pipeline: `annotate`, `calibrate`, `panel`,
-`store-info`, `resolution`, `agent`, `selftest`.
+Deliberately small. There is no driver and no task graph, so the CLI exposes the commands that
+exist, each run by its caller, rather than pretending to a pipeline. `scanno describe` lists them.
 
 No version is stated here, deliberately. This docstring used to open by naming one, kept naming
 the first release for three of them, and the list of subcommands beneath it went stale in the

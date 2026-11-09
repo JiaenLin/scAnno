@@ -93,7 +93,10 @@ def first_word(line):
 
 
 def run_document(name, brings):
-    """Run every bash block of one document. Returns (commands run, lines skipped)."""
+    """Run every bash block of one document.
+
+    Returns (work dir, commands run, lines skipped, one (label, ok, detail) per block). It checks
+    nothing itself, so the two documents can run at once and still report in order."""
     text = (ROOT / name).read_text(encoding="utf-8")
     work = Path(tempfile.mkdtemp(prefix="scanno_docs_"))
     shim = work / ".bin"
@@ -102,9 +105,10 @@ def run_document(name, brings):
     (shim / "scanno").chmod(0o755)
     for fname, build in brings.items():
         build(work / fname)
-    env = {"PATH": f"{shim}:/usr/bin:/bin", "PYTHONPATH": str(ROOT), "MPLBACKEND": "Agg",
+    # /usr/sbin for the system tools libraries probe (joblib asks sysctl for the core count).
+    env = {"PATH": f"{shim}:/usr/bin:/bin:/usr/sbin:/sbin", "PYTHONPATH": str(ROOT), "MPLBACKEND": "Agg",
            "HOME": str(work), "TMPDIR": os.environ.get("TMPDIR", "/tmp")}
-    n_run, skipped = 0, []
+    n_run, skipped, results = 0, [], []
     for i, (lang, body) in enumerate(blocks(text)):
         if lang != "bash":
             continue
@@ -119,15 +123,19 @@ def run_document(name, brings):
         n_cmd = sum(1 for ln in keep if re.search(r"(^|\s|;|do)\s*scanno\s", " " + ln))
         if not n_cmd:
             continue
+        import time
+        t0 = time.monotonic()
         r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=str(work), env=env,
                            capture_output=True, text=True, timeout=900)
+        took = time.monotonic() - t0
         said = (r.stdout or "") + (r.stderr or "")
         refusal = [ln for ln in said.splitlines() if "REFUSE" in ln or "error:" in ln
                    or "ERROR" in ln][-2:]
-        check(f"{name} block {i}: {n_cmd} scanno command(s) exit 0", r.returncode == 0,
-              f"rc={r.returncode} {refusal or said.strip().splitlines()[-3:]}")
+        results.append((f"{name} block {i}: {n_cmd} scanno command(s) exit 0", r.returncode == 0,
+                        f"{took:.0f}s" if r.returncode == 0
+                        else f"rc={r.returncode} {refusal or said.strip().splitlines()[-3:]}"))
         n_run += n_cmd
-    return work, n_run, skipped
+    return work, n_run, skipped, results
 
 
 print("\nA - docs/QUICKSTART.md, from nothing to labelled clusters")
@@ -142,16 +150,28 @@ def quickstart_tree(p):
     p.write_text(json.dumps(tree_blocks[0] if tree_blocks else TREE), encoding="utf-8")
 
 
-qs_work, n_qs, qs_skipped = run_document(
-    "docs/QUICKSTART.md", {"sample.h5ad": write_sample, "corpus.db": write_corpus,
-                           "tree.json": quickstart_tree})
+# The two documents share nothing, so they run at once: each command is its own process and the
+# wall clock is mostly the analysis stack being imported again by every one of them.
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
+with ThreadPoolExecutor(max_workers=2) as pool:
+    qs_job = pool.submit(run_document, "docs/QUICKSTART.md",
+                         {"sample.h5ad": write_sample, "corpus.db": write_corpus,
+                          "tree.json": quickstart_tree})
+    rd_job = pool.submit(run_document, "README.md",
+                         {"qc.h5ad": write_cohort, "corpus.db": write_corpus,
+                          "tree.json": write_tree})
+    qs_work, n_qs, qs_skipped, qs_results = qs_job.result()
+    rd_work, n_rd, rd_skipped, rd_results = rd_job.result()
+for r in qs_results:
+    check(*r)
 check("QUICKSTART: at least four scanno commands ran", n_qs >= 4, str(n_qs))
 for s in qs_skipped:
     print(f"        not run  {s}")
 
 print("\nB - README.md, every route it shows")
-rd_work, n_rd, rd_skipped = run_document(
-    "README.md", {"qc.h5ad": write_cohort, "corpus.db": write_corpus, "tree.json": write_tree})
+for r in rd_results:
+    check(*r)
 check("README: at least twelve scanno commands ran", n_rd >= 12, str(n_rd))
 for s in rd_skipped:
     print(f"        not run  {s}")
