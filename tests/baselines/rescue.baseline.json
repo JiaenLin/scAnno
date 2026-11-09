@@ -15,21 +15,21 @@
    "kind": "json",
    "numbers": {
     "exit": 0.0,
-    "products[0].bytes": 9850736.0,
+    "products[0].bytes": 14012896.0,
     "state_version": 1.0
    }
   },
   "clustered.h5ad": {
-   "bytes": 9850736,
+   "bytes": 14012896,
    "kind": "opaque",
-   "sha256": "c0b02247cafb6ab8"
+   "sha256": "e7448f9e3590319b"
   }
  },
  "recorded_on": {
-  "host_id": "28ae67926b93",
-  "machine": "x86_64",
-  "platform": "Linux-5.14.0-611.5.1.el9_7.x86_64-x86_64-with-glibc2.34",
-  "python": "3.12.12"
+  "host_id": "d6df73c4a7cc",
+  "machine": "arm64",
+  "platform": "macOS-26.7.1-arm64-arm-64bit",
+  "python": "3.12.14"
  },
  "rtol": 1e-09
 }
