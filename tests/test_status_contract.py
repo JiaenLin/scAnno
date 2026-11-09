@@ -13,6 +13,8 @@ WHAT IS CHECKED (stdlib only)
   6. through the CLI: `annotate --tree /nonexistent` is one line and exit 1, not a traceback,
      and STATUS.annotate.json says failed; `agent` without --out is a usage error
   7. an escape flag without --by is recorded without a person, and says so
+  8. the rule set an `--assay` spelling selects is recorded in STATUS: `sn` runs snrna
+     (single-cell-harness rule 2, B1-071), and a recorded fact never replaces a contract field
 """
 from __future__ import annotations
 
@@ -119,6 +121,41 @@ class _A:  # what argparse would hand over
 esc = cli._escapes(_A())
 check("--no-exclude is recorded as an ask/decision pair", esc and esc[0]["ask"]["gate"] == "no-exclude" and "by" in esc[0]["decision"])
 check("without --by the person is None, not invented", esc[0]["decision"]["by"] is None)
+
+print("\n8 the assay's rule set is in the record")
+try:
+    import anndata  # noqa: F401
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        make_object("S1").write_h5ad(td / "S1.h5ad")
+        db, tree = write_corpus(td / "c.db"), write_tree(td / "t.json")
+        for spelling, rule_set, sub in (("sn", "snrna", "a"), ("scrna", "scrna", "b")):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = cli.main(["annotate", "--h5ad", str(td / "S1.h5ad"), "--cluster-key", "cluster",
+                               "--tree", str(tree), "--db", str(db), "--species", SPECIES,
+                               "--tissue", TISSUE, "--assay", spelling, "--background-from-clusters",
+                               "--out-h5ad", str(td / sub / "o.h5ad")])
+            rec = json.loads((td / sub / "STATUS.annotate.json").read_text())
+            check(f"--assay {spelling}: annotate exits 0", rc == 0, err.getvalue()[-200:])
+            check(f"--assay {spelling}: STATUS records the declared spelling and the {rule_set} rule set",
+                  rec.get("assay") == {"declared": spelling, "rule_set": rule_set}, str(rec.get("assay")))
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            cli.main(["cluster", "--h5ad", str(td / "S1.h5ad"), "--out", str(td / "c" / "x.h5ad"),
+                      "--resolutions", "1.0"])
+        rec = json.loads((td / "c" / "STATUS.cluster.json").read_text())
+        check("a command with no --assay records none (no default, and none invented)",
+              "assay" not in rec, str(rec.get("assay")))
+except ImportError as e:
+    print(f"  SKIP  needs anndata ({e})")
+try:
+    ST.record("status", "ok")
+    check("a recorded fact cannot replace a contract field", False, "it was accepted")
+except ValueError:
+    check("a recorded fact cannot replace a contract field", True)
 
 print("")
 if fails:

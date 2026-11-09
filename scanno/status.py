@@ -13,6 +13,11 @@ lands in. A command that dies leaves `partial` and RUNNING standing — a differ
 refused and from ok. Stdlib only; the same shape as the status contract shared with the tools
 this one is orchestrated beside.
 
+WHAT THE COMMAND DECIDED. `record(key, value)` adds a fact the command settled while it ran - the
+assay's rule set it applied, the tree it was given and where that came from - and `finish` writes
+it into the record beside the outcome, refused or failed included. It is cleared when a command
+starts, so one command's facts never reach the next one run in the same process.
+
 THE CLOCK. `begin` starts it, a command closes each of its steps with `lap(name)`, and `finish`
 writes `timings` into the record: the command's wall time, the observations it read, and every
 step in order with its own wall time. Whatever ran after the last named step is the step
@@ -41,10 +46,28 @@ LAST_REFUSAL: dict = {}
 #: than the whole however many there are.
 CLOCK: dict = {"t0": None, "at": 0.0, "steps": [], "n_obs": None}
 
+#: facts the running command recorded with `record`, written into its STATUS by `finish`
+RECORDED: dict = {}
+
+#: keys `record` may not overwrite: the contract's own fields
+_RESERVED = {"contract", "tool", "command", "version", "commit", "state_version", "status",
+             "headline", "started", "finished", "job", "python", "argv", "products", "absent",
+             "refusal", "sees", "escapes", "cannot_show", "wrapped_versions", "exit", "timings",
+             "missing"}
+
 
 def clock_start() -> None:
-    """Start the clock for a command: no step closed yet, no observation counted."""
+    """Start the clock for a command: no step closed yet, no observation counted, nothing
+    recorded."""
     CLOCK.update(t0=time.perf_counter(), at=0.0, steps=[], n_obs=None)
+    RECORDED.clear()
+
+
+def record(key: str, value) -> None:
+    """Record a fact this command settled, for its STATUS. A contract field cannot be replaced."""
+    if key in _RESERVED:
+        raise ValueError(f"{key!r} is a field of the status contract, not a recorded fact")
+    RECORDED[str(key)] = value
 
 
 def lap(step: str) -> None:
@@ -187,6 +210,7 @@ def finish(d: Path, cmd: str, *, status: str, headline: str, exit_code: int,
         refusal = dict(refusal or LAST_REFUSAL or {})
         refusal.setdefault("reason", headline)
         refusal.setdefault("fix", "the refusal names what to change; read the line above it")
+    rec.update(dict(RECORDED))
     rec.update({"status": status, "headline": headline, "finished": _now(), "exit": exit_code,
                 "timings": timings(), "products": products, "missing": missing,
                 "refusal": refusal if status == "refused" else None,

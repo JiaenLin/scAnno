@@ -1865,6 +1865,8 @@ def _report(a):
     W = AS.words(assay)
     print(f"  assay {assay} ({W.name}), "
           + ("as the objects recorded it" if said else "as --assay declared it"))
+    _ST.record("assay", {"declared": a.assay, "rule_set": assay,
+                         "from": "the objects" if said else "--assay"})
 
     # --l1-key must name a SECOND walk's answer, not the deep walk's own level-1 prefix. Both
     # refusals below catch a column that cannot possibly be independent; a column that merely
@@ -3066,6 +3068,12 @@ def _with_status(a, argv):
         # No record is written, but the command still laps: it must not lap on the clock of the
         # command before it, which is what a second `main()` in one process would otherwise do.
         _ST.clock_start()
+    # WHICH RULE SET RAN (single-cell-harness rule 2, B1-071). `--assay` is recorded in objects
+    # and stores AS DECLARED (`sn` stays `sn`, so a store's digest never changes), which leaves a
+    # reader of the run to know that `sn` is the snrna rule set. The record says it outright.
+    if getattr(a, "assay", None):
+        from .assay import canonical as _canonical
+        _ST.record("assay", {"declared": str(a.assay), "rule_set": _canonical(a.assay)})
     try:
         rc = a.fn(a)
     except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
