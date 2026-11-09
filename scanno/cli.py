@@ -1172,6 +1172,16 @@ def _cluster(a):
     if len(inputs) == 1 and not a.split_by and not a.out:
         _ST.refuse("one object and no --split-by needs --out.")
         return REFUSE
+    # BEFORE the work, not after the first group. It was checked inside the loop, so the
+    # README's own example (`--out clustered.h5ad --split-by sample`) clustered one sample in
+    # full and then refused, and the `--out` it named was never going to be written.
+    if a.split_by and not a.out_dir:
+        _ST.refuse("--split-by writes one object per group and needs --out-dir; a tool never "
+                   "writes into the working directory"
+                   + (f". --out {a.out} names a single file and is not used with --split-by"
+                      if a.out else ""),
+                   fix="pass --out-dir <directory inside the project>")
+        return REFUSE
 
     print(f"resolutions: {', '.join(str(r) for r in res)}   seed {a.seed}")
     print("every resolution is KEPT and none is chosen; no gene class is excluded from "
@@ -1219,10 +1229,6 @@ def _cluster(a):
             print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
                   f"raw counts kept in layers['counts']")
             if name is not None:
-                if out_dir is None:
-                    _ST.refuse("--split-by needs --out-dir; a tool never writes into the working directory",
-                               fix="pass --out-dir <directory inside the project>")
-                    return REFUSE
                 p = out_dir / f"{name}_clustered.h5ad"
             elif out_dir:
                 # Named from the INPUT's stem, so ten libraries land in ten files rather than

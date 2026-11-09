@@ -166,6 +166,27 @@ check("the same cells get the same clusters either way",
 check("and the counts layer is still the counts layer",
       looks_like_counts(pre.layers[COUNTS_LAYER]))
 
+print("\n9 - --split-by without --out-dir is refused BEFORE any group is clustered")
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _td:
+    _src = Path(_td) / "two.h5ad"
+    _two = toy(n=80)
+    _two.obs["sample"] = ["A"] * 40 + ["B"] * 40
+    _two.write_h5ad(_src)
+    _r = subprocess.run([sys.executable, "-m", "scanno.cli", "cluster", "--h5ad", str(_src),
+                         "--out", str(Path(_td) / "clustered.h5ad"), "--split-by", "sample",
+                         "--resolutions", "1.0"],
+                        cwd=str(ROOT), capture_output=True, text=True,
+                        env={"PYTHONPATH": str(ROOT), "PATH": "", "MPLBACKEND": "Agg"})
+    _said = _r.stdout + _r.stderr
+    check("the README's old example is refused (exit 2)", _r.returncode == 2, f"rc={_r.returncode}")
+    # "raw counts kept" is printed once a group HAS been clustered; the refusal must come first.
+    check("before the first group is clustered", "raw counts kept" not in _said,
+          [ln for ln in _said.splitlines() if "raw counts kept" in ln][:1])
+    check("and it says --out is not used with --split-by", "not used with --split-by" in _said)
+
 print("\n" + "=" * 64)
 if fails:
     print(f"cluster: {len(fails)} FAILED - " + ", ".join(fails))
