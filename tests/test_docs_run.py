@@ -111,8 +111,14 @@ def run_document(name, brings):
     for fname, build in brings.items():
         build(work / fname)
     # /usr/sbin for the system tools libraries probe (joblib asks sysctl for the core count).
+    # Every cache goes into the working directory, which is removed at exit. Without
+    # NUMBA_CACHE_DIR, umap's compiled functions cache beside their installed source - inside
+    # whatever environment runs this suite (LAYOUT 3f: point the tool's scratch at the run).
+    cache = work / ".cache"
     env = {"PATH": f"{shim}:/usr/bin:/bin:/usr/sbin:/sbin", "PYTHONPATH": str(ROOT), "MPLBACKEND": "Agg",
-           "HOME": str(work), "TMPDIR": os.environ.get("TMPDIR", "/tmp")}
+           "HOME": str(work), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "XDG_CACHE_HOME": str(cache), "NUMBA_CACHE_DIR": str(cache / "numba"),
+           "MPLCONFIGDIR": str(cache / "mpl"), "PYTHONNOUSERSITE": "1"}
     n_run, skipped, results = 0, [], []
     for i, (lang, body) in enumerate(blocks(text)):
         if lang != "bash":
