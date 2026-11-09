@@ -137,11 +137,15 @@ def classify(Z, usable, tree, store=None, assertions=None, gap_min=None, exclude
         # the step that truncated. Reporting the failed step's numbers beside a label the
         # previous step chose describes a decision that was not taken.
         acc = trace[len(path) - 1] if path else (trace[-1] if trace else None)
+        # `gap` is the LAST step's margin: the one that chose the label, or - where the walk
+        # stopped above a leaf - the one that declined to go deeper, which is what a post-walk
+        # push to a leaf reads. With no step at all there is no margin, and 0.0 would read as a
+        # dead heat (single-cell-harness GAP-031: README promised NaN, never 0).
         out.append({"cluster": c,
                     "label": path[-1] if path else "UNRESOLVED",
                     "path": "/".join(path) or "UNRESOLVED",
                     "depth": len(path),
-                    "gap": trace[-1]["gap"] if trace else 0.0,
+                    "gap": trace[-1]["gap"] if trace else float("nan"),
                     "survival": acc["survival"] if acc else float("nan"),
                     "cover": acc["cover"] if acc else float("nan"),
                     "excluded": False,

@@ -872,7 +872,14 @@ def test_a_name_at_two_positions_is_refused_because_the_trace_is_keyed_by_bare_n
 #: and `trace[-1]["top"]` is still `order[srt[0]]`. A digest cannot tell an added trace key from
 #: a changed decision, so the AST checks are the substance and this line is the tripwire that
 #: makes someone come and look.
-CLASSIFY_SHA = "3fff480805db7642c895180ad616ee30d9457895eb1e2ef9fdb30d2b9fa8be93"
+#:
+#: RE-PINNED, OUT LOUD, a second time (single-cell-harness wave W003, GAP-031). One edit, again
+#: to what the walk RECORDS and not to what it decides: a walk that took no step at all - the root
+#: had fewer than two scorable children - returned gap 0.0, a dead heat, where README and
+#: tests/test_emit.py promise NaN for a call that was not made. It now returns NaN. No path,
+#: label, depth or trace changes, so no forced call can: the push to a leaf reads the trace, and
+#: such a cluster has none. The invariants below are unchanged and still hold.
+CLASSIFY_SHA = "3241848a217257f3bed1c0cd95633d9ad8cac8a25cef23adba0506a4c17b6545"
 
 
 def test_classify_py_is_not_touched_by_the_scope_feature():
