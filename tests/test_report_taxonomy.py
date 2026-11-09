@@ -61,6 +61,10 @@ except ImportError:                                                        # noq
     pytest = _Pytest()
 
 from scanno.scope import why_terminal                                       # noqa: E402
+from scanno.assay import words as _words  # noqa: E402
+
+# The fixtures here were written for a single-nucleus cohort and assert its wording, so they
+# are declared snrna: the nucleus words they check are what an snrna run still writes.
 
 
 # ------------------------------------------------------------------ fixtures
@@ -143,6 +147,7 @@ class FakeCtx:
         import pandas as pd
 
         from scanno.context import Context
+        self.assay, self.words = "snrna", _words("snrna")
         rows = [{"sample": s, "path": p, "l1": l} for s, v in delivered.items() for p, l in v]
         self.P = pd.DataFrame(rows)
         self.n = len(self.P)
@@ -438,7 +443,7 @@ def test_the_scope_section_explains_and_counts_FORCE():
                                        "children_declared": ["Vascular endothelial",
                                                              "Endocardial"]}},
              "sealed": {}, "removed_labels": {}, "tree_lines": []}
-    h = "".join(scope_section(scope))
+    h = "".join(scope_section(scope, words=_words("snrna")))
     assert "FORCE" in h
     assert "nothing may terminate here" in h, "FORCE must be defined, not just printed"
     assert "what each FORCE reassigns" in h
@@ -453,7 +458,7 @@ def test_no_FORCE_node_says_so_rather_than_rendering_nothing():
              "nodes": {"root": {"verdict": "KEEP", "n_reached": 1, "n_descended": 1,
                                 "support": 1.0, "cells": {}, "cells_below": {}}},
              "sealed": {}, "removed_labels": {}, "tree_lines": []}
-    h = "".join(scope_section(scope))
+    h = "".join(scope_section(scope, words=_words("snrna")))
     assert "No node was forced" in h
 
 

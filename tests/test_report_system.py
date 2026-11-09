@@ -218,7 +218,7 @@ def test_sample_rows():
             self.obsm, self.layers, self.X = {}, {}, None
             self.var_names = self.var.index
 
-    ctx = Context([("S1.filtered", Fake("S1.filtered"))], path_key="scanno_path")
+    ctx = Context(assay="snrna", objects=[("S1.filtered", Fake("S1.filtered"))], path_key="scanno_path")
     r = ctx.sample_rows("S1.filtered")
     check("rows found by OBJECT name", len(r) == 40, f"got {len(r)}")
     check("its QC columns are visible", "total_counts" in r and r["total_counts"].notna().any())

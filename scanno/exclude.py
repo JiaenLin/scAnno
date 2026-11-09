@@ -157,7 +157,7 @@ def exclusion_record_cells(flagged, labels, n_clusters: int | None = None, *,
     n_out = int(flagged.sum())
     if total and n_out == total:
         raise ValueError(
-            "the flag marks every nucleus in the object, so there is nothing left to annotate. "
+            "the flag marks every observation in the object, so there is nothing left to annotate. "
             "scAnno refuses rather than returning an object in which every label is EXCLUDED.")
     emptied = unprofilable(labels, ~flagged, n_clusters)
     return {

@@ -51,6 +51,10 @@ sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from scanno.scope import format_tree, internal_nodes, seal_tree, sealed_labels, vote  # noqa: E402
+from scanno.assay import words as _words  # noqa: E402
+
+# The fixtures here were written for a single-nucleus cohort and assert its wording, so they
+# are declared snrna: the nucleus words they check are what an snrna run still writes.
 
 from test_scope import A, TREE, paths                                        # noqa: E402
 
@@ -83,6 +87,7 @@ def scope_json(paths_by_sample, tree, *, min_support=1.0, min_reach=2, descend_r
 
 def render(scope, **kw):
     from scanno.document import scope_section
+    kw.setdefault("words", _words("snrna"))
     return "".join(scope_section(scope, **kw))
 
 

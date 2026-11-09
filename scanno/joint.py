@@ -184,7 +184,7 @@ def summarise(before, after, samples, sentinels=("EXCLUDED", "UNRESOLVED")):
                 "is_sentinel": L in sentinels})
     return {"per_label": per_label, "per_sample": per_sample,
             "n_changed": int((a != b).sum()),
-            "denominator": "every nucleus of that sample, sentinels included. Correction "
+            "denominator": "every observation of that sample, sentinels included. Correction "
                            "relabels and never adds or removes, so it does not move."}
 
 

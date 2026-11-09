@@ -227,8 +227,8 @@ def continuous_scatter(ax, *, xy, values, cmap="viridis", size=1.6, title=None,
 
 # ------------------------------------------------------------------------------ composition
 
-def stacked_rows(ax, *, rows, order, colours, label_floor, height=0.68,
-                 label_fontsize=8.5, xlabel="% of the row's nuclei"):
+def stacked_rows(ax, *, rows, order, colours, label_floor, xlabel, height=0.68,
+                 label_fontsize=8.5):
     """100%-stacked horizontal bars, one row per group or per sample.
 
     `rows` is [{"name", "n", "pct": {label: pct}}] with the percentages ALREADY summing to 100

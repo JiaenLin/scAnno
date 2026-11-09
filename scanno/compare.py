@@ -397,7 +397,7 @@ def _impact_per_sample(candidates, pa, sam, sentinels):
                 "pct_delta": round(100.0 * (a_ - b) / t, 3),
                 "is_sentinel": lab in sentinels,
             })
-    return {"denominator": "every nucleus of that sample, sentinels included; unchanged by "
+    return {"denominator": "every observation of that sample, sentinels included; unchanged by "
                            "adoption, so a percentage-point delta is comparable across samples",
             "n_samples": len(samples), "rows": rows}
 

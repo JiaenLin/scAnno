@@ -79,6 +79,7 @@ def F100(ctx, sample):
     population disappearing at a finer resolution is a legend entry that stops appearing rather
     than something to infer from a table.
     """
+    W = ctx.words
     xy = ctx.embedding(sample)
     if xy is None:
         raise NotDrawable(f"{sample}: no UMAP in obsm")
@@ -95,7 +96,7 @@ def F100(ctx, sample):
                      denominator=len(lab), legend=True,
                      title=f"res {rv:g}   {n_calls} calls")
     return fig, (f"{sample} — the level-1 annotation across resolutions   "
-                 f"(n = {len(xy):,} nuclei, one embedding, fixed colours)")
+                 f"(n = {len(xy):,} {W.units}, one embedding, fixed colours)")
 
 
 def F101(ctx, sample):
@@ -105,6 +106,7 @@ def F101(ctx, sample):
     partition getting finer with subtypes keeping their parent's hue, so a reader sees which
     level-1 territory each subtype occupies and what the extra level actually bought.
     """
+    W = ctx.words
     xy = ctx.embedding(sample)
     if xy is None:
         raise NotDrawable(f"{sample}: no UMAP in obsm")
@@ -121,7 +123,7 @@ def F101(ctx, sample):
                      legend_fontsize=6.5 if len(order) < 20 else 5.5,
                      title=f"level {d}" + ("  (full path)" if d == D else "")
                            + f"   {len(order)} labels")
-    return fig, (f"{sample} — what each extra level buys   (n = {len(xy):,} nuclei; "
+    return fig, (f"{sample} — what each extra level buys   (n = {len(xy):,} {W.units}; "
                  f"subtypes keep their parent's hue)")
 
 
@@ -163,6 +165,7 @@ def F105(ctx, sample):
     QC as a histogram says how many; QC on the embedding says WHERE, and only the second
     distinguishes a uniformly shallow library from one population that is shallow.
     """
+    W = ctx.words
     xy = ctx.embedding(sample)
     if xy is None:
         raise NotDrawable(f"{sample}: no UMAP in obsm")
@@ -182,7 +185,7 @@ def F105(ctx, sample):
         continuous_scatter(ax, xy=xy, values=np.asarray(rows[c], dtype=float), log=lg,
                            size=1.2, title=f"{n}{' (log10)' if lg else ''}", fig=fig,
                            sort_order=False)
-    return fig, (f"{sample} — QC on the embedding: WHERE the weak nuclei are, not how many")
+    return fig, (f"{sample} — QC on the embedding: WHERE the weak {W.units} are, not how many")
 
 
 # ======================================================================= composition
@@ -198,7 +201,8 @@ def _composition(ctx, depth, by):
     floor = 3.0 if n_cols <= 10 else min(8.0, 3.0 + 0.3 * (n_cols - 10))
     width = min(22.0, 12.0 + 0.35 * max(0, n_cols - 9))
     fig, ax = plt().subplots(figsize=(width, 0.62 * len(rows) + 3.0))
-    stacked_rows(ax, rows=rows, order=order, colours=ctx.colours(depth), label_floor=floor)
+    stacked_rows(ax, rows=rows, order=order, colours=ctx.colours(depth), label_floor=floor,
+                 xlabel=f"% of the row's {ctx.words.units}")
     swatch_legend(fig, order, ctx.colours(depth), ncol=8 if n_cols <= 10 else 6,
                   fontsize=8.5 if n_cols <= 10 else 7.5)
     ax.set_title(
@@ -316,6 +320,7 @@ def F106(ctx, col="forced", by="group", what="the scope annotation"):
     colour across the pair — without that the two are not comparable by eye, which is the only
     reason to draw them together.
     """
+    W = ctx.words
     order = ctx.label_order_for(col)
     if not order:
         raise NotDrawable(f"no forced label column {col!r} on these objects "
@@ -328,14 +333,15 @@ def F106(ctx, col="forced", by="group", what="the scope annotation"):
     width = min(22.0, 12.0 + 0.35 * max(0, n_cols - 9))
     fig, ax = plt().subplots(figsize=(width, 0.62 * len(rows) + 3.0))
     cols = ctx.colours_for(col)
-    stacked_rows(ax, rows=rows, order=order, colours=cols, label_floor=floor)
+    stacked_rows(ax, rows=rows, order=order, colours=cols, label_floor=floor,
+                 xlabel=f"% of the row's {ctx.words.units}")
     swatch_legend(fig, order, cols, ncol=8 if n_cols <= 10 else 6,
                   fontsize=8.5 if n_cols <= 10 else 7.5)
     ax.set_title(
-        (f"FORCED composition of {what}, per {by}. Every walked nucleus is on a leaf: the "
+        (f"FORCED composition of {what}, per {by}. Every walked {W.unit} is on a leaf: the "
          f"UNRESOLVED share has been redistributed onto calls the walk DECLINED to make.\n"
          f"Read it against the unforced figure above — the difference is exactly those "
-         f"nuclei, and their margin was below the gap bar by construction."),
+         f"{W.units}, and their margin was below the gap bar by construction."),
         fontsize=9.5, loc="left")
     return fig, None
 
@@ -391,11 +397,12 @@ def _annotation_name(ctx, depth):
 def _per_animal_figure(ctx, pts, groups, labels, title, tight=True):
     """The shared drawing for F141/F143 and F107. One routine, so a forced figure cannot drift
     from the figure it is meant to be compared against."""
+    W = ctx.words
     per_label = 1.5 if tight else 0.9
     fig, ax = plt().subplots(figsize=(max(per_label * len(labels) + 3.5, 7.0), 4.9))
     points_over_bars(ax, categories=labels, groups=groups, point_values=pts,
                      group_colours=_group_colours(len(groups)),
-                     ylabel="% of the sample's nuclei", ticks=unique_ticks(labels),
+                     ylabel=f"% of the sample's {W.units}", ticks=unique_ticks(labels),
                      tick_rotation=35, tick_fontsize=9 if tight else 8.5,
                      point_size=22 if tight else 20)
     ax.set_title(title, fontsize=9.5, loc="left")
@@ -473,6 +480,7 @@ def F142(ctx, floor=50):
     The dashed line is the pooled cohort median; each panel title carries the median of that
     panel's per-label medians. They are different numbers by construction and both are labelled.
     """
+    W = ctx.words
     nn = ctx.neighbourhood()
     if nn is None:
         raise NotDrawable("no `nn_agreement` column in obs")
@@ -480,7 +488,7 @@ def F142(ctx, floor=50):
     per = [(d, *ctx.neighbourhood_by_label(d, floor)) for d in levels]
     per = [(d, k, v) for d, k, v in per if k]
     if not per:
-        raise NotDrawable(f"no label reaches the {floor}-nucleus floor")
+        raise NotDrawable(f"no label reaches the {floor}-{W.unit} floor")
     med = 100 * float(np.nanmedian(nn))
     widths = [max(len(k), 1) for _, k, _ in per]
     p = plt()
@@ -512,6 +520,7 @@ def F160(ctx):
     Read the last panel: stability is usually flat, and the smallest named population is what
     a finer clustering destroys first.
     """
+    W = ctx.words
     sweep = ctx.resolution_sweep()
     if not sweep:
         raise NotDrawable("no resolution sweep — run `scanno resolution` first")
@@ -519,7 +528,7 @@ def F160(ctx):
     spec = [(f"modal agreement, depth {lo_d}", sweep[lo_d], "modal", "%"),
             (f"modal agreement, depth {hi_d}", sweep[hi_d], "modal", "%"),
             ("complete (resolved to a leaf)", sweep[hi_d], "complete", "%"),
-            ("smallest named population", sweep[hi_d], "smallest", "nuclei")]
+            ("smallest named population", sweep[hi_d], "smallest", f"{W.units}")]
     if lo_d == hi_d:
         spec.pop(1)
     spec = [s for s in spec if any(r.get(s[2]) is not None for r in s[1])]
@@ -729,6 +738,7 @@ def F134(ctx, depth=1):
     Breadth is a statement about a PARTITION: "the best other label" means the best other label
     AT THIS DEPTH, which is why the depth is named in the title rather than left implicit.
     """
+    W = ctx.words
     b = ctx.marker_breadth(depth)
     if not b:
         raise NotDrawable(f"no level-{depth} marker panel to measure breadth over")
@@ -738,7 +748,7 @@ def F134(ctx, depth=1):
     paired_barh(ax, labels=ticks,
                 filled=[100 * r["own"] for r in b],
                 hollow=[100 * r["best_other"] for r in b],
-                xlabel="% of nuclei with at least one count")
+                xlabel=f"% of {W.units} with at least one count")
     ax.set_title(f"Equal bars mean the gene says nothing about identity at level {depth},\n"
                  f"however specific the corpus calls it", fontsize=9, loc="left")
     return fig, None
@@ -757,6 +767,7 @@ def F150(ctx):
     This figure is deliberately NOT stratified by cell type and must never become so — grouping
     the withheld nuclei by population reports the population, not these nuclei.
     """
+    W = ctx.words
     if not ctx.has_flag:
         raise NotDrawable("no flag column — nothing was withheld")
     ss = [s for s in ctx.samples if ctx.embedding(s) is not None]
@@ -767,9 +778,9 @@ def F150(ctx):
         xy, w = ctx.embedding(s), ctx.flag(s)
         umap_scatter(ax, xy=xy, labels=None, colours={}, denominator=len(xy),
                      background_mask=w,
-                     title=f"{s}\n{len(xy):,} nuclei · {int(w.sum()):,} withheld "
+                     title=f"{s}\n{len(xy):,} {W.units} · {int(w.sum()):,} withheld "
                            f"({100 * w.mean():.1f}%)")
-    return fig, ("Withheld nuclei (red) against every other nucleus of the same sample (grey), "
+    return fig, (f"Withheld {W.units} (red) against every other {W.unit} of the same sample (grey), "
                  "in the embedding they helped define")
 
 
@@ -782,9 +793,10 @@ def F151(ctx, top=15):
     same sign in — the only one of the three that separates a cohort signature from one
     library's.
     """
+    W = ctx.words
     sig = ctx.exclusion_signature()
     if not sig:
-        raise NotDrawable("no flag column, or no withheld nuclei to compare")
+        raise NotDrawable(f"no flag column, or no withheld {W.units} to compare")
     show = sig[:top] + sig[-top:][::-1]
     ann = []
     for r in show:
@@ -796,7 +808,7 @@ def F151(ctx, top=15):
     signed_barh(ax, values=[r["d_mean"] for r in show], labels=[r["gene"] for r in show],
                 annotations=ann,
                 xlabel="mean log-normalised expression, withheld − kept")
-    ax.set_title("Elevated in the withheld nuclei (red), depleted (blue)\n"
+    ax.set_title(f"Elevated in the withheld {W.units} (red), depleted (blue)\n"
                  "beside each bar: detection-rate difference, and [samples agreeing]",
                  fontsize=10, loc="left")
     return fig, None
@@ -811,9 +823,10 @@ def F152(ctx, top=12):
     or larger than its kept neighbour across samples is a signature; a row carried by one or two
     columns is that sample's property and must not be described as the withheld nuclei's.
     """
+    W = ctx.words
     out = ctx.signature_per_animal(top)
     if out is None:
-        raise NotDrawable(f"fewer than two samples clear the {MIN_FLAGGED_PER_ANIMAL}-nucleus "
+        raise NotDrawable(f"fewer than two samples clear the {MIN_FLAGGED_PER_ANIMAL}-{W.unit} "
                           f"floor for a per-sample comparison")
     genes, cols, F, M = out
     fig, ax = plt().subplots(figsize=(0.46 * len(cols) + 6.5, 0.34 * len(genes) + 3.4))
@@ -824,7 +837,7 @@ def F152(ctx, top=12):
     fig.scanno_no_tight = True
     n_an = len({a for a, _ in cols})
     ax.set_title(f"Top signature genes, per sample ({n_an} of {len(ctx.samples)} clear the "
-                 f"{MIN_FLAGGED_PER_ANIMAL}-nucleus floor).\nDot size = detection rate, colour "
+                 f"{MIN_FLAGGED_PER_ANIMAL}-{W.unit} floor).\nDot size = detection rate, colour "
                  f"= mean expression scaled per gene. A row carried by one or two columns is "
                  f"that sample's property.", fontsize=9.5, loc="left")
     return fig, None
@@ -838,6 +851,7 @@ def F153(ctx):
     and they cannot say whether it should have: a doublet-rich population and a genuinely
     dirtier one are identical here, which is why F151 and F152 exist.
     """
+    W = ctx.words
     qc = ctx.exclusion_qc()
     if not qc:
         raise NotDrawable("no QC columns in obs, or nothing withheld")
@@ -848,8 +862,8 @@ def F153(ctx):
                        showfliers=False, facecolors=[ACCENT, "#ffffff"], log_y=logy,
                        tick_fontsize=8.5)
         ax.set_title(name, fontsize=10, loc="left")
-    return fig, ("QC features of the withheld nuclei, POOLED — not stratified by cell type, "
-                 "which reports the populations rather than these nuclei")
+    return fig, (f"QC features of the withheld {W.units}, POOLED — not stratified by cell type, "
+                 f"which reports the populations rather than these {W.units}")
 
 
 def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
@@ -863,6 +877,7 @@ def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
     The two panels use different denominators deliberately: the left bar is the unweighted mean
     of per-sample rates, the right is the pooled per-nucleus rate.
     """
+    W = ctx.words
     if not ctx.has_flag:
         raise NotDrawable("no flag column — nothing was withheld")
     per = ctx.flag_per_animal()
@@ -896,7 +911,7 @@ def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
     ax.set_xticks(range(len(arms)))
     ax.set_xticklabels([a or "(ungrouped)" for a in arms], fontsize=9.5)
     ax.set_xlim(-.6, len(arms) - .4)
-    ax.set_ylabel("% of the sample's nuclei withheld", fontsize=9.5)
+    ax.set_ylabel(f"% of the sample's {W.units} withheld", fontsize=9.5)
     ax.set_title("per sample, arm mean behind — the points are the figure", fontsize=10,
                  loc="left")
     for sp in ("top", "right"):
@@ -921,6 +936,7 @@ def F155(ctx, depth=1):
     rate: a bar above it is a population the filter hit harder than average, which makes that
     population's share not interpretable across the design.
     """
+    W = ctx.words
     rows = ctx.flag_identity(depth)
     if not rows:
         raise NotDrawable("no flag column, or no label survives beside it")
@@ -930,7 +946,7 @@ def F155(ctx, depth=1):
         # true and answers nothing; recovering it needs a generation annotated WITHOUT the
         # exclusion, joined on barcode.
         raise NotDrawable(
-            "every withheld nucleus carries only the sentinel label in this object, so what "
+            f"every withheld {W.unit} carries only the sentinel label in this object, so what "
             "they would have been called is not recoverable from it. Annotate a second "
             "generation with --no-exclude and pass it as --joint, or report identity from that "
             "run: inferring it from the populations nearby is not measurement.")
@@ -949,7 +965,7 @@ def F155(ctx, depth=1):
     ax.set_xticklabels(unique_ticks([r["label"] for r in rows]), rotation=30, ha="right",
                        fontsize=9)
     ax.set_ylabel("% of that label withheld", fontsize=9.5)
-    ax.set_title("What the withheld nuclei would have been called.\n"
+    ax.set_title(f"What the withheld {W.units} would have been called.\n"
                  "A bar above the line is a population the filter hit harder than average — "
                  "which makes that population's share not interpretable across the design.",
                  fontsize=9.5, loc="left")
@@ -981,7 +997,7 @@ FIGURES = {
     "F131": (F131, "cohort", "feature plots"),
     "F136": (F136, "cohort", "feature plots, the scope annotation"),
     "F134": (F134, "cohort", "marker breadth"),
-    "F150": (F150, "cohort", "where the withheld nuclei sit"),
+    "F150": (F150, "cohort", "where the withheld {units} sit"),
     "F151": (F151, "cohort", "what they express"),
     "F152": (F152, "cohort", "signature per sample"),
     "F153": (F153, "cohort", "their QC features"),

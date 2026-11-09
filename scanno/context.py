@@ -66,7 +66,7 @@ class Context:
     """Everything the reports need. `objects` is [(name, AnnData), ...] read in backed mode
     where possible; the matrix is opened only if a figure that needs it is requested."""
 
-    def __init__(self, objects, *, label_key="scanno_cell_type", path_key=None,
+    def __init__(self, objects, *, assay, label_key="scanno_cell_type", path_key=None,
                  sample_key="sample", group_key=None, joint=None, panels=None,
                  chosen_resolution=None, resolutions=(), sweep=None, tolerance=None,
                  sweep_pick=None, sweep_reason=None, flag_column=None, declaration=None,
@@ -77,6 +77,11 @@ class Context:
                  rescue_key=None):
         import pandas as pd
 
+        from .assay import canonical, words
+        # REQUIRED, and as the run declared it. Every page names cells or nuclei from it, and a
+        # report built with no assay would have to pick one of the two for the reader.
+        self.assay = canonical(assay)
+        self.words = words(assay)
         self.objects = list(objects)
         self.samples = [n for n, _ in self.objects]
         self.label_key = label_key
@@ -282,6 +287,7 @@ class Context:
         Sentinels sort last: EXCLUDED and UNRESOLVED are not cell types and must not head a
         composition table by size.
         """
+        W = self.words
         vals = self.P[col].astype(str)
         samp = self.P["sample"].astype(str)
         out = []
@@ -291,12 +297,12 @@ class Context:
             if not n or label == "":
                 continue
             out.append({
-                "label": label, "nuclei": n,
+                "label": label, f"{W.units}": n,
                 "share": 100.0 * n / max(self.n, 1),
                 "samples": int(samp[m].nunique()),
                 "depth": 0 if label in SENTINELS
                          else len([x for x in label.split("/") if x])})
-        return sorted(out, key=lambda r: (r["label"] in SENTINELS, -r["nuclei"]))
+        return sorted(out, key=lambda r: (r["label"] in SENTINELS, -r[f"{W.units}"]))
 
     def scope_rows(self):
         """THE SCOPE ANNOTATION — the delivered terminals, each at the depth it stops at.
@@ -619,6 +625,7 @@ class Context:
         return pd.DataFrame(rows)
 
     def reliability_rows(self):
+        W = self.words
         c = self.calls_at_chosen()
         if c is None or not len(c) or not any(
                 c[k].notna().any() for k in ("gap", "support", "survival") if k in c):
@@ -629,7 +636,7 @@ class Context:
             cells = int(c.loc[m, "n_cells"].sum())
             sup = c.loc[m, "support"]
             out.append({
-                "depth": int(d), "calls": int(m.sum()), "nuclei": cells,
+                "depth": int(d), "calls": int(m.sum()), f"{W.units}": cells,
                 "pct": round(100.0 * cells / max(self.n, 1), 1),
                 "median_gap": _r(c.loc[m, "gap"].median(), 2),
                 "median_support": _r(sup.median(), 0),
@@ -673,13 +680,14 @@ class Context:
 
     def manifold_rows(self, n=6):
         """Where the annotation leaves the manifold: the lowest-agreement clusters."""
+        W = self.words
         nn = self.neighbourhood()
         if nn is None:
             return []
         rows = []
         for (obj, path), sub in self.P.groupby(["_obj", "path"], observed=True):
             v = np.asarray(sub["nn_agreement"], dtype=float)
-            rows.append({"cluster": f"{obj}", "label": str(path), "nuclei": int(len(sub)),
+            rows.append({"cluster": f"{obj}", "label": str(path), f"{W.units}": int(len(sub)),
                          "agreement": round(100 * float(np.nanmean(v)), 1)})
         return sorted(rows, key=lambda r: r["agreement"])[:n]
 
@@ -1133,6 +1141,7 @@ class Context:
 
     # ------------------------------------------------------------------ the flagged nuclei
     def flag_per_animal(self):
+        W = self.words
         if not self.has_flag:
             return []
         out = []
@@ -1140,7 +1149,7 @@ class Context:
             m = self.P["sample"] == s
             f = int(self.P.loc[m, "flag"].sum())
             g = str(self.P.loc[m, "group"].iloc[0]) if "group" in self.P else ""
-            out.append({"animal": s, "arm": g, "nuclei": int(m.sum()), "flagged": f,
+            out.append({"animal": s, "arm": g, f"{W.units}": int(m.sum()), "flagged": f,
                         "rate": round(100.0 * f / max(int(m.sum()), 1), 2),
                         "in_comparison": f >= MIN_FLAGGED_PER_ANIMAL})
         return sorted(out, key=lambda r: (r["arm"], r["animal"]))
@@ -1291,14 +1300,15 @@ class Context:
         return genes, cols, F, M
 
     def exclusion_qc(self):
+        W = self.words
         if not self.has_flag:
             return []
         out = []
         for col, name, log in (("doublet_score", "doublet score", False),
                                ("pct_counts_mt", "% mitochondrial", False),
-                               ("total_counts", "UMI per nucleus", True),
-                               ("n_genes", "genes per nucleus", True),
-                               ("n_genes_by_counts", "genes per nucleus", True)):
+                               ("total_counts", f"UMI per {W.unit}", True),
+                               ("n_genes", f"genes per {W.unit}", True),
+                               ("n_genes_by_counts", f"genes per {W.unit}", True)):
             if col not in self.P or any(o[1] == name for o in out):
                 continue
             f = np.asarray(self.P.loc[self.P["flag"], col], dtype=float)

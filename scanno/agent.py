@@ -325,12 +325,19 @@ def cluster_markers(Z, usable, genes, top_n=TOP_N):
     return [[str(x) for x in g[np.argsort(-Z[c][usable])[:top_n]]] for c in range(Z.shape[0])]
 
 
-def make_prompt(markers, tree, evidence=None, ontology=None, species="", tissue="", assay="",
+def make_prompt(markers, tree, evidence=None, ontology=None, species="", tissue="", *, assay,
                 cluster=None, web=False):
-    """Genes, what the corpus knows about them, the taxonomy, the standard names. Not the call."""
+    """Genes, what the corpus knows about them, the taxonomy, the standard names. Not the call.
+
+    `assay` is required and has no default. It defaulted to "", which this function then wrote
+    up as whole cells - an absent assay read as the first one, the shape `sch conform` S13 cannot
+    see because "" is not a literal value. An unknown assay raises here, before any model is asked.
+    """
+    from .assay import words
+    W = words(assay)
     nodes = tree_nodes(tree)
     who = " ".join(x for x in (species, tissue) if x)
-    p = [f"Annotate one single-{'nucleus' if assay in ('sn', 'snrna') else 'cell'} RNA-seq "
+    p = [f"Annotate one {W.name} RNA-seq "
          f"cluster{'' if cluster is None else f' (id {cluster})'}"
          f"{' from ' + who if who else ''}.",
          "",
@@ -414,8 +421,8 @@ def ask_cluster(provider, markers, tree, evidence=None, ontology=None, votes=1, 
             "consensus": float(counts.max() / len(replies)), "raw": replies[i][:2000]}
 
 
-def annotate_agentic(provider, Z, usable, genes, tree, db=None, species="", tissue="",
-                     assay="", top_n=TOP_N, votes=1, corpus_calls=None, log=None,
+def annotate_agentic(provider, Z, usable, genes, tree, db=None, species="", tissue="", *,
+                     assay, top_n=TOP_N, votes=1, corpus_calls=None, log=None,
                      ontology=None):
     """Every cluster, asked. Returns one row per cluster; writes nothing.
 

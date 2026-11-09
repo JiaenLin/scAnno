@@ -327,7 +327,7 @@ check("the cells gained equal the candidates' n_cells",
 check("a sentinel row is marked as one rather than silently mixed in",
       all(isinstance(r["is_sentinel"], bool) for r in ips["rows"]))
 check("the denominator is DECLARED, not left to be inferred",
-      "every nucleus" in ips["denominator"])
+      "every observation" in ips["denominator"])
 
 print("\n15 - a population route B ABSORBED is reported, not only ones it recovered")
 # The mirror of section 12. Reporting only the direction in which the second clustering wins

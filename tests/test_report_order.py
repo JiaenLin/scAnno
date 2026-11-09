@@ -76,7 +76,7 @@ class Fake:
         self.var_names = self.var.index
 
 
-ctx = Context([("S", Fake("S"))], path_key="cell_type", sample_key="sample",
+ctx = Context(assay="snrna", objects=[("S", Fake("S"))], path_key="cell_type", sample_key="sample",
               group_key="group", forced_key="cell_type_forced", l1_key="cell_compartment",
               forced_l1_key="cell_compartment_forced", joint_route_key="my_joint_col",
               rescue_key="my_rescue_col")
@@ -90,7 +90,7 @@ frows = {r["label"]: r["nuclei"] for r in (ctx.forced_scope_rows() or [])}
 check("and the forced rows do NOT contain it",
       "Neural/OnlyInTheJointColumn" not in frows, str(frows))
 check("a context given no joint column simply has none",
-      not Context([("S", Fake("S"))], path_key="cell_type").has_joint_route)
+      not Context(assay="snrna", objects=[("S", Fake("S"))], path_key="cell_type").has_joint_route)
 
 print("\n1b - and the RESCUED column the same way")
 check("it is detected", ctx.has_rescue)
@@ -103,7 +103,7 @@ check("and neither neighbour contains it",
 check("nor does the rescued block carry the joint column's unique label",
       "Neural/OnlyInTheJointColumn" not in rrows, str(rrows))
 check("a context given no rescued column simply has none",
-      not Context([("S", Fake("S"))], path_key="cell_type").has_rescue)
+      not Context(assay="snrna", objects=[("S", Fake("S"))], path_key="cell_type").has_rescue)
 
 print("\n1c - the sweep is found whichever walk named it")
 # `--resolve` renames the whole per-resolution family, and the reader knows the sweep by
@@ -121,9 +121,9 @@ class Swept(Fake):
             self.obs[f"{stem}_r{tag}"] = FORCED if resolved else PATH
 
 
-_honest = Context([("S", Swept("S", resolved=False))], path_key="cell_type",
+_honest = Context(assay="snrna", objects=[("S", Swept("S", resolved=False))], path_key="cell_type",
                   forced_key="cell_type_forced")
-_forced = Context([("S", Swept("S", resolved=True))], path_key="cell_type",
+_forced = Context(assay="snrna", objects=[("S", Swept("S", resolved=True))], path_key="cell_type",
                   forced_key="cell_type_forced")
 check("an honest sweep is found under path_key, as always",
       [c for _r, c, _t in _honest.sweep_keys("S")] == ["cell_type_r1p0", "cell_type_r2p0"],
@@ -132,10 +132,10 @@ check("a FORCED sweep is found under forced_key",
       [c for _r, c, _t in _forced.sweep_keys("S")]
       == ["cell_type_forced_r1p0", "cell_type_forced_r2p0"], str(_forced.sweep_keys("S")))
 check("an object with neither family returns nothing",
-      Context([("S", Fake("S"))], path_key="cell_type",
+      Context(assay="snrna", objects=[("S", Fake("S"))], path_key="cell_type",
               forced_key="cell_type_forced").sweep_keys("S") == [])
 check("and the honest result does not depend on forced_key being set",
-      Context([("S", Swept("S", resolved=False))], path_key="cell_type").sweep_keys("S")
+      Context(assay="snrna", objects=[("S", Swept("S", resolved=False))], path_key="cell_type").sweep_keys("S")
       == _honest.sweep_keys("S"))
 
 print("\n2 - the delivered annotation leads and L1 follows")
@@ -169,7 +169,7 @@ check("the joint block's own label reaches the page",
       "OnlyInTheJointColumn" in html)
 
 print("\n4 - a report with no joint column does not invent the block")
-ctx2 = Context([("S", Fake("S"))], path_key="cell_type", sample_key="sample",
+ctx2 = Context(assay="snrna", objects=[("S", Fake("S"))], path_key="cell_type", sample_key="sample",
                group_key="group", forced_key="cell_type_forced", l1_key="cell_compartment")
 with tempfile.TemporaryDirectory() as td:
     write_cohort(ctx2, Path(td), title="T", version="0")

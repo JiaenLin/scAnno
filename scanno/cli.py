@@ -23,6 +23,12 @@ REFUSE = 2
 STATE_VERSION = 1      # the numbers, versioned: bump when the same inputs would give different labels
 
 from . import status as _ST  # noqa: E402
+from .assay import ASSAYS as _ASSAYS, CHOICES as _ASSAY_CHOICES, HELP as _ASSAY_HELP  # noqa: E402
+from .assay import RULES as _ASSAY_RULES  # noqa: E402
+
+#: Where `annotate` records the context it ran under - species, tissue and assay, as declared -
+#: so a later command reads the assay from the object instead of being told it again.
+CONTEXT_KEY = "scanno_context"
 
 
 def _selftest(_):
@@ -412,6 +418,36 @@ def _rescue(a):
     return 0
 
 
+def _store_assay(path, run_assay):
+    """(why, code) when the store at `path` cannot serve a run of `run_assay`, else (None, "").
+
+    Reads the store's context and nothing else. The value is recorded as declared (`sn` in every
+    store built before scanno/assay.py) and compared canonically, so `sn` serves `snrna`.
+    """
+    import numpy as np
+    from . import assay as AS
+    name = Path(path).name
+    with np.load(path, allow_pickle=True) as d:
+        context = json.loads(str(d["context"])) if "context" in d else {}
+    try:
+        theirs = AS.recorded(context)
+    except ValueError as e:
+        return f"the store {name} records an assay this tool does not know: {e}", "assay_unknown"
+    mine = AS.words(run_assay)
+    if theirs is None:
+        return (f"the store {name} records no assay, so it cannot be checked against this run's "
+                f"({run_assay}, {mine.name}). A gene background is measured on one assay and is "
+                f"not lent to the other"), "assay_unrecorded"
+    if theirs != run_assay:
+        other = AS.words(theirs)
+        return (f"the store {name} was built from {theirs} data ({other.name}, recorded as "
+                f"{context.get('assay')!r}) and this run declares {run_assay} ({mine.name}). A "
+                f"gene background is the per-gene mean and spread of the transcriptome it was "
+                f"measured on, and nuclear and whole-cell transcriptomes differ, so one assay's "
+                f"background is never lent to the other"), "assay_contradicted"
+    return None, ""
+
+
 def _annotate(a):
     """Label the clusters of one object. The main command."""
     import numpy as np
@@ -429,6 +465,25 @@ def _annotate(a):
         return 1
 
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
+
+    # --- the assay, against the store, BEFORE the object is read ---
+    #
+    # A gene background is the per-gene mean and spread of the transcriptome it was measured on.
+    # Nuclear and whole-cell transcriptomes differ, so a store of one assay standardises the
+    # other's clusters against the wrong reference, and every score inherits it in silence. Until
+    # this check `--assay` was stored in a context and never read. Checked first because the
+    # store records its assay in a few bytes, and a refusal after the profiling would be paid
+    # for twice.
+    from . import assay as AS
+    run_assay = AS.canonical(a.assay)
+    W = AS.words(run_assay)
+    if a.store:
+        why, code = _store_assay(a.store, run_assay)
+        if why:
+            _ST.refuse(why, code=code,
+                       fix=f"build a store from this cohort's own {W.units} with `scanno background "
+                           f"--assay {a.assay}`, or pass --background-from-clusters")
+            return REFUSE
 
     # --- the decided scope, applied to the tree BEFORE the object is read ---
     #
@@ -468,7 +523,7 @@ def _annotate(a):
         n_lost = sum(sum(d.values()) for d in (scope.get("removed_labels") or {}).values())
         print(f"scope {a.scope}: voted over {scope.get('n_samples', '?')} sample(s)")
         print(f"  SEAL   {len(sealed_nodes(verdicts))} node(s) become leaves"
-              + (f", removing {n_lost:,} cell(s)' worth of subtype label" if n_lost else "")
+              + (f", taking a subtype label from {n_lost:,} {W.units}" if n_lost else "")
               + (f": {', '.join(sorted(removed))}" if removed
                  else " (already applied to --tree)"))
         print(f"  FORCE  {len(force_paths)} node(s) keep their children and may not be "
@@ -501,6 +556,22 @@ def _annotate(a):
                 print(f"          only in --l1-tree: {', '.join(only_l1)}")
 
     A = ad.read_h5ad(a.h5ad)
+    # An object a previous run annotated says under which assay. Annotating the same cells
+    # under the other one means one of the two declarations is wrong, and the object would carry
+    # labels from both.
+    try:
+        _before = AS.recorded(dict(A.uns.get(CONTEXT_KEY, {}) or {}))
+    except ValueError as e:
+        _ST.refuse(f"{a.h5ad} records an assay this tool does not know in "
+                   f"uns['{CONTEXT_KEY}']: {e}", code="assay_unknown")
+        return REFUSE
+    if _before and _before != run_assay:
+        _ST.refuse(f"{a.h5ad} was annotated before as {_before} (uns['{CONTEXT_KEY}']) and this "
+                   f"run declares {run_assay}. One object is not both",
+                   code="assay_contradicted",
+                   fix=f"annotate the object that earlier run started from, or drop "
+                       f"uns['{CONTEXT_KEY}'] if that declaration was the mistake")
+        return REFUSE
     # ONE key or many. `a.cluster_key` is collapsed to the FIRST here and never read as a list
     # again, so every line below this is the single-resolution run it always was - which is the
     # whole of "adding resolutions changes nothing that was already written".
@@ -580,7 +651,7 @@ def _annotate(a):
     # know what that column is and guessing is the failure mode. See scanno/upstream.py.
     from . import upstream as up
 
-    decision = up.decide(A, explicit=a.exclude_flag, disabled=a.no_exclude)
+    decision = up.decide(A, explicit=a.exclude_flag, disabled=a.no_exclude, words=W)
     if decision.refuse:
         _ST.refuse(f"{decision.refuse}")
         return REFUSE
@@ -596,14 +667,14 @@ def _annotate(a):
         drop = unprofilable(y, ~flag, len(cats))
         excl = exclusion_record_cells(flag, y, len(cats),
                                       reason=f"{decision.source}:{decision.column}")
-        print(f"    withholding {excl['cells_excluded']:,} nuclei "
+        print(f"    withholding {excl['cells_excluded']:,} {W.units} "
               f"({100*excl['fraction_excluded']:.1f}% of the object), 0 passengers - exactly "
               f"the flag and nothing else. They keep their place and are labelled {EXCLUDED}; "
               f"nothing is deleted.")
         print(f"    mask digest {excl['flag_digest']}  "
               f"(fingerprint of the exact set that ran, for the caller's record)")
         if drop.any():
-            print(f"    {int(drop.sum())} cluster(s) had every cell flagged and cannot be "
+            print(f"    {int(drop.sum())} cluster(s) had every {W.unit} flagged and cannot be "
                   f"profiled: {', '.join(cats[i] for i in np.flatnonzero(drop))}")
     else:
         M, D, counts = cluster_profile(X, y, len(cats))
@@ -703,11 +774,11 @@ def _annotate(a):
         open_stop = [t for t in inner if t["assignment"] != BY_FORCE]
         n_open = sum(counts[t["cluster"]] for t in open_stop)
         print(f"  terminating on an internal node: {len(open_stop)} cluster(s) / "
-              f"{n_open:,.0f} cell(s)"
+              f"{n_open:,.0f} {W.units}"
               + (" - none, so every delivered label is a leaf of the scoped tree"
                  if not open_stop else ", each on a node the scope did not force:"))
         for t in sorted(open_stop, key=lambda t: -counts[t["cluster"]]):
-            print(f"      cluster {t['cluster']:>6}  {counts[t['cluster']]:>9,.0f} cell(s)  "
+            print(f"      cluster {t['cluster']:>6}  {counts[t['cluster']]:>9,.0f} {W.units}  "
                   f"{t['node']}   (children kept: {t['children']})")
 
     # THE SECOND WALK. The same `classify`, the same Z, the same usable-gene set, the same
@@ -728,7 +799,7 @@ def _annotate(a):
 
     src_txt = "corpus" if asr else "atlas profiles"
     print("")
-    print(f"{a.cluster_key}: {len(cats)} clusters, {A.shape[0]:,} cells   "
+    print(f"{a.cluster_key}: {len(cats)} clusters, {A.shape[0]:,} {W.units}   "
           f"weights={src_txt}   background={bg}")
     print(f"genes usable {st['genes_usable']:,} / {st['genes_detected']:,} detected   "
           f"OOD coverage {100*st['ood_covered']:.0f}%")
@@ -750,7 +821,7 @@ def _annotate(a):
     unres = sum(counts[r["cluster"]] for r in res if r["path"] == "UNRESOLVED")
     n_un = sum(1 for r in res if r["path"] == "UNRESOLVED")
     print("")
-    print(f"UNRESOLVED {n_un} clusters = {unres:,.0f} cells "
+    print(f"UNRESOLVED {n_un} clusters = {unres:,.0f} {W.units} "
           f"({100*unres/counts.sum():.1f}%)")
 
     if force_rec is not None:
@@ -915,6 +986,11 @@ def _annotate(a):
                          support=support or None, suffix=a.label_suffix,
                          assignment=force_rec is not None,
                          resolved=resolve_rec is not None)
+        # The context this run declared, recorded as declared, so `scanno report` reads the assay
+        # from the object rather than being told it again, and a later run cannot quietly
+        # re-annotate the same cells under the other assay.
+        A.uns[CONTEXT_KEY] = {"species": str(a.species), "tissue": str(a.tissue),
+                              "assay": str(a.assay)}
         # ALWAYS, not only when something was forced. The walk computes what every label beat and
         # by how much, at every step, and it was thrown away - a run could say a cluster is
         # `Neural, gap 0.64` and nothing about what Neural beat, so the reason for a call had to
@@ -929,7 +1005,8 @@ def _annotate(a):
             key = force_provenance(A, force_rec, prefix=a.label_prefix,
                                    suffix=a.label_suffix, scope=str(a.scope))
             print("")
-            print(f"  {a.label_prefix}_assignment{a.label_suffix}: how each cell was assigned - "
+            print(f"  {a.label_prefix}_assignment{a.label_suffix}: how each {W.unit} was "
+                  f"assigned - "
                   f"{force_rec['clusters_by_assignment']} by cluster")
             print(f"  {a.label_prefix}_force_depth{a.label_suffix}: how many forced steps stand "
                   f"behind the label - {force_rec['clusters_by_force_depth'] or '{}'} by cluster")
@@ -980,7 +1057,7 @@ def _annotate(a):
             print("")
             print(f"  {info['key']}: how much of the {len(sweep)}-resolution sweep agrees with "
                   f"{prim}")
-            print(f"    {100*float((agree == 1.0).mean()):.1f}% of cells agree at EVERY "
+            print(f"    {100*float((agree == 1.0).mean()):.1f}% of {W.units} agree at EVERY "
                   f"resolution; median {float(np.median(agree)):.2f}; "
                   f"{100*float((agree <= 0.5).mean()):.1f}% at half the sweep or less")
             # WHICH resolution the sweep itself prefers - REPORTED, never applied.
@@ -1039,7 +1116,7 @@ def _annotate(a):
         doc = rp.collect(
             A, res, cats, y, label_key=label_key, decision=decision, support=support or None,
             store_digest=getattr(store, "digest", ""), tree_path=a.tree, db_path=a.db or "",
-            species=a.species, tissue=a.tissue, cluster_key=a.cluster_key,
+            species=a.species, tissue=a.tissue, assay=a.assay, cluster_key=a.cluster_key,
             sample_key=a.sample_key, condition_key=a.condition_key,
             gap_min=a.gap_min, weights=src_txt, background=bg, stats=st, version=__version__)
         # The panels the classifier actually scored on, and the SAME normalised matrix it read -
@@ -1132,7 +1209,7 @@ def _cluster(a):
 
         for name, piece in pieces:
             if name is not None:
-                print(f"\n{name}: {piece.n_obs:,} nuclei")
+                print(f"\n{name}: {piece.n_obs:,} x {piece.n_vars:,}")
             try:
                 info = cluster(piece, resolutions=res, n_top_genes=a.n_top_genes,
                                n_pcs=a.n_pcs, n_neighbors=a.n_neighbors, seed=a.seed)
@@ -1634,6 +1711,51 @@ def _report(a):
         _ST.refuse("no objects given.")
         return REFUSE
 
+    # THE ASSAY, FROM WHAT THE OBJECTS RECORDED. `annotate` writes it into uns, so the document
+    # says cells or nuclei because the run that made the labels said so, not because this command
+    # was told again. `--assay` is needed only for objects annotated before it was recorded. A
+    # cohort of mixed assays is refused, and so is an `--assay` that contradicts the record: both
+    # are one cohort described as two kinds of thing.
+    from . import assay as AS
+    recs, unknown = {}, []
+    for name, A in objs:
+        try:
+            recs[name] = AS.recorded(dict(A.uns.get(CONTEXT_KEY, {}) or {}))
+        except ValueError as e:
+            unknown.append(f"{name}: {e}")
+    if unknown:
+        _ST.refuse(f"{len(unknown)} object(s) record an assay this tool does not know: "
+                   f"{'; '.join(unknown[:3])}", code="assay_unknown")
+        return REFUSE
+    said = sorted({v for v in recs.values() if v})
+    if len(said) > 1:
+        by = {v: [n for n, r in recs.items() if r == v] for v in said}
+        _ST.refuse("these objects were annotated under different assays - "
+                   + "; ".join(f"{v}: {', '.join(ns[:4])}" for v, ns in by.items())
+                   + ". One document describes one kind of observation", code="assay_mixed",
+                   fix="report each assay's objects separately")
+        return REFUSE
+    given = AS.canonical(a.assay) if a.assay else None
+    if given and said and given != said[0]:
+        _ST.refuse(f"--assay {a.assay} contradicts the objects, which were annotated as "
+                   f"{said[0]}", code="assay_contradicted",
+                   fix="drop --assay; the objects already say which assay they are")
+        return REFUSE
+    assay = given or (said[0] if said else None)
+    if assay is None:
+        _ST.refuse("no object records the assay it was annotated under (they predate "
+                   f"uns['{CONTEXT_KEY}']) and no --assay was given. Pass --assay scrna or "
+                   "--assay snrna: the document names one or the other", code="assay_absent",
+                   fix="pass --assay scrna or --assay snrna")
+        return REFUSE
+    unrec = [n for n, r in recs.items() if r is None]
+    if unrec and said:
+        print(f"  NOTE  {len(unrec)} object(s) record no assay and are reported as {assay}, "
+              f"which the others record: {', '.join(unrec[:4])}")
+    W = AS.words(assay)
+    print(f"  assay {assay} ({W.name}), "
+          + ("as the objects recorded it" if said else "as --assay declared it"))
+
     # --l1-key must name a SECOND walk's answer, not the deep walk's own level-1 prefix. Both
     # refusals below catch a column that cannot possibly be independent; a column that merely
     # AGREES everywhere is not caught, and must not be - perfect agreement is the result this
@@ -1795,18 +1917,18 @@ def _report(a):
         _lost = sum(sum(d.values()) for d in (scope.get("removed_labels") or {}).values())
         print(f"  scope read from {a.scope}: {len(_seals)} sealed node(s) over "
               f"{scope.get('n_samples', '?')} sample(s), "
-              f"{_lost:,} nuclei re-labelled to a parent"
+              f"{_lost:,} {W.units} re-labelled to a parent"
               + (f"  ({', '.join(sorted(_seals)[:4])})" if _seals else ""))
         if not scope.get("tree_lines"):
             print(f"scanno: {a.scope} carries no 'tree_lines'; the drawn scope will be a named "
                   f"absence. Re-run `scanno scope --out` to include it.", file=sys.stderr)
 
-    print(f"{len(objs)} object(s), {sum(A.n_obs for _n, A in objs):,} nuclei")
+    print(f"{len(objs)} object(s), {sum(A.n_obs for _n, A in objs):,} {W.units}")
     if flag:
-        print(f"  withheld nuclei read from obs[{flag!r}]"
+        print(f"  withheld {W.units} read from obs[{flag!r}]"
               + ("  (declared upstream)" if declaration else "  (detected)"))
 
-    ctx = Context(objs, joint_route_key=a.joint_route_key, rescue_key=a.rescue_key,
+    ctx = Context(objs, assay=assay, joint_route_key=a.joint_route_key, rescue_key=a.rescue_key,
                   label_key=a.label_key, path_key=a.path_key,
                   sample_key=a.sample_key, group_key=a.condition_key, joint=joint,
                   panels=panels, chosen_resolution=a.resolution, sweep=sweep, tolerance=tol,
@@ -1857,8 +1979,9 @@ def _report(a):
                       limits=["No label here is established as correct: there is no truth set, "
                               "and this tool reports what the corpus supports, not what is true.",
                               "The embedding is NOT integrated unless a separate step did so.",
-                              "Any nucleus withheld upstream is labelled EXCLUDED and was never "
-                              "annotated; its identity is not recoverable from this output."])
+                              f"Any {W.unit} withheld upstream is labelled EXCLUDED and was "
+                              "never annotated; its identity is not recoverable from this "
+                              "output."])
         print(f"      {out}/README.md   which file to use, and which not to")
     except Exception as e:                                                # noqa: BLE001
         print(f"  README not written: {type(e).__name__}: {e}")
@@ -2036,9 +2159,9 @@ def _store_info(a):
 RETIRED_OPTIONS = {
     "--exclude-mode": (
         "There is one exclusion path now and it is the flag itself. `--exclude-mode cluster` "
-        "widened the flag to whole clusters, which excluded nuclei upstream QC had PASSED "
+        "widened the flag to whole clusters, which excluded observations upstream QC had PASSED "
         "(measured: 783 of 2,680, 29.2%, on the cohort it was written for) and made the "
-        "excluded set depend on your resolution (42 nuclei at 0.25, 4,080 at 2.0 from one "
+        "excluded set depend on your resolution (42 withheld at 0.25, 4,080 at 2.0 from one "
         "unchanged flag). Drop the option: `--exclude-flag COLUMN` alone now does what "
         "`--exclude-mode cell` did."),
     "--exclude-share": (
@@ -2106,9 +2229,9 @@ def main(argv=None):
     s.add_argument("--tissue", required=True)
     # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
     # cohort that forgot the flag was described to the agent and recorded as whole cells - the
-    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
-    s.add_argument("--assay", required=True, choices=["sc", "sn"],
-                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei. The
+    # spellings, and what the assay decides, are scanno/assay.py's.
+    s.add_argument("--assay", required=True, choices=_ASSAY_CHOICES, help=_ASSAY_HELP)
     s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
                    help="var column holding the gene names, defaulting to var['gene_symbol'] "
                         "when present. Must match what `annotate` uses or the background "
@@ -2182,24 +2305,25 @@ def main(argv=None):
     s.add_argument("--tissue", required=True)
     # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
     # cohort that forgot the flag was described to the agent and recorded as whole cells - the
-    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
-    s.add_argument("--assay", required=True, choices=["sc", "sn"],
-                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei. The
+    # spellings, and what the assay decides, are scanno/assay.py's.
+    s.add_argument("--assay", required=True, choices=_ASSAY_CHOICES, help=_ASSAY_HELP)
     s.add_argument("--db", type=Path, help="marker corpus (corpus weight path)")
     s.add_argument("--store", type=Path, help="store.npz from `scanno calibrate`")
     s.add_argument("--background-from-clusters", action="store_true",
                    help="derive the gene background from this object; reported as REVIEW")
     s.add_argument("--exclude-flag", metavar="OBS_COLUMN",
-                   help="obs column of per-NUCLEUS booleans marking what upstream QC flagged. "
-                        "EXACTLY those nuclei are withheld: they contribute to no cluster "
-                        "profile and each is labelled EXCLUDED. Nothing is deleted, nothing "
-                        "unflagged is touched, and the excluded set does not depend on this "
-                        "run's clustering. scAnno does not decide which nuclei are technical "
-                        "and cannot widen this set. Overrides an upstream declaration")
+                   help="obs column of per-OBSERVATION booleans marking what upstream QC "
+                        "flagged. EXACTLY those observations are withheld: they contribute to no "
+                        "cluster profile and each is labelled EXCLUDED. Nothing is deleted, "
+                        "nothing unflagged is touched, and the excluded set does not depend on "
+                        "this run's clustering. scAnno does not decide which observations are "
+                        "technical and cannot widen this set. Overrides an upstream declaration")
     s.add_argument("--no-exclude", action="store_true",
                    help="annotate everything, including what upstream QC flagged. Turns off an "
                         "exclusion this object's own declaration would otherwise arm; the "
-                        "resulting labels include labels for nuclei upstream QC rejected")
+                        "resulting labels include labels for observations upstream QC "
+                        "rejected")
     s.add_argument("--gap-min", type=float, default=None,
                    help="override the descent threshold (0.30 corpus, 0.15 profiles)")
     s.add_argument("--min-tier", type=int, default=4)
@@ -2321,7 +2445,7 @@ def main(argv=None):
                    help="write the PER-SAMPLE composition impact: one row per sample x label "
                         "with the count and the share before and after adopting every "
                         "candidate, and the percentage-point change. The denominator is every "
-                        "nucleus of that sample and adoption does not change it. Needs "
+                        "observation of that sample and adoption does not change it. Needs "
                         "--sample-key and --cluster-key")
     s.add_argument("--out-h5ad", type=Path, metavar="PATH",
                    help="write route A's object with a THIRD label column added: the "
@@ -2387,7 +2511,7 @@ def main(argv=None):
                    help="the FORCED scope column - `scanno annotate --resolve` writes "
                         "`<prefix>_resolved_path<suffix>`. With it the report shows the scope "
                         "annotation twice: as the walk delivered it, and with every walked "
-                        "nucleus pushed to a leaf, plus what moved between them. Absent, the "
+                        "observation pushed to a leaf, plus what moved between them. Absent, the "
                         "forced block is a NAMED absence rather than the unresolved share "
                         "redistributed by the document, which would be this report inventing a "
                         "measurement the walk declined to make")
@@ -2431,7 +2555,8 @@ def main(argv=None):
                         "assigned automatically - descendants keep their ancestor's hue at a "
                         "different lightness, at whatever depth the taxonomy has")
     s.add_argument("--flag-key", default=None, metavar="OBS_COLUMN",
-                   help="the upstream flag naming nuclei withheld before annotation. Read from "
+                   help="the upstream flag naming observations withheld before annotation. "
+                        "Read from "
                         "the scQC declaration when the object carries one")
     s.add_argument("--factor", action="append", default=None, metavar="OBS_COLUMN",
                    help="a design factor, repeatable. Rule one's Q3 is computed per factor. "
@@ -2444,7 +2569,7 @@ def main(argv=None):
     s.add_argument("--scope", type=Path, metavar="JSON",
                    help="`scanno scope --out` result. Adds the common-scope section: the rule "
                         "the scope was voted under, the sealed tree pass 2 walked, the per-node "
-                        "vote, and every label a seal removed with its nuclei count. Without it "
+                        "vote, and every label a seal removed with its count. Without it "
                         "the section is a NAMED ABSENCE, because a reader cannot otherwise tell "
                         "a subtype absent from the tissue from one the scope removed everywhere")
     s.add_argument("--l1-key", default=None, metavar="OBS_COLUMN",
@@ -2474,6 +2599,10 @@ def main(argv=None):
     s.add_argument("--tree", type=Path)
     s.add_argument("--species", default="")
     s.add_argument("--tissue", default="")
+    s.add_argument("--assay", choices=_ASSAY_CHOICES, default=None,
+                   help="only for objects annotated before scAnno recorded the assay in "
+                        f"uns['{CONTEXT_KEY}']: " + _ASSAY_HELP + ". An --assay that "
+                        "contradicts what the objects recorded is refused")
     s.set_defaults(fn=_report)
 
     s = sub.add_parser("embed",
@@ -2578,7 +2707,7 @@ def main(argv=None):
                         "unchanged walk against this gives an L1 column no seal at any depth "
                         "can move — independent by construction, not by convention. Deriving "
                         "L1 as path[:1] instead makes it inherit the deep walk's failures: a "
-                        "nucleus the walk sent to UNRESOLVED has no path to truncate and so no "
+                        "observation the walk sent to UNRESOLVED has no path to truncate and so no "
                         "L1 at all")
     s.set_defaults(fn=_scope)
 
@@ -2612,9 +2741,9 @@ def main(argv=None):
     s.add_argument("--tissue", required=True)
     # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
     # cohort that forgot the flag was described to the agent and recorded as whole cells - the
-    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
-    s.add_argument("--assay", required=True, choices=["sc", "sn"],
-                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei. The
+    # spellings, and what the assay decides, are scanno/assay.py's.
+    s.add_argument("--assay", required=True, choices=_ASSAY_CHOICES, help=_ASSAY_HELP)
     s.add_argument("--min-tier", type=int, default=4)
     s.add_argument("--harmonise", action="store_true",
                    help="intersect gene spaces across datasets, explicitly and reported")
@@ -2647,9 +2776,9 @@ def main(argv=None):
     s.add_argument("--tissue", required=True)
     # NO DEFAULT (single-cell-harness ADR-0027, `sch conform` S13). It was `sc`, so a nucleus
     # cohort that forgot the flag was described to the agent and recorded as whole cells - the
-    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei.
-    s.add_argument("--assay", required=True, choices=["sc", "sn"],
-                   help="sc (whole cells) or sn (nuclei); a fact of the experiment, so no default")
+    # mirror of a defect a second cohort found in scQC, where every cohort became nuclei. The
+    # spellings, and what the assay decides, are scanno/assay.py's.
+    s.add_argument("--assay", required=True, choices=_ASSAY_CHOICES, help=_ASSAY_HELP)
     g = s.add_mutually_exclusive_group()
     g.add_argument("--provider", default="openai", choices=sorted(_http_presets()),
                    help="hosted API; the key comes from the environment and is never stored")
@@ -2710,7 +2839,7 @@ CANNOT_SHOW = [
     "denominator. A forced column has no holes and every forced cell is marked as such.",
     "A resolution sweep reports; it does not vote. The delivered label is the one the declared "
     "resolution produced, and agreement across the sweep is a number beside it, not a decision.",
-    "Composition is over the nuclei the upstream QC kept; a differential filter upstream is a "
+    "Composition is over the observations upstream QC kept; a differential filter upstream is a "
     "differential composition here, and nothing in this tool can undo it.",
     "The marker store is a reference the caller supplied: species, tissue and the corpus behind "
     "it are declarations, and the annotation is only as portable as they are.",
@@ -2737,11 +2866,16 @@ def _describe(a):
          "gates": {"scope": "a scope that cannot be walked against the tree refuses",
                    "scale": "a scaled matrix (negative X) refuses",
                    "ood": "a cluster below the out-of-distribution floor is UNRESOLVED, never guessed",
-                   "exclusion": "an upstream flag the object declares withholds those nuclei as EXCLUDED"},
+                   "exclusion": "an upstream flag the object declares withholds exactly the flagged observations as EXCLUDED",
+                   "assay": "a store, or an object, recorded under the other assay refuses; so does a store that records none"},
          "escapes": [{"flag": "--no-exclude", "lifts": "the upstream exclusion", "recorded": "STATUS.annotate.json escapes[]"},
                      {"flag": "--background-from-clusters", "lifts": "the calibrated store", "recorded": "STATUS.annotate.json escapes[]"},
                      {"flag": "--gap-min", "lifts": "the descent threshold", "recorded": "STATUS.annotate.json escapes[]"}],
          "cannot_show": CANNOT_SHOW,
+         # Which rules depend on the assay and which do not, and where each one's numbers came
+         # from. scanno/assay.py is the only copy; docs/USER_GUIDE.md sets it out for a reader.
+         "assays": {"choices": list(_ASSAY_CHOICES), "canonical": sorted(_ASSAYS)},
+         "assay_rules": _ASSAY_RULES,
          "status_files": ["STATUS.<cmd>.json", "RUNNING.<cmd>.txt", "SEALED.<cmd>.txt", "FAILED.<cmd>.txt"],
          "commands": sorted(k for k in _COMMANDS), "language": "python", "entry": "scanno.cli",
          "needs_env": True}

@@ -42,6 +42,7 @@ except ImportError as e:
 
 from scanno import report as rp  # noqa: E402
 from scanno import upstream as up  # noqa: E402
+from scanno.assay import words as _words  # noqa: E402
 from scanno.emit import annotate_obs  # noqa: E402
 from scanno.exclude import flag_digest  # noqa: E402
 
@@ -81,8 +82,8 @@ def toy(n=90, embedding=True, sample=True, flag=True):
 
 def make(**kw):
     A, y = toy(**kw)
-    dec = up.decide(A)
-    doc = rp.collect(A, calls(), LABELS, y, label_key="scanno_cell_type", decision=dec,
+    dec = up.decide(A, words=_words("snrna"))
+    doc = rp.collect(A, calls(), LABELS, y, label_key="scanno_cell_type", assay="snrna", decision=dec,
                      support={v: 30 + i for i, v in enumerate(LABELS)},
                      cluster_key="cluster", sample_key="sample" if kw.get("sample", True) else None,
                      condition_key="condition" if kw.get("sample", True) else None,
@@ -149,7 +150,8 @@ check("and the composition figure still draws",
 
 print("\n8 - nothing withheld reads as nothing withheld")
 A5, y5 = toy(flag=False)
-doc5 = rp.collect(A5, calls(), LABELS, y5, label_key="scanno_cell_type", decision=None,
+doc5 = rp.collect(A5, calls(), LABELS, y5, label_key="scanno_cell_type", assay="snrna",
+                  decision=None,
                   cluster_key="cluster", species="Mouse", tissue="Heart")
 html5, _ = rp.build(doc5, rp.draw(doc5, A5, "scanno_cell_type"))
 check("exclusion is None", doc5["exclusion"] is None)

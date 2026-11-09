@@ -120,17 +120,17 @@ LEGENDS = {
             "entry that stops appearing.",
     "F101": "The same embedding at each level of the taxonomy. Subtypes keep their parent's "
             "hue at a different lightness, so this reads as the level-1 picture subdivided "
-            "rather than as a different partition of the same nuclei. <b>Read what the extra "
+            "rather than as a different partition of the same {units}. <b>Read what the extra "
             "level bought</b>: a level whose panel looks like the one before it is a level the "
             "evidence did not support splitting.",
     "F104": "The clusters the annotation was made from, beside the labels it produced. A "
             "cluster-level annotator is only as good as its partition; these two pictures "
             "together are what show <b>one label spread over three clusters, or one cluster "
             "split between two labels</b>. Neither picture alone shows it.",
-    "F105": "The per-nucleus QC measurements on this sample's own embedding. A histogram says "
+    "F105": "The per-{unit} QC measurements on this sample's own embedding. A histogram says "
             "how many; this says <b>where</b> — and only the second distinguishes a uniformly "
             "shallow library from one population that is shallow.",
-    "F102": "Level-1 cell-type proportions, as a percentage of each row's nuclei. Bars sum to "
+    "F102": "Level-1 cell-type proportions, as a percentage of each row's {units}. Bars sum to "
             "100%. Group rows are computed per sample and averaged, never pooled before "
             "division — pooling lets the largest library set the group's composition. <b>A "
             "difference between two rows may be biology, annotation behaviour or clustering "
@@ -144,7 +144,7 @@ LEGENDS = {
             "figure: a group mean drawn from a handful of samples spanning a wide range is a "
             "statement about which samples landed in which arm, not about the arm.",
     "F143": "The same one level deeper. The points matter more here than at level 1 — a subtype "
-            "share rests on fewer nuclei, so the between-sample spread within a group is wider "
+            "share rests on fewer {units}, so the between-sample spread within a group is wider "
             "by construction, and <b>a bar difference smaller than that spread is not a group "
             "difference</b>.",
     "F140": "Three reliability signals against the depth of the call. <b>They disagree, which "
@@ -153,11 +153,11 @@ LEGENDS = {
             "shallow one while resting on a handful of assertions. Panel survival adds the "
             "third axis — how much of a node's evidence was left after better-cited siblings "
             "took their share.",
-    "F133": "One point per call, sized by nuclei and coloured by tree depth. Panel survival is "
+    "F133": "One point per call, sized by {units} and coloured by tree depth. Panel survival is "
             "how much of a node's own evidence still carried a claim after the sibling "
             "contrast. <b>Top-left is a confident call won on evidence that had already been "
             "stripped by better-cited neighbours</b>; bottom-right is safe.",
-    "F142": "For each nucleus, the share of its own neighbourhood carrying its label, split by "
+    "F142": "For each {unit}, the share of its own neighbourhood carrying its label, split by "
             "label, one panel per level. <b>A property of this object's graph and not a quality "
             "score</b> — a cell type that genuinely sits between two others scores low without "
             "being wrong. The low boxes are the figure. Whether splitting deeper costs "
@@ -173,7 +173,7 @@ LEGENDS = {
             "decision should be presented on mixing metrics alone; a number can say a "
             "population was mixed, and only the picture distinguishes <i>aligned with its "
             "counterparts</i> from <i>dispersed everywhere</i>.",
-    "F130": "Corpus markers against the level-1 label. Dot size is the fraction of nuclei "
+    "F130": "Corpus markers against the level-1 label. Dot size is the fraction of {units} "
             "expressing the gene, colour the mean among them scaled per gene so columns are "
             "comparable; the largest dot is the largest fraction actually present, so <b>two "
             "dotplots are not comparable to each other by dot size</b>. The bar under each "
@@ -193,7 +193,7 @@ LEGENDS = {
     "F136": "The same question one level deeper: does a subtype's marker land on a sub-region "
             "of its parent's territory, or across all of it? <b>A marker covering its parent's "
             "whole territory is not distinguishing the subtype.</b>",
-    "F134": "For every gene in the dotplot: the fraction of nuclei detecting it within the "
+    "F134": "For every gene in the dotplot: the fraction of {units} detecting it within the "
             "label it was plotted for (filled) against the highest fraction in any other label "
             "(open). <b>A gene whose two bars are the same height carries no information about "
             "identity</b>, however specific the corpus says it is. <b>Nothing is removed on "
@@ -201,7 +201,7 @@ LEGENDS = {
             "both were wrong, one dropping the cleanest marker in a lineage and the other "
             "keeping the offending gene while excluding every canonical one. Breadth is a "
             "property of the data, and only the data has it.",
-    "F150": "Every withheld nucleus on the embedding of the sample it belongs to, over all the "
+    "F150": "Every withheld {unit} on the embedding of the sample it belongs to, over all the "
             "others in grey, in the embedding it helped define rather than one recomputed "
             "without it. <b>Read whether they form a compact island or are dispersed through a "
             "larger population.</b> An island apart from everything is consistent with debris "
@@ -209,30 +209,30 @@ LEGENDS = {
             "population. Neither reading is available from the QC numbers that produced the "
             "flag.",
     "F151": "Genes ranked by the difference in mean log-normalised expression between the "
-            "withheld nuclei and the kept. <b>Effect size, not a p-value, deliberately</b>: at "
+            "withheld {units} and the kept. <b>Effect size, not a p-value, deliberately</b>: at "
             "these group sizes every gene is significant and a p-value would rank genes by "
             "abundance. Beside each bar, the detection-rate difference in percentage points and "
             "in brackets the number of samples in which the difference has the same sign — the "
             "only one of the three that separates a cohort signature from one library's.",
     "F152": "The same genes resolved per sample, over the samples holding enough withheld "
-            "nuclei to compare. <b>This figure exists because a pooled signature can be one "
+            "{units} to compare. <b>This figure exists because a pooled signature can be one "
             "sample's signature.</b> A gene elevated in the sample contributing most of the "
-            "withheld nuclei and nowhere else would still lead the pooled ranking. A row "
+            "withheld {units} and nowhere else would still lead the pooled ranking. A row "
             "carried by one or two columns is that sample's property.",
-    "F153": "The per-nucleus QC measurements, withheld against kept, <b>pooled — not stratified "
-            "by cell type</b>, which reports the populations rather than these nuclei. These "
+    "F153": "The per-{unit} QC measurements, withheld against kept, <b>pooled — not stratified "
+            "by cell type</b>, which reports the populations rather than these {units}. These "
             "are the properties the upstream gate fired on and they cannot say whether it "
             "should have: a doublet-rich population and a genuinely dirtier one are identical "
             "here, which is why the signature figures exist.",
-    "F154": "Left: the percentage of each sample's nuclei withheld, one point per sample, "
+    "F154": "Left: the percentage of each sample's {units} withheld, one point per sample, "
             "grouped by arm with the arm mean behind. Right: the ratio between the highest and "
             "lowest arm rate for each design factor. <b>A filter falling several times harder "
             "on one arm converts a technical property into an apparent biological difference, "
             "and nothing downstream can undo it.</b> The bar is clipped where the ratio is "
             "extreme; the printed number is not. The two panels use different denominators "
             "deliberately — the left bar is the unweighted mean of per-sample rates, the right "
-            "is the pooled per-nucleus rate.",
-    "F155": "What the withheld nuclei would have been called, joined from the labels that "
+            "is the pooled per-{unit} rate.",
+    "F155": "What the withheld {units} would have been called, joined from the labels that "
             "survive beside the flag — <b>identity measured, not inferred</b>. Without it a "
             "reader has to guess whether the exclusion fell on one population, and guessing is "
             "how a population-selective filter goes unnoticed. The dashed line is the cohort "
@@ -342,7 +342,7 @@ class Assembler:
         # drawn over several different columns. Baking the subject into the registry put
         # "composition, forced" over a figure of the JOINT ROUTE's column: the picture and the
         # words beside it named different annotations, and nothing on the page said so.
-        title = FIGURES[fid][2]
+        title = self.ctx.words.fill(FIGURES[fid][2])
         # TWO ADJACENT FIGURES OF ONE KIND MUST NOT SHARE A TITLE. Every composition block draws
         # the same kind by group and again by sample, and both read "composition" - so the pair
         # is indistinguishable in the text, in the figure list and in a reader's memory of it.
@@ -350,7 +350,7 @@ class Assembler:
             title = f"{title}, by {kw['by']}"
         if subject:
             title = f"{title} — {subject}"
-        cap = caption or LEGENDS.get(fid, "")
+        cap = caption or self.ctx.words.fill(LEGENDS.get(fid, ""))
         return (f"<figure><h3>{_esc(fid)} · {_esc(title)}</h3>"
                 f'<img src="{self.rel}/{stem}.png" alt="{_esc(fid)}">'
                 f"<figcaption>{cap}</figcaption></figure>")
@@ -375,7 +375,7 @@ def _write_table(out_dir, name, headers, rows):
 #: rather than a caveat somewhere a reader has to go looking for.
 SCOPE_CANNOT_SHOW = (
     "<b>A seal removes the possibility of a LABEL, never an observation.</b> Nothing was "
-    "filtered, dropped or excluded here. Every nucleus is still annotated, still carries its "
+    "filtered, dropped or excluded here. Every {unit} is still annotated, still carries its "
     "pass-1 path in <code>obs</code>, and is merely called by its parent instead of a subtype — "
     "so the decision is reversible by re-running against the declared tree, and the removed "
     "labels are named individually below rather than described as a category. "
@@ -385,11 +385,11 @@ SCOPE_CANNOT_SHOW = (
     "markers the corpus happens to carry for those siblings. A subtype the tissue does not "
     "contain and a subtype the corpus has no separating markers for produce the same vote, and "
     "nothing in this section separates them. "
-    "<b>The vote counts SAMPLES, not nuclei.</b> A node can therefore be kept unanimously while "
-    "a large share of one sample's nuclei still stop at it; the <i>stopped here</i> column is "
+    "<b>The vote counts SAMPLES, not {units}.</b> A node can therefore be kept unanimously while "
+    "a large share of one sample's {units} still stop at it; the <i>stopped here</i> column is "
     "where that shows, and a seal does not repair it. "
-    "<b>A FORCE is not a seal and removes nothing.</b> It reassigns nuclei that stopped on an "
-    "open node to the child they already scored highest, so it changes which label those nuclei "
+    "<b>A FORCE is not a seal and removes nothing.</b> It reassigns {units} that stopped on an "
+    "open node to the child they already scored highest, so it changes which label those {units} "
     "carry and never which labels exist. The cells it moves are the ones whose evidence was "
     "thinnest, so they are the least certain calls in the deliverable, not the most. "
     "<b>And it says nothing about whether any label is correct</b> — agreement between samples "
@@ -399,17 +399,17 @@ SCOPE_CANNOT_SHOW = (
 #: because the report must state the rule it was actually run under, and a reader of the HTML has
 #: no access to the command line.
 _DESCEND_WORDS = {
-    "any": ("a sample counts as having descended if <b>any</b> of its nuclei went below the "
+    "any": ("a sample counts as having descended if <b>any</b> of its {units} went below the "
             "node — one cluster descending is enough to count that sample as having made the "
             "split"),
-    "majority": ("a sample counts as having descended only if <b>more than half</b> the nuclei "
+    "majority": ("a sample counts as having descended only if <b>more than half</b> the {units} "
                  "arriving at the node went below it, so a single stray cluster does not carry "
                  "the sample"),
 }
 
 _VERDICT_WORDS = {
     "SEAL": "the node becomes a LEAF; its ENTIRE child set is removed from the tree",
-    "FORCE": "the split STAYS, but nothing may terminate here — each nucleus left on the node "
+    "FORCE": "the split STAYS, but nothing may terminate here — each {unit} left on the node "
              "is pushed to its most similar child",
     "UNVOTABLE": "too few samples reached it to vote — reported, NOT sealed",
     "KEEP": "the split stays; every sample that reached it agreed to make it",
@@ -462,7 +462,7 @@ def _scope_support(v):
     return f"{sup:.3f}"
 
 
-def scope_section(scope, out_dir=None):
+def scope_section(scope, out_dir=None, *, words):
     """The common scope, as the block of HTML the cohort document carries.
 
     Fed ENTIRELY by `scanno scope --out` (scope.json). Nothing here is recomputed from the
@@ -474,6 +474,7 @@ def scope_section(scope, out_dir=None):
     as a NAMED ABSENCE, because a section that simply does not appear is indistinguishable from
     one whose answer was "nothing was sealed", and those are opposite statements.
     """
+    W = words
     body = ["<h2>The common scope</h2>"]
     if not scope:
         body.append(_absent_section(
@@ -517,15 +518,15 @@ def scope_section(scope, out_dir=None):
         ("nodes sealed", f"{len(seals)}",
          f"of {len(nodes)} internal node(s) voted on"),
         ("labels removed", f"{len(lost_labels)}",
-         "the possibility of a label, never a nucleus"),
-        ("nuclei re-labelled to a parent", f"{n_lost:,}",
+         f"the possibility of a label, never a {W.unit}"),
+        (f"{W.units} re-labelled to a parent", f"{n_lost:,}",
          "still annotated, still on disk, called one level higher"),
         ("nodes forced", f"{len(forced)}",
          "split kept, but nothing may terminate there"),
-        ("nuclei a FORCE reassigns", f"{n_forced:,}",
+        (f"{W.units} a FORCE reassigns", f"{n_forced:,}",
          "pushed to their most similar child; nothing removed"),
     ]))
-    body.append(f"<div class='warn'>{SCOPE_CANNOT_SHOW}</div>")
+    body.append(f"<div class='warn'>{W.fill(SCOPE_CANNOT_SHOW)}</div>")
 
     # ---- the rule, in words ---------------------------------------------------------------
     ms, mr = rule.get("min_support"), rule.get("min_reach")
@@ -543,7 +544,8 @@ def scope_section(scope, out_dir=None):
                "the <i>stopped here</i> column for how much got through.") + "</li>")
     if dr:
         words.append(f"<li><b>descend-rule <code>{_esc(dr)}</code></b> — "
-                     + _DESCEND_WORDS.get(dr, "an unrecognised rule; see `scanno scope --help`")
+                     + W.fill(_DESCEND_WORDS.get(dr, "an unrecognised rule; see "
+                                                     "`scanno scope --help`"))
                      + ".</li>")
     if mr is not None:
         words.append(
@@ -560,15 +562,15 @@ def scope_section(scope, out_dir=None):
         "you are reading.</li>")
     words.append(
         "<li><b>An open node may not be a terminal label.</b> A node that keeps its children is "
-        "a branch, not a call — a nucleus left sitting on it would carry the name of a "
+        f"a branch, not a call — a {W.unit} left sitting on it would carry the name of a "
         "<i>compartment</i>, which is the same string the independent L1 column uses for every "
-        "nucleus beneath it, so the two delivered columns would disagree about what that word "
-        "means. Such a node is marked <b>FORCE</b>: the split stands, and each stranded nucleus "
+        f"{W.unit} beneath it, so the two delivered columns would disagree about what that word "
+        f"means. Such a node is marked <b>FORCE</b>: the split stands, and each stranded {W.unit} "
         "is pushed to the child it already scored highest. This is <b>not</b> a seal — nothing "
         "is removed — and <b>not</b> a truncation, because nothing terminates there.</li>")
     words.append(
         "<li><b>The root is never sealed.</b> Its children are the level-1 compartments; "
-        "removing them would return every nucleus as UNRESOLVED. Its evidence is still voted and "
+        f"removing them would return every {W.unit} as UNRESOLVED. Its evidence is still voted and "
         "still shown, because root-level truncation is real — but it is not actionable as a "
         "seal.</li>")
     if rule.get("path_key"):
@@ -596,22 +598,22 @@ def scope_section(scope, out_dir=None):
             if v.get("verdict") != "SEAL" and n:
                 stranded += n
                 stranded_nodes += 1
-        cap = ["<p class='sub'>Counts are nuclei landing at each node of the SEALED tree; "
+        cap = [f"<p class='sub'>Counts are {W.units} landing at each node of the SEALED tree; "
                "<code>n/N</code> is how many samples have any. A node marked "
-               "<code>&lt;- stranded</code> is an <b>open</b> node holding nuclei of its own — a "
+               f"<code>&lt;- stranded</code> is an <b>open</b> node holding {W.units} of its own — a "
                "sample whose gap failed there where the other samples' cleared. Those are real "
                "values in the label column, so the scope has more terminal labels than it has "
                "leaves. Source: <code>tree_lines</code> in the scope JSON.</p>"]
         if stranded:
             cap.append(
                 f"<p class='sub'><b>Cross-check, computed from the vote rather than the "
-                f"drawing:</b> {stranded:,} nuclei are stranded at {stranded_nodes} open "
+                f"drawing:</b> {stranded:,} {W.units} are stranded at {stranded_nodes} open "
                 f"internal node(s). If the tree above carries no <code>stranded</code> marking, "
                 f"this scope JSON was written before that was drawn and <b>the picture is short "
-                f"by those {stranded:,} nuclei</b> — regenerate it with `scanno scope --out`.</p>")
+                f"by those {stranded:,} {W.units}</b> — regenerate it with `scanno scope --out`.</p>")
         if root_stopped:
             cap.append(
-                f"<p class='sub'>A further <b>{root_stopped:,}</b> nuclei truncated at the "
+                f"<p class='sub'>A further <b>{root_stopped:,}</b> {W.units} truncated at the "
                 f"<b>root</b> and are UNRESOLVED. They appear in no branch of this drawing, and "
                 f"no seal can repair them: the root is never sealed.</p>")
         body.append("".join(cap))
@@ -643,31 +645,31 @@ def scope_section(scope, out_dir=None):
                          ";".join(v.get("children_declared") or [])])
     src = (_write_table(out_dir, "scope_nodes.csv",
                         ["node", "verdict", "n_reached", "n_samples", "n_descended", "support",
-                         "nuclei_stopped_here_pass1", "samples_with_any_stopped",
-                         "nuclei_forced_to_a_child", "samples_with_any_forced",
+                         f"{W.units}_stopped_here_pass1", "samples_with_any_stopped",
+                         f"{W.units}_forced_to_a_child", "samples_with_any_forced",
                          "children_declared"], csv_rows)
            if out_dir is not None else "the scope JSON, key `nodes`")
     body.append("<h3>the vote, node by node</h3>")
     body.append(_table(["node", "verdict", "reached", "descended", "support",
                         "stopped here (pass 1)", "forced to a child"], rows, source=src))
     body.append("<p class='sub'>"
-                + " · ".join(f"<b>{k}</b> {v}" for k, v in _VERDICT_WORDS.items())
-                + ". <i>stopped here</i> counts nuclei that arrived at the node in <b>pass 1</b> "
+                + " · ".join(f"<b>{k}</b> {W.fill(v)}" for k, v in _VERDICT_WORDS.items())
+                + f". <i>stopped here</i> counts {W.units} that arrived at the node in <b>pass 1</b> "
                 "and did not go below it, summed over samples — at a SEALED node every arriving "
-                "nucleus stops there in pass 2 by construction, so that column describes what "
+                f"{W.unit} stops there in pass 2 by construction, so that column describes what "
                 "the vote SAW, not what pass 2 produces. <i>forced to a child</i> is the same "
                 "residual at a node that stayed OPEN, which is the one case where pass 2 moves "
-                "a nucleus rather than truncating it.</p>")
+                f"a {W.unit} rather than truncating it.</p>")
 
     # ---- what each FORCE reassigns ------------------------------------------------------------
     # Its own subsection rather than a column note, because a FORCE and a SEAL are opposite
     # operations that both read as "the vote did something here", and a reader who conflates them
     # concludes that a label was removed when a label was in fact re-assigned.
-    body.append("<h3>what each FORCE reassigns — nuclei moved, never labels removed</h3>")
+    body.append(f"<h3>what each FORCE reassigns — {W.units} moved, never labels removed</h3>")
     if not forced:
         body.append(
             "<p class='sub'>No node was forced: every node that kept its children had every "
-            "arriving nucleus descend below it, so no nucleus was left carrying a compartment "
+            f"arriving {W.unit} descend below it, so no {W.unit} was left carrying a compartment "
             "name as its final label and pass 2 moved nothing.</p>")
     else:
         frows, fcsv = [], []
@@ -686,13 +688,13 @@ def scope_section(scope, out_dir=None):
             fcsv.append([node, fn, fs, ";".join(f"{s}={int(c)}" for s, c in worst),
                          ";".join(v.get("children_declared") or [])])
         fsrc = (_write_table(out_dir, "scope_forced_nodes.csv",
-                             ["node", "nuclei_forced", "n_samples_with_any",
+                             ["node", f"{W.units}_forced", "n_samples_with_any",
                               "per_sample", "children_declared"], fcsv)
                 if out_dir is not None else "the scope JSON, key `nodes`, sub-key `stranded`")
-        body.append(_table(["forced node", "nuclei reassigned", "samples", "which samples",
+        body.append(_table(["forced node", f"{W.units} reassigned", "samples", "which samples",
                             "candidate children"], frows, source=fsrc))
         body.append(
-            f"<p class='sub'>Each of those {n_forced:,} nuclei is assigned the child it already "
+            f"<p class='sub'>Each of those {n_forced:,} {W.units} is assigned the child it already "
             f"scored highest at that node, so the reassignment needs no new scoring and no change "
             f"to the walk — it reads the choice the walk had already made and declined to act on "
             f"because the margin was thin. <b>The margin is why these are the least certain calls "
@@ -727,12 +729,12 @@ def scope_section(scope, out_dir=None):
                 lrows.append([f"<span class='mono'>{_esc(node)}</span>", "—",
                               "<i>nothing — no sample descended</i>", "0"])
         lsrc = (_write_table(out_dir, "scope_removed_labels.csv",
-                             ["sealed_node", "removed_path", "label", "nuclei"], lcsv)
+                             ["sealed_node", "removed_path", "label", f"{W.units}"], lcsv)
                 if out_dir is not None else "the scope JSON, keys `removed_labels` and `sealed`")
-        body.append(_table(["sealed node", "removed path", "label", "nuclei in pass 1"],
+        body.append(_table(["sealed node", "removed path", "label", f"{W.units} in pass 1"],
                            lrows, source=lsrc))
         body.append(
-            f"<p class='sub'>Those {n_lost:,} nuclei are <b>not gone</b>: in pass 2 each is "
+            f"<p class='sub'>Those {n_lost:,} {W.units} are <b>not gone</b>: in pass 2 each is "
             f"called by the sealed node itself. A removal is stated as its members and read, "
             f"never described as a category — \"the subtypes under that node\" is not "
             f"assessable, and a list naming each label with its count is. Rows at 0 are children "
@@ -755,22 +757,22 @@ TAXONOMY_CANNOT_SHOW = (
     "rather than one being silently preferred. "
     "<b>It cannot tell you why a branch stopped, only which of the reasons applies.</b> "
     "<i>leaf</i> points at the declared tree, <i>sealed</i> at the cohort vote, <i>stranded</i> "
-    "at one nucleus's own gap, and the remedy differs completely: extend the taxonomy, re-run "
+    "at one {unit}'s own gap, and the remedy differs completely: extend the taxonomy, re-run "
     "against the declared tree, or improve the evidence. A reader who reads them all as \"this "
     "is as deep as the biology goes\" is wrong in three different ways. "
-    "<b>Counts are nuclei, not cells and not animals.</b> A label carried by one sample and one "
-    "spread across the cohort read identically in the nuclei column; the <i>samples</i> column is "
+    "<b>Counts are {counted}.</b> A label carried by one sample and one "
+    "spread across the cohort read identically in the {units} column; the <i>samples</i> column is "
     "the only place that shows, and a label in few samples cannot support a compositional claim "
-    "however many nuclei it has.")
+    "however many {units} it has.")
 
 #: How each terminal reason is phrased on the page, and what a reader should do about it.
 _WHY_WORDS = {
     "leaf": "the declared taxonomy has nothing below this — the call is complete",
     "sealed": "the cohort removed this node's children; the subtype is recoverable by re-running "
               "against the declared tree",
-    "stranded": "the node stayed OPEN and this nucleus's gap failed anyway — thin evidence, not "
+    "stranded": "the node stayed OPEN and this {unit}'s gap failed anyway — thin evidence, not "
                 "a removal",
-    "unvotable": "too few samples reached it to vote, so it was never sealed; this nucleus "
+    "unvotable": "too few samples reached it to vote, so it was never sealed; this {unit} "
                  "stopped on its own gap",
     "sentinel": "not a cell type — withheld upstream, or never resolved",
 }
@@ -811,6 +813,7 @@ def taxonomy_section(ctx, out_dir=None):
     Returns a list of HTML chunks; never empty. Without the independent column the section is a
     NAMED ABSENCE, because a silently missing section reads as a cohort that had no L1.
     """
+    W = ctx.words
     body = ["<h2>The delivered annotation — the cell-type tree, with L1 integrated</h2>"]
     if not getattr(ctx, "has_l1", False):
         body.append(_absent_section(
@@ -837,7 +840,7 @@ def taxonomy_section(ctx, out_dir=None):
                      if r["n_here"] and r["path"] not in sent)
 
     body.append(
-        "<p class='lede'>Two columns were delivered for every nucleus: an <b>independent</b> "
+        f"<p class='lede'>Two columns were delivered for every {W.unit}: an <b>independent</b> "
         "level-1 compartment, walked against a depth-1 tree of its own, and the <b>scope-based</b> "
         "label from the deep walk. They are shown together here because they answer different "
         "halves of one question — <i>what is this cell</i>, and <i>how far down did the cohort "
@@ -852,18 +855,23 @@ def taxonomy_section(ctx, out_dir=None):
             "read from the labels, never assumed")]
     if con:
         kpi.append(("the two columns agree", f"{con['pct']:.2f}%",
-                    f"on {con['n_scored']:,} nuclei · "
+                    f"on {con['n_scored']:,} {W.units} · "
                     + (f"<b>{con['n_disagree']:,}</b> disagree"
                        if con["n_disagree"] else "none disagree")))
     body.append(_kpi(kpi))
-    body.append(f"<div class='warn'>{TAXONOMY_CANNOT_SHOW}</div>")
+    # What a count IS differs by assay: a nucleus count is not a cell count either (a cell can
+    # hold more than one nucleus), and neither is a count of animals.
+    counted = (f"{W.units}, not cells and not animals" if W.assay == "snrna"
+               else f"{W.units}, not animals")
+    body.append(f"<div class='warn'>{W.fill(TAXONOMY_CANNOT_SHOW).replace('{counted}', counted)}"
+                f"</div>")
 
     # ---- do the two delivered columns agree? -------------------------------------------------
     body.append("<h3>do the two delivered columns agree about the compartment?</h3>")
     if con and not con["n_disagree"]:
         body.append(
             f"<p class='sub'>The independent walk and the deep walk's own root return the "
-            f"<b>same compartment for all {con['n_scored']:,} nuclei</b> scored. That is what an "
+            f"<b>same compartment for all {con['n_scored']:,} {W.units}</b> scored. That is what an "
             f"unchanged root decision predicts, and it is <b>measured here rather than assumed</b> "
             f"— the two columns are separate walks and nothing in the pipeline constrains them to "
             f"match. Because they do, every band below contains exactly one lineage and the "
@@ -874,19 +882,19 @@ def taxonomy_section(ctx, out_dir=None):
                   f"{n:,}", f"{100.0 * n / max(con['n_scored'], 1):.3f}%"]
                  for (a, b), n in con["pairs"].items()]
         dsrc = (_write_table(out_dir, "l1_concordance.csv",
-                             ["deep_walk_root", "independent_l1", "nuclei", "pct_of_scored"],
+                             ["deep_walk_root", "independent_l1", f"{W.units}", "pct_of_scored"],
                              [[a, b, n, round(100.0 * n / max(con["n_scored"], 1), 4)]
                               for (a, b), n in con["pairs"].items()])
                 if out_dir is not None else "the two label columns in obs")
         body.append(
             f"<p class='sub'>The two columns disagree about the compartment for "
-            f"<b>{con['n_disagree']:,}</b> of {con['n_scored']:,} nuclei "
+            f"<b>{con['n_disagree']:,}</b> of {con['n_scored']:,} {W.units} "
             f"({100.0 - con['pct']:.3f}%). <b>Neither is corrected to match the other.</b> Those "
-            f"nuclei appear in the band their INDEPENDENT column names, carrying the full "
+            f"{W.units} appear in the band their INDEPENDENT column names, carrying the full "
             f"scope-based path they were actually given — so a row whose path does not begin with "
             f"its band's name is one of these, and is visible in the tree below without needing "
             f"this table.</p>")
-        body.append(_table(["deep walk's root", "independent L1", "nuclei", "share of scored"],
+        body.append(_table(["deep walk's root", "independent L1", f"{W.units}", "share of scored"],
                            drows, source=dsrc))
 
     # ---- the tree ----------------------------------------------------------------------------
@@ -936,12 +944,12 @@ def taxonomy_section(ctx, out_dir=None):
                              r["samples"] if term else "", why or "branch"])
 
     src = (_write_table(out_dir, "delivered_tree_with_l1.csv",
-                        ["independent_l1", "scope_path", "label", "depth", "nuclei_terminal",
-                         "nuclei_at_or_below", "pct_of_cohort", "samples", "stops_because"],
+                        ["independent_l1", "scope_path", "label", "depth", f"{W.units}_terminal",
+                         f"{W.units}_at_or_below", "pct_of_cohort", "samples", "stops_because"],
                         csv_rows)
            if out_dir is not None else "the two label columns in obs")
     head = "".join(f"<th>{_esc(x)}</th>" for x in
-                   ["compartment / cell type", "stops here because", "nuclei here",
+                   ["compartment / cell type", "stops here because", f"{W.units} here",
                     "at or below", "share", "samples"])
     body.append(f"<div class='scroll'><table><tr>{head}</tr>"
                 + "".join("".join(r) for r in rows)
@@ -950,26 +958,28 @@ def taxonomy_section(ctx, out_dir=None):
     body.append(
         "<p class='sub'><b>Bold rows are compartments</b> — the independent L1 column. Indented "
         "rows beneath them are the scope-based taxonomy, one level of indent per level of path. "
-        "<b><i>nuclei here</i> is the terminal count</b>: nuclei whose delivered label is exactly "
+        f"<b><i>{W.units} here</i> is the terminal count</b>: {W.units} whose delivered label is exactly "
         "that path and goes no deeper. <b><i>at or below</i> is the subtotal</b> including every "
         "descendant, so the two are equal only at a row with no children. A greyed row is a "
         "branch nothing terminates at — it carries no label of its own and exists to show the "
-        "lineage's shape. Rows shown as a full monospaced path are nuclei whose independent "
+        f"lineage's shape. Rows shown as a full monospaced path are {W.units} whose independent "
         "compartment differs from the path they were given; where the concordance above is total, "
         "there are none.</p>")
     body.append("<p class='sub'>"
-                + " · ".join(f"<b>{k}</b> {v}" for k, v in _WHY_WORDS.items()) + ".</p>")
+                + " · ".join(f"<b>{k}</b> {W.fill(v)}" for k, v in _WHY_WORDS.items())
+                + ".</p>")
     return body
 
 
 # =============================================================== the cohort document
 
 def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=None):
+    W = ctx.words
     out = Path(out_dir)
     A = Assembler(ctx, out, rel="../figures/cohort", subdir="cohort")
     now = datetime.now(timezone.utc).astimezone()
     body = [f"<h1>{_esc(title)} — the cohort</h1>",
-            f"<p class='sub'>{ctx.n:,} nuclei · {len(ctx.samples)} samples · "
+            f"<p class='sub'>{ctx.n:,} {W.units} · {len(ctx.samples)} samples · "
             f"taxonomy depth {ctx.depth}"
             + (f" · resolution {_esc(ctx.chosen_resolution)}" if ctx.chosen_resolution else "")
             + (f" · scAnno {_esc(version)}" if version else "")
@@ -978,7 +988,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # ---- the front strip -------------------------------------------------------------
     l1 = [l for l in ctx.label_order(1) if l not in ("UNRESOLVED", "EXCLUDED")]
     unres = ctx.count("UNRESOLVED", 1)
-    kpi = [("nuclei annotated", f"{ctx.n:,}",
+    kpi = [(f"{W.units} annotated", f"{ctx.n:,}",
             f"{100 * (1 - unres / max(ctx.n, 1)):.1f}% placed"),
            ("level-1 labels", f"{len(l1)}",
             f"{ctx.depth} level(s) deep · {len(ctx.label_order(ctx.depth))} at the deepest"),
@@ -995,12 +1005,12 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         kpi.append(("agreement, two routes", f"{ja['pct']:.1f}%",
                     "level 1" + (f" · <b>{d2['pct']:.1f}%</b> at level {min(2, ctx.depth)}"
                                  if d2 else "")
-                    + f"<br>over the {ja['n_scored']:,} nuclei both routes annotated"))
+                    + f"<br>over the {ja['n_scored']:,} {W.units} both routes annotated"))
     nn = ctx.neighbourhood()
     if nn is not None:
         import numpy as np
         kpi.append(("neighbourhood agreement", f"{100 * float(np.nanmean(nn)):.1f}%",
-                    "mean of the per-nucleus share"))
+                    f"mean of the per-{W.unit} share"))
     if ctx.has_flag:
         nf = int(ctx.P["flag"].sum())
         kpi.append(("withheld upstream", f"{nf:,}",
@@ -1014,7 +1024,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
     # which labels exist to be counted at all - a reader who meets the composition table first
     # has no way to tell a subtype that is absent from this tissue from one the scope removed
     # everywhere.
-    body += scope_section(getattr(ctx, "scope", None), out_dir=out)
+    body += scope_section(getattr(ctx, "scope", None), out_dir=out, words=ctx.words)
 
     # ---- the delivered tree, with L1 integrated ------------------------------------------
     # AFTER the scope and BEFORE composition. The scope says what the labels below were allowed
@@ -1034,7 +1044,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                 "call: the <b>L1 annotation</b> is an independent depth-1 walk over the complete declared "
                 "compartment set against the full corpus, and the <b>scope annotation</b> is the "
                 "same unchanged walk against the labels the cohort's own vote left standing. They "
-                "describe the same nuclei — so they <i>can</i> disagree, and a disagreement is a finding rather "
+                f"describe the same {W.units} — so they <i>can</i> disagree, and a disagreement is a finding rather "
                 "than an error. There is no level-2 or level-3 annotation: nothing was annotated "
                 "at those depths, and a share quoted at a depth no walk terminated on is a number "
                 "with no call behind it.</p>")
@@ -1074,12 +1084,12 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
              "the labels the cohort's own vote left available, each at the depth it terminates "
              "at - so the set is mixed across levels by construction", ctx.path_key),
             ("the scope annotation, FORCED", ctx_fsc,
-             "the same walk with nothing left UNRESOLVED: each such nucleus descends from where "
+             f"the same walk with nothing left UNRESOLVED: each such {W.unit} descends from where "
              "it stopped to a leaf, by the argmax already recorded at every step",
              ctx.forced_key),
             ("the JOINT ROUTE", ctx_jr,
              "the forced annotation with a second, JOINT clustering's corrections applied - a "
-             "third reading of the same nuclei and not a better one, because the joint "
+             f"third reading of the same {W.units} and not a better one, because the joint "
              "partition is the coarser of the two and absorbs populations as well as "
              "recovering them", ctx.joint_route_key),
             ("the RESCUED annotation", ctx_rs,
@@ -1094,7 +1104,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
              "can move it. Shown after the delivered annotation because it is a CHECK on it, "
              "not a coarser view of it", ctx.l1_key),
             ("the L1 annotation, FORCED", ctx_fl1,
-             "the same independent walk with every UNRESOLVED nucleus pushed onto the root's "
+             f"the same independent walk with every UNRESOLVED {W.unit} pushed onto the root's "
              "argmax - a child the walk already scored and then declined, because the margin "
              "was below the bar", ctx.forced_l1_key)):
         if _rows is None and _title == "the JOINT ROUTE":
@@ -1108,7 +1118,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                 "`--forced-key` / `--forced-l1-key`)",
                 "Without it this document cannot show what the annotation looks like with "
                 "nothing left UNRESOLVED. It is NOT substituted by redistributing the "
-                "unresolved share here: which leaf each nucleus would take is a measurement "
+                f"unresolved share here: which leaf each {W.unit} would take is a measurement "
                 "the walk makes, not an assumption this document may make for it."))
             continue
         if _rows is None:
@@ -1121,14 +1131,14 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                 "agreement would mean nothing."))
             continue
         body.append(f"<p class='lede'>{_what}.</p>")
-        _csv = [[r["label"], r["depth"], r["nuclei"], round(r["share"], 3), r["samples"]]
+        _csv = [[r["label"], r["depth"], r[f"{W.units}"], round(r["share"], 3), r["samples"]]
                 for r in _rows]
         _stem = ("l1" if "L1" in _title else "scope") + ("_forced" if "FORCED" in _title else "")
         _src = _write_table(out, f"annotation_{_stem}.csv",
-                            ["label", "depth", "nuclei", "share_pct", "samples"], _csv)
+                            ["label", "depth", f"{W.units}", "share_pct", "samples"], _csv)
         body.append(_table(
-            ["label", "depth", "nuclei", "share", "samples"],
-            [[_esc(r["label"]), f"L{r['depth']}" if r["depth"] else "—", f"{r['nuclei']:,}",
+            ["label", "depth", f"{W.units}", "share", "samples"],
+            [[_esc(r["label"]), f"L{r['depth']}" if r["depth"] else "—", f"{r[f'{W.units}']:,}",
               f"{r['share']:.1f}%", f"{r['samples']}/{len(ctx.samples)}"] for r in _rows],
             source=_src))
         # The composition figures are keyed by DEPTH, so each annotation is drawn at the depth its
@@ -1141,15 +1151,15 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                                    "l1" if "L1" in _title else "path")
             if _mv["n"]:
                 body.append(_table(
-                    ["from -> to", "nuclei"],
+                    ["from -> to", f"{W.units}"],
                     [[_esc(k), f"{v:,}"] for k, v in list(_mv["moves"].items())[:15]]))
-                body.append(f"<p class='sub'><b>{_mv['n']:,} nuclei moved</b> "
+                body.append(f"<p class='sub'><b>{_mv['n']:,} {W.units} moved</b> "
                             f"({100.0 * _mv['n'] / max(ctx.n, 1):.2f}% of the cohort). Every one "
                             f"of them is a call the walk declined to make; their margin was below "
                             f"the gap bar BY CONSTRUCTION, which is why it stopped. These are the "
                             f"least certain labels in the column.</p>")
             else:
-                body.append("<p class='sub'>No nucleus moved: the walk resolved every one it "
+                body.append(f"<p class='sub'>No {W.unit} moved: the walk resolved every one it "
                             "annotated, so this column equals the one above it.</p>")
             # Drawn from the FORCED column itself, never the unforced figure reused under a
             # forced heading. Same palette as the pair above, so a cell type keeps its colour and
@@ -1224,17 +1234,17 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
               "rather than because the calls were unreliable."))
     if rel:
         rows = [[f"depth {r['depth']}", f"{r['calls']:,}",
-                 f"{r['nuclei']:,} ({r['pct']:.1f}%)", _num(r["median_gap"], 2),
+                 f"{r[f'{W.units}']:,} ({r['pct']:.1f}%)", _num(r["median_gap"], 2),
                  _num(r["median_support"]), _num(r["median_survival"], 2),
                  f"{r['pct_thin']:.0f}%" if r["pct_thin"] is not None else "—"]
                 for r in rel]
         src = _write_table(out, "reliability_by_depth.csv",
-                           ["depth", "calls", "nuclei", "pct", "median_gap", "median_support",
+                           ["depth", "calls", f"{W.units}", "pct", "median_gap", "median_support",
                             "median_survival", "pct_on_under_10_assertions"],
-                           [[r["depth"], r["calls"], r["nuclei"], r["pct"], r["median_gap"],
+                           [[r["depth"], r["calls"], r[f"{W.units}"], r["pct"], r["median_gap"],
                              r["median_support"], r["median_survival"], r["pct_thin"]]
                             for r in rel])
-        body.append(_table(["depth", "calls", "nuclei", "median gap", "median support",
+        body.append(_table(["depth", "calls", f"{W.units}", "median gap", "median support",
                             "median survival", "on <10 assertions"], rows, source=src))
         body.append("<p class='sub'><b>A deeper call is not a worse call, but it rests on less."
                     "</b> Support falls with depth while the gap does not, so a deep call can "
@@ -1271,12 +1281,12 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
         if man:
             body.append("<h3>where the annotation leaves the manifold</h3>")
             body.append(_table(
-                ["sample", "label", "nuclei", "agreement"],
+                ["sample", "label", f"{W.units}", "agreement"],
                 [[_esc(m["cluster"]), f"<span class='mono'>{_esc(m['label'])}</span>",
-                  f"{m['nuclei']:,}", f"{m['agreement']:.1f}%"] for m in man],
+                  f"{m[f'{W.units}']:,}", f"{m['agreement']:.1f}%"] for m in man],
                 source=_write_table(out, "manifold_outliers.csv",
-                                    ["sample", "label", "nuclei", "agreement"],
-                                    [[m["cluster"], m["label"], m["nuclei"], m["agreement"]]
+                                    ["sample", "label", f"{W.units}", "agreement"],
+                                    [[m["cluster"], m["label"], m[f"{W.units}"], m["agreement"]]
                                      for m in man])))
 
     # ---- the chosen resolution ------------------------------------------------------------
@@ -1289,7 +1299,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             "is a value someone typed rather than one the evidence supports."))
     if ctx.resolution_sweep():
         body.append("<p class='lede'>The criterion is the <b>annotation</b>, not the geometry. "
-                    "A partition can shift substantially while every nucleus keeps its "
+                    f"A partition can shift substantially while every {W.unit} keeps its "
                     "identity, and that is exactly when granularity does not matter. What "
                     "downstream analysis consumes is the label, so the label is what the "
                     "choice is made on.</p>")
@@ -1313,10 +1323,10 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                   _num(r.get("n_labels")), _num(r.get("smallest")),
                   _num(r.get("min_groups"))] for r in rws]))
         body.append(A.fig("F160"))
-        body.append("<p class='sub'><b>modal</b> — nuclei whose label equals their majority "
+        body.append(f"<p class='sub'><b>modal</b> — {W.units} whose label equals their majority "
                     "across the sweep. <b>complete</b> — resolved to a leaf of the taxonomy. "
                     "<b>truncated</b> — stopped at an internal node, which is a partial "
-                    "identity and not the same failure as unresolved. <b>smallest</b> — nuclei "
+                    f"identity and not the same failure as unresolved. <b>smallest</b> — {W.units} "
                     "in the smallest named label. <b>samples</b> — how many samples the rarest "
                     "label appears in; a label seen in one sample of ten is not a population a "
                     "downstream comparison can use.</p>")
@@ -1406,13 +1416,13 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                       f"{100 * r['overall']:.1f}%", r["labels_over_25"]] for r in broad],
                     source=src))
                 body.append("<p class='sub'><b>Nothing has been removed from the panel.</b> "
-                            "These genes are detected in at least 25% of nuclei in four or more "
+                            f"These genes are detected in at least 25% of {W.units} in four or more "
                             "labels; discount their columns in the dotplot. They have not been "
                             "taken out of it, because a curated grid gives a reader no way to "
                             "know it was curated.</p>")
 
     # ---- the withheld nuclei -----------------------------------------------------------------
-    body.append("<h2>The nuclei withheld before annotation</h2>")
+    body.append(f"<h2>The {W.units} withheld before annotation</h2>")
     if not ctx.has_flag:
         body.append(_absent_section(
             "an upstream flag",
@@ -1421,10 +1431,10 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             "provenance declaration."))
     if ctx.has_flag:
         nf = int(ctx.P["flag"].sum())
-        body.append(f"<p class='lede'>This section is about <b>{nf:,} nuclei and nothing "
+        body.append(f"<p class='lede'>This section is about <b>{nf:,} {W.units} and nothing "
                     f"else</b>: where they sit, what they express, and how they differ from the "
                     f"{ctx.n - nf:,} that were kept. scAnno is an annotation tool, not QC — "
-                    f"<b>every withheld nucleus comes from the upstream flag "
+                    f"<b>every withheld {W.unit} comes from the upstream flag "
                     f"<code>{_esc(ctx.flag_column)}</code></b>, and this tool has no code that "
                     f"can widen one.</p>")
         body.append(A.fig("F150"))
@@ -1447,7 +1457,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
                                  round(r["det_flagged"], 5), round(r["det_kept"], 5),
                                  r["animals_agree"], r.get("animals_compared", "")]
                                 for r in sig])
-            body.append("<h3>elevated in the withheld nuclei</h3>")
+            body.append(f"<h3>elevated in the withheld {W.units}</h3>")
             body.append(_table(hdr, sig_rows(sig[:15]), source=src))
             body.append("<h3>depleted</h3>")
             body.append(_table(hdr, sig_rows(sig[-15:][::-1]), source=src))
@@ -1458,21 +1468,21 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             if n_used < len(cov):
                 body.append(
                     f"<div class='warn'><b>{n_used} of {len(cov)} samples</b> hold at least "
-                    f"{MIN_FLAGGED_PER_ANIMAL} withheld nuclei, the floor below which a "
+                    f"{MIN_FLAGGED_PER_ANIMAL} withheld {W.units}, the floor below which a "
                     f"per-sample flagged-against-kept comparison is noise. "
                     f"The samples this omits <b>are not necessarily evenly spread across the "
                     f"design</b>, so the cross-sample check is stronger for some arms than "
                     f"others — read it as consistency among the samples that could be checked, "
                     f"never as consistency across the cohort.</div>")
             body.append(_table(
-                ["sample", "arm", "nuclei", "withheld", "rate", "in the per-sample comparison"],
-                [[_esc(r["animal"]), _esc(r["arm"]) or "—", f"{r['nuclei']:,}",
+                ["sample", "arm", f"{W.units}", "withheld", "rate", "in the per-sample comparison"],
+                [[_esc(r["animal"]), _esc(r["arm"]) or "—", f"{r[f'{W.units}']:,}",
                   f"{r['flagged']:,}", f"{r['rate']:.2f}%",
                   "yes" if r["in_comparison"] else "<b>no</b>"] for r in cov],
                 source=_write_table(out, "exclusion_per_sample.csv",
-                                    ["sample", "arm", "nuclei", "withheld", "rate_pct",
+                                    ["sample", "arm", f"{W.units}", "withheld", "rate_pct",
                                      "in_comparison"],
-                                    [[r["animal"], r["arm"], r["nuclei"], r["flagged"],
+                                    [[r["animal"], r["arm"], r[f"{W.units}"], r["flagged"],
                                       r["rate"], r["in_comparison"]] for r in cov])))
         body.append(A.fig("F153"))
         body.append(A.fig("F154"))
@@ -1515,7 +1525,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             rows = ctx.sample_rows(s)
             n = None if rows is None else len(rows)
             cards.append(f'<a href="{_esc(href)}">{_esc(s)}<span class="n">'
-                         + (f'{n:,} nuclei' if n else '— nuclei not resolved')
+                         + (f'{n:,} {W.units}' if n else f'— {W.units} not resolved')
                          + '</span></a>')
         body.append("<div class='samples'>" + "".join(cards) + "</div>")
 
@@ -1574,6 +1584,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
 # =============================================================== the per-sample document
 
 def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort_href=None):
+    W = ctx.words
     out = Path(out_dir)
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(sample))
     A = Assembler(ctx, out, rel=f"../../figures/samples/{safe}", subdir=f"samples/{safe}")
@@ -1584,7 +1595,7 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
     grp = str(rows["group"].iloc[0]) if "group" in rows and n else ""
 
     body = [f"<h1>{_esc(sample)}</h1>",
-            f"<p class='sub'>{n:,} nuclei"
+            f"<p class='sub'>{n:,} {W.units}"
             + (f" · {_esc(grp)}" if grp else "")
             + f" · reaches level {D} of {ctx.depth}"
             + (f" · resolution {_esc(ctx.chosen_resolution)}" if ctx.chosen_resolution else "")
@@ -1594,7 +1605,7 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
                     f"report</a>, which is the document; this page is the detail behind one "
                     f"of its rows.</p>")
 
-    kpi = [("nuclei", f"{n:,}", f"{100 * n / max(ctx.n, 1):.1f}% of the cohort")]
+    kpi = [(f"{W.units}", f"{n:,}", f"{100 * n / max(ctx.n, 1):.1f}% of the cohort")]
     lab1 = rows["L1"]
     kpi.append(("level-1 labels", f"{lab1.nunique()}",
                 f"deepest level reached: {D}"))
@@ -1605,7 +1616,7 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
         import numpy as np
         kpi.append(("neighbourhood agreement",
                     f"{100 * float(np.nanmean(rows['nn_agreement'])):.1f}%",
-                    "mean of the per-nucleus share"))
+                    f"mean of the per-{W.unit} share"))
     body.append(_kpi(kpi))
 
     body.append("<h2>The annotation</h2>")
@@ -1651,7 +1662,7 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
             tab.append([f"<span class='sw' style='background:{ctx.colour(l)}'></span>"
                         + _esc(leaf(l)), f"{c:,}", f"{here:.1f}%", f"{coh:.1f}%",
                         f"{here - coh:+.1f} pp"])
-        body.append(_table(["label", "nuclei", "this sample", "cohort", "difference"], tab))
+        body.append(_table(["label", f"{W.units}", "this sample", "cohort", "difference"], tab))
     body.append("<p class='sub'>The last column is this sample minus the cohort. A large "
                 "difference is not by itself a finding — read it against the per-sample points "
                 "in the cohort report's composition figures, which show the spread the rest of "
@@ -1664,7 +1675,7 @@ def write_sample(ctx, sample, out_dir, *, title="Annotation", version="", cohort
             mine = mine.sort_values("n_cells", ascending=False)
             body.append("<h2>The calls</h2>")
             body.append(_table(
-                ["path", "nuclei", "depth", "gap", "support", "survival"],
+                ["path", f"{W.units}", "depth", "gap", "support", "survival"],
                 [[f"<span class='mono'>{_esc(r['path'])}</span>", f"{int(r['n_cells']):,}",
                   int(r["depth"]), _num(r["gap"], 2), _num(r["support"]),
                   _num(r["survival"], 2)] for _, r in mine.iterrows()],
@@ -1694,6 +1705,7 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
     Returns the payload that is also written as `report.json` - every number the pages carry, so
     a consumer never has to scrape HTML to get at them.
     """
+    W = ctx.words
     out = Path(out_dir)
     links, absent, failed = [], [], []
     if per_sample:
@@ -1710,11 +1722,11 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
     payload = {
         "generated": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "scanno_version": version,
-        "n_nuclei": int(ctx.n), "n_samples": len(ctx.samples),
+        f"n_{W.units}": int(ctx.n), "n_samples": len(ctx.samples),
         "taxonomy_depth": int(ctx.depth),
         "label_key": ctx.path_key, "flag_column": ctx.flag_column,
         "chosen_resolution": ctx.chosen_resolution,
-        "composition": {d: [{"label": l, "nuclei": ctx.count(l, d),
+        "composition": {d: [{"label": l, f"{W.units}": ctx.count(l, d),
                              "share_pct": round(ctx.share(l, d), 4),
                              "samples": ctx.animals_with(l, d)}
                             for l in ctx.label_order(d) if ctx.count(l, d)]
@@ -1742,7 +1754,7 @@ def write_all(ctx, out_dir, *, title="Annotation", version="", per_sample=True):
         "l1": ({"column": ctx.l1_key,
                 "concordance": (lambda c: c and {k: v for k, v in c.items() if k != "pairs"}
                                 | {"pairs": [{"deep_walk_root": a, "independent_l1": b,
-                                              "nuclei": n} for (a, b), n in c["pairs"].items()]}
+                                              f"{W.units}": n} for (a, b), n in c["pairs"].items()]}
                                 )(ctx.l1_concordance()),
                 "bands": ctx.l1_bands()} if getattr(ctx, "has_l1", False) else None),
         "palette": ctx.palette.as_dict(),

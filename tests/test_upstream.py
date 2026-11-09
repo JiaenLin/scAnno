@@ -41,6 +41,11 @@ except ImportError as e:
     raise SystemExit(0)
 
 from scanno import upstream as up  # noqa: E402
+from scanno.assay import words as _words  # noqa: E402
+
+# The fixtures here were written for a single-nucleus cohort and assert its wording, so they
+# are declared snrna: the nucleus words they check are what an snrna run still writes.
+SN = _words("snrna")
 from scanno.exclude import flag_digest  # noqa: E402
 
 
@@ -67,7 +72,7 @@ def toy(n=60, flag=True, declare=True, na=0, schema="scqc/provenance@1"):
 
 print("\n1 - a declaration arms the exclusion, and names its authority")
 A = toy()
-d = up.decide(A)
+d = up.decide(A, words=SN)
 check("armed", d.active and d.source == "scqc", f"source={d.source}")
 check("on the declared column", d.column == "cluster_FLAG")
 check("withholding exactly the flag", d.n == int(up.as_mask_column(A, "cluster_FLAG").sum()))
@@ -78,7 +83,7 @@ check("and that scAnno did not choose them",
 
 print("\n2 - NO declaration means NOTHING, even with the column right there")
 B = toy(declare=False)
-d = up.decide(B)
+d = up.decide(B, words=SN)
 check("cluster_FLAG is present", "cluster_FLAG" in B.obs)
 check("and is NOT acted on", not d.active and d.source == "none")
 check("the reason is stated, not silent",
@@ -87,7 +92,7 @@ check("the reason is stated, not silent",
 print("\n3 - an altered flag is REFUSED, not quietly used")
 C = toy()
 C.obs["cluster_FLAG"] = pd.array([True] * C.n_obs, dtype="boolean")
-d = up.decide(C)
+d = up.decide(C, words=SN)
 check("refused", bool(d.refuse) and not d.active)
 check("the reason names the digest", "digest" in (d.refuse or ""))
 check("and says whose decision it would have misattributed",
@@ -95,19 +100,19 @@ check("and says whose decision it would have misattributed",
 
 print("\n4 - a subset object is REFUSED: the declaration is not for this population")
 D = toy()
-d = up.decide(D[:20].copy())
+d = up.decide(D[:20].copy(), words=SN)
 check("refused", bool(d.refuse))
 check("...in those terms", "subset" in (d.refuse or ""), (d.refuse or "")[:90])
 
 print("\n5 - an unknown schema is reported and not acted on")
 E = toy(schema="scqc/provenance@99")
-d = up.decide(E)
+d = up.decide(E, words=SN)
 check("refused rather than guessed", bool(d.refuse))
 check("naming both schemas", "@99" in (d.refuse or "") and "@1" in (d.refuse or ""))
 
 print("\n6 - --no-exclude wins over the declaration, and says what it costs")
 F = toy()
-d = up.decide(F, disabled=True)
+d = up.decide(F, disabled=True, words=SN)
 check("nothing is withheld", not d.active)
 check("the declaration is still reported", any("declared" in ln for ln in d.lines), str(d.lines))
 check("and the consequence is spelled out",
@@ -116,14 +121,14 @@ check("and the consequence is spelled out",
 print("\n7 - an explicit --exclude-flag wins over the declaration")
 G = toy()
 G.obs["mine"] = pd.array([bool(i < 5) for i in range(G.n_obs)], dtype="boolean")
-d = up.decide(G, explicit="mine")
+d = up.decide(G, explicit="mine", words=SN)
 check("uses the column named", d.column == "mine" and d.source == "explicit")
 check("withholding that column's cells", d.n == 5, str(d.n))
 check("and notes the declaration named a different one",
       any("declared" in ln and "cluster_FLAG" in ln for ln in d.lines), str(d.lines))
 
 print("\n8 - an explicit flag that does not exist is refused with the options")
-d = up.decide(toy(), explicit="nope")
+d = up.decide(toy(), explicit="nope", words=SN)
 check("refused", bool(d.refuse))
 check("and lists the boolean columns available", "cluster_FLAG" in (d.refuse or ""),
       (d.refuse or "")[:90])
@@ -134,14 +139,14 @@ mask = up.as_mask_column(H, "cluster_FLAG")
 raw = pd.Series(H.obs["cluster_FLAG"])
 check("the NA rows are not withheld", not mask[-8:].any(), str(mask[-8:]))
 check("and they are genuinely NA in the object", int(raw.isna().sum()) == 8)
-d = up.decide(H)
+d = up.decide(H, words=SN)
 check("the run still arms and verifies", d.active and not d.refuse)
 
 print("\n10 - a declaration with no flag column withholds nothing, and says so")
 I = toy(flag=False, declare=False)
 I.uns["scqc"] = {"schema": "scqc/provenance@1", "tool": "scQC", "flag_column": "",
                  "n_obs": int(I.n_obs), "n_flagged": -1, "flag_digest": ""}
-d = up.decide(I)
+d = up.decide(I, words=SN)
 check("nothing withheld", not d.active and not d.refuse)
 check("and it is reported rather than silent",
       any("nothing is withheld" in ln for ln in d.lines), str(d.lines))

@@ -137,21 +137,25 @@ class Decision:
         return int(self.mask.sum()) if self.mask is not None else 0
 
 
-def decide(adata, explicit=None, disabled=False) -> Decision:
+def decide(adata, explicit=None, disabled=False, *, words) -> Decision:
     """Resolve the exclusion: explicit flag, upstream declaration, or nothing.
 
     Precedence is `--no-exclude` > `--exclude-flag` > declaration. The person at the keyboard
     outranks the file; the file outranks the default.
+
+    `words` is the run's assay vocabulary (scanno/assay.py), so what is withheld is named as the
+    cells or nuclei it is. Required: the lines below are printed for a reader.
     """
+    W = words
     decl = declaration(adata)
 
     if disabled:
         lines = ["exclusion DISABLED by --no-exclude"]
         if decl and str(decl.get("flag_column") or ""):
             lines.append(f"    {decl.get('tool', 'upstream')} declared "
-                         f"{decl.get('flag_column')!r} with {decl.get('n_flagged')} nuclei "
+                         f"{decl.get('flag_column')!r} with {decl.get('n_flagged')} {W.units} "
                          f"flagged; they WILL be annotated, and their labels are labels for "
-                         f"nuclei upstream QC rejected")
+                         f"{W.units} upstream QC rejected")
         return Decision(source="none", lines=lines, decl=decl)
 
     if explicit:
@@ -160,7 +164,7 @@ def decide(adata, explicit=None, disabled=False) -> Decision:
                 f"no obs column {explicit!r}. Boolean columns available: "
                 f"{[c for c in adata.obs if str(adata.obs[c].dtype) in ('bool', 'boolean')]}"))
         mask = as_mask_column(adata, explicit)
-        lines = [f"exclusion from --exclude-flag {explicit}: {int(mask.sum()):,} nuclei"]
+        lines = [f"exclusion from --exclude-flag {explicit}: {int(mask.sum()):,} {W.units}"]
         if decl:
             col = str(decl.get("flag_column") or "")
             if col and col != explicit:
@@ -192,7 +196,7 @@ def decide(adata, explicit=None, disabled=False) -> Decision:
     mask = as_mask_column(adata, col)
     lines = [
         f"{tool} declaration found -> exclusion ARMED on {col!r}",
-        f"    {int(mask.sum()):,} of {int(adata.n_obs):,} nuclei "
+        f"    {int(mask.sum()):,} of {int(adata.n_obs):,} {W.units} "
         f"({100 * mask.sum() / max(int(adata.n_obs), 1):.2f}%) are withheld and labelled "
         f"EXCLUDED",
         f"    digest {decl.get('flag_digest')} verified against the column in this file",
@@ -201,6 +205,6 @@ def decide(adata, explicit=None, disabled=False) -> Decision:
     meaning = str(decl.get("flag_meaning") or "")
     if meaning:
         lines.append(f"    what it means: {meaning}")
-    lines.append("    scAnno did not choose these nuclei and cannot widen the set. "
+    lines.append(f"    scAnno did not choose these {W.units} and cannot widen the set. "
                  "--no-exclude annotates them instead.")
     return Decision(column=col, mask=mask, source="scqc", lines=lines, decl=decl)
