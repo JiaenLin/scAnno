@@ -14,8 +14,8 @@ Five things have to hold for the flag to replace that, and each has a test named
      CALL with a different tree, not a mode inside the walk;
   2. the L1 column keeps the name a reader keys on, and a suffixed run still cannot collide;
   3. the column is marked INDEPENDENT in the object, so a reader can tell it from a derived one;
-  4. a tree that is not depth-1 is REFUSED, on the declaration, so all ten samples of a cohort
-     get the same verdict;
+  4. a tree that is not depth-1 is REFUSED, on the declaration, so every sample of a cohort
+     gets the same verdict;
   5. without `--l1-tree` nothing whatsoever changes.
 
     python tests/test_l1_tree.py        # no pytest needed; the shim below stands in

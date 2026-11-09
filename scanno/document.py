@@ -327,8 +327,8 @@ class Assembler:
         except Exception as e:                                            # noqa: BLE001
             # A DEFECT, kept visually distinct from an absence. An absence says something about
             # the data; a defect says something about scAnno, and the two must never render the
-            # same. A lookup failure once reported "no QC columns in obs" for ten samples whose
-            # objects carried all four - a bug wearing a finding's clothes.
+            # same. A lookup failure once reported "no QC columns in obs" for every sample, though
+            # the objects carried all four - a bug wearing a finding's clothes.
             self.failed.append({"figure": fid, "name": stem,
                                 "reason": f"{type(e).__name__}: {e}"})
             return (f"<div class='bad'><b>{_esc(fid)} FAILED TO DRAW — this is a defect in "

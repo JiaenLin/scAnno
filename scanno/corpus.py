@@ -53,8 +53,8 @@ def check_gene_space(assertions, genes, min_overlap=50):
     Nothing downstream notices this. Every marker panel comes out empty, every node is
     dropped for having too few markers, the walk finds fewer than two children at the root
     and returns UNRESOLVED - for every cluster, silently, at what looks like a successful
-    run. It happened: an object keyed by Ensembl IDs against a symbol-keyed corpus produced
-    0 of 34,290 overlapping genes and 100% UNRESOLVED with no error.
+    run. It happened: an object keyed by Ensembl IDs against a symbol-keyed corpus shared not
+    one gene with it, and came back 100% UNRESOLVED with no error.
 
     The out-of-distribution check does not catch it either, because that compares the query
     against the STORE, and a store built from the same object shares its naming scheme. The

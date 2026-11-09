@@ -18,9 +18,9 @@ guessing is the failure mode, not the feature.
 WHY ARMING IT IS THE SAFER DEFAULT, WHICH IS NOT WHAT 0.3.0 CONCLUDED
 
 0.3.0 REMOVED a capability rather than defaulting it off, and the reasoning was that a
-default-off capability is one argument away from running. That capability WIDENED a flag - it
-withheld nuclei upstream QC had passed, 783 of 2,680 on the cohort it was written for. This one
-narrows to exactly what QC rejected, and the digest proves it.
+default-off capability is one argument away from running. That capability WIDENED a flag - once
+a share of a cluster was flagged it withheld the whole cluster, nuclei upstream QC had passed
+among them. This one narrows to exactly what QC rejected, and the digest proves it.
 
 The asymmetry is in which error is silent. Annotating a flagged nucleus mints a label for a cell
 QC refused, and that label is indistinguishable downstream from one anybody should believe.

@@ -14,10 +14,9 @@ WHAT IS KEPT, AND WHY EACH ONE MATTERS LATER
     differential expression needs them, and a gene lost here is unrecoverable there.
   - EVERY GENE. No class is excluded from variable-gene selection - not mitochondrial, not
     ribosomal, not haemoglobin. The flagged ones that get SELECTED are reported instead. This is
-    not squeamishness: an exclusion written as `^Rp[sl]` once dropped Rps6ka2 - ribosomal protein
-    S6 KINASE A2, an mTOR signalling enzyme whose correlation with the actual ribosome module is
-    r = +0.046 - out of a high-fat-diet study, and nothing objected because the exclusion looked
-    routine.
+    not squeamishness: an exclusion written as `^Rp[sl]` drops Rps6ka2 - ribosomal protein S6
+    KINASE A2, an mTOR signalling enzyme and not a part of the ribosome - and nothing objects,
+    because the exclusion looks routine.
 
 DEFAULTS ARE NOT DESIGNS
 

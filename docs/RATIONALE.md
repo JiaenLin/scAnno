@@ -53,8 +53,8 @@ Each was built, measured and removed. Listed so they do not come back without ne
 | correlation novelty gate | rejected 4 real populations on independent data |
 | negative marker weights | 2 errors on independent data, **invisible on the self-test** |
 | node-coherence gate | its statistic depended on which other nodes existed |
-| design-differential gate | refused on a comparison where 2 libraries of 10 held 94% of the unresolved nuclei |
-| cluster-share exclusion (`--exclude-mode cluster`) | withheld **783 of 2,680** nuclei (29.2%) that upstream QC had *passed*, while keeping 1,918 of 3,815 that it flagged; the size moved 42 → 4,080 with the caller's resolution from one unchanged flag |
+| design-differential gate | refused a comparison whose unresolved nuclei sat almost all in a couple of libraries |
+| cluster-share exclusion (`--exclude-mode cluster`) | withheld nuclei upstream QC had *passed*, beside their flagged neighbours, and kept flagged nuclei in clusters under the share; the withheld set moved with the caller's resolution from one unchanged flag |
 
 **Eight capabilities were built here, measured, and deleted** — some of them only after they had
 already shipped, and one of them (negative marker weights) causing errors that were invisible on

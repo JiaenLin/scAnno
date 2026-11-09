@@ -287,8 +287,8 @@ check("no grade is invented", all(not v for v in rn["verdicts"].values()) or not
 print("\n15 - a label route B delivers NOWHERE is absorbed, not silently kept")
 # The column and the document contradicted each other. `lost_labels` reported that the joint
 # route had absorbed a population, while the joint COLUMN still carried every one of its cells
-# under the old label - measured on a real cohort at 47 dendritic nuclei that route B calls
-# macrophage. Applying only the recoveries makes the coarser partition look strictly better,
+# under the old label - a small population route B absorbed into a larger cluster kept its old
+# label. Applying only the recoveries makes the coarser partition look strictly better,
 # which is the claim `lost_labels` exists to deny.
 RARE = "Immune/Myeloid/Dendritic cell"
 la = [MP] * 20 + [RARE] * 6 + [FB] * 4

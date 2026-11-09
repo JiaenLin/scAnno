@@ -223,13 +223,14 @@ The run prints a **mask digest** — a fingerprint of the exact set that was wit
 ran is the set your QC handed over, because two different masks of the same size agree on every
 number in a summary table.
 
-**`--exclude-mode` and `--exclude-share` were removed in 0.3.0** and are refused by name with the
-measurement that retired them. `--exclude-mode cluster` withheld a whole cluster once a share of
-it was flagged, which meant withholding nuclei upstream QC had *passed*: 783 of 2,680 (29.2%) on
-the cohort it was written for, while *keeping* 1,918 of the 3,815 nuclei that were flagged. It
-also made the withheld set a property of your resolution — 42 nuclei at 0.25, 4,080 at 2.0, from
-one flag that never changed. If you want a cluster-level exclusion, derive it upstream where it
-can be assessed, and hand the resulting per-cell column to `--exclude-flag`.
+**`--exclude-mode` and `--exclude-share` were removed in 0.3.0** and are refused by name, with what
+they did. `--exclude-mode cluster` withheld a whole cluster once a share of it was flagged, which
+meant withholding nuclei upstream QC had *passed*, beside their flagged neighbours, while
+*keeping* flagged nuclei wherever their cluster stayed under the share. It also made the withheld
+set a property of your resolution: a coarser or a finer clustering put different clusters over
+the share, from one flag that never changed. If you want a cluster-level exclusion, derive it
+upstream where it can be assessed, and hand the resulting column, one value per observation, to
+`--exclude-flag`.
 
 **What it cannot tell you** is whether the flag was right. scAnno takes that decision as input and
 demands a `reason` with it.

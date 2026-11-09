@@ -9,7 +9,7 @@ UNRESOLVED. The run exits 0 with a full table.
 `check_gene_space` was written for exactly this and documents the incident that caused it. It
 was called on the `agent` path and NOT on the `annotate` path, which is the one everybody uses -
 so the guard existed, was correct, and did not run where it mattered. Found by reproducing a real
-stage: ten libraries, eight resolutions, 100% UNRESOLVED, no error anywhere.
+stage: every library, every resolution, 100% UNRESOLVED, no error anywhere.
 
 Two things are asserted, and the second is the one that matters:
 

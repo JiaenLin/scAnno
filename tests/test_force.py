@@ -196,7 +196,7 @@ def test_force_lands_on_the_argmax_the_unchanged_walk_recorded():
     assert res[2]["path"] == "Endothelial/Vascular endothelial"   # another cluster got there
     assert res[2]["gap"] >= gap_min                               # ... above the bar
 
-    forced, rec = apply_force(res, ["Endothelial"], counts={0: 961, 1: 40715, 2: 17783})
+    forced, rec = apply_force(res, ["Endothelial"], counts={0: 961, 1: 40000, 2: 18000})
 
     assert forced[0]["path"] == f"Endothelial/{argmax}"
     assert forced[0]["label"] == argmax
@@ -1010,7 +1010,7 @@ def test_a_forced_push_continues_until_it_reaches_a_leaf_of_the_scoped_tree():
     first = res[0]["trace"][-1]["top"]
     assert tree["children"][first], f"{first} must be internal or the fixture proves nothing"
 
-    forced, rec = apply_force(res, ["Endothelial"], counts={0: 99, 1: 40715, 2: 17783},
+    forced, rec = apply_force(res, ["Endothelial"], counts={0: 99, 1: 40000, 2: 18000},
                               tree=tree, scorer=node_scorer(Z, usable, tree, store=store))
 
     path = forced[0]["path"].split("/")

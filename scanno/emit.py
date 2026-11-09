@@ -209,9 +209,9 @@ def annotate_obs(adata, res, y, flag=None, prefix=DEFAULT_PREFIX, support=None, 
     #
     # `scAnno_L1` is the only label that is comparable across samples BY CONSTRUCTION. Every
     # other column depends on where that sample's walk happened to stop: two animals of the same
-    # arm, same batch and same chemistry have been measured returning 11.25% `Fibroblast` / 0.00%
-    # `Matrifibrocyte` and 0.00% / 17.71% on the same cells, because the gap landed either side of
-    # the bar. A cross-sample claim needs a column that cannot do that, and L1 is it.
+    # arm, batch and chemistry can return a population wholly under the parent in one and wholly
+    # under a subtype in the other, because the gap landed either side of the bar. A
+    # cross-sample claim needs a column that cannot do that, and L1 is it.
     #
     # Until 0.8.2 these existed only inside `rewrite_for_viewer`, so the objects every downstream
     # stage actually reads carried the path and no levels, and each consumer re-derived the

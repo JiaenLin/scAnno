@@ -60,10 +60,9 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
     # The routes are separate objects and are normally annotated under different suffixes, so
     # they normally carry different column names. One key for both meant the only comparable
     # pair was two routes sharing a NAME - which is the one thing you cannot do when both
-    # annotations live in one object. Measured on a real cohort: its promoted per-sample column
-    # was `cell_type_forced` and the joint route's own was `scanno_resolved_path_scope`, so the
-    # joint-vs-per-sample comparison this module exists for could not be expressed, and in ten
-    # runs of that stage it was never once run.
+    # annotations live in one object. A per-sample route delivered under one column name and a
+    # joint route under another - the ordinary case - could not be compared at all, so the
+    # joint-vs-per-sample comparison this module exists for was never once run.
     key_b = path_key_b or path_key
     pa = np.asarray(A[path_key].astype(str))
     pb = np.asarray(B[key_b].astype(str))
@@ -124,9 +123,9 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
         for lab in sorted(set(pa.tolist())):
             if lab in sentinels:
                 continue      # EXCLUDED is not a cell type and a sample having none of it is
-                              # not evidence of anything. Reading them here produced 21 of 87
-                              # candidates on the first real run, and the samples they named
-                              # were exactly the four the upstream flag never touched.
+                              # not evidence of anything. Reading them here turned EXCLUDED into
+                              # a label some samples "lack", and the samples it named were
+                              # exactly the ones the upstream flag never touched.
             have = set(sam[pa == lab].tolist())
             lacking[lab] = [x for x in all_samples if x not in have]
 
@@ -158,10 +157,10 @@ def compare(a_obs, b_obs, *, path_key="scanno_path", path_key_b=None, sample_key
 
             # THE CANDIDATE IS ANCHORED ON ROUTE B'S OWN CALL FOR THIS CLUSTER, not on any
             # label that happens to appear inside it. Without that anchor the rule fired on
-            # every rare label in every cluster - 87 candidates over 23 clusters on the first
-            # real run, the largest claiming 8,749 cells should become `Neural` on the evidence
-            # of THREE Neural cells. A joint clustering is only evidence about a population if
-            # the joint route ANNOTATED it as that population.
+            # every rare label in every cluster: a cluster of thousands holding three cells of
+            # a rare label became a candidate to relabel all of it, on the evidence of those
+            # three. A joint clustering is only evidence about a population if the joint route
+            # ANNOTATED it as that population.
             labs_b, ns_b = np.unique(pb[m], return_counts=True)
             L = str(labs_b[ns_b.argmax()])
             cluster_label[str(c)] = L
@@ -270,9 +269,9 @@ def _lost_labels(pa, pb, clu, sam, cluster_label, sentinels):
 
     Reporting one direction and not the other makes the second clustering look strictly better
     than the first, which it is not - a coarser partition recovers some populations and destroys
-    others. Measured on a real cohort: 47 dendritic nuclei that the per-sample route resolved
-    landed 45 in a 9,186-cell macrophage cluster and 2 in a lymphoid one, and the joint route
-    delivered no dendritic label at all.
+    others. The shape it takes: a small population the per-sample route resolved lands, in the
+    joint clustering, as a minority inside one or two much larger clusters, and the joint route
+    delivers its label nowhere at all.
     """
     import numpy as np
 
@@ -312,10 +311,9 @@ def _impact(candidates, pa, group_key):
 
     # A LABEL CAN BOTH GAIN AND LOSE, and until this counted the losses it did not.
     # `n_route_a_after` was `now + gained`, so any label that is also the SOURCE of another
-    # candidate was over-reported. Measured on a real cohort: Neural gains 303 cells from one
-    # candidate and loses 97 to another, and this said 552 where the delivered column held 455 -
-    # a third too high, on the row the whole reading turned on. Caught only because
-    # `joint.summarise()` counts the two delivered arrays instead of predicting from these rows.
+    # candidate was over-reported by everything it lost to another, on the very row a reading
+    # turns on. Caught only because `joint.summarise()` counts the two delivered arrays instead
+    # of predicting from these rows.
     rows, lost = {}, {}
     for r in candidates:
         L = r["label_absent"]

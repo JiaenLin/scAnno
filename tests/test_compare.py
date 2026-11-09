@@ -200,8 +200,8 @@ check("but carries a dominance above the threshold, so it can be refused",
       str(cands[0]["top_share_pct"]) if cands else "")
 
 print("\n11 - the candidate rule reads the SAMPLES and never the design")
-# A design-differential gate was built here once, refused a real comparison in which two
-# libraries of ten held 94% of the unresolved nuclei, and was removed (KNOWN_ISSUES). So this
+# A design-differential gate was built here once, refused a real comparison whose unresolved
+# nuclei sat almost all in a couple of libraries, and was removed (KNOWN_ISSUES). So this
 # names which samples lack the label and stops. Deciding that a study's arms differ is not the
 # tool's call, and a block that cannot see the design cannot make it.
 # A word scan over the source was written here first and was the wrong check: `group` is what
@@ -222,9 +222,9 @@ check("and the limit says whose judgement the pattern is",
 print("\n12 - AT REALISTIC SCALE: a big cluster with a few stray rare cells is NOT a candidate")
 # The fixtures above are fourteen cells and clean. Real clusters are thousands of cells holding
 # one or two of a rare label, and on the first run against a real cohort the rule fired on every
-# rare label in every cluster: 87 candidates over 23 clusters, the largest claiming 8,749 cells
-# should become `Neural` on the evidence of THREE Neural cells, and 21 of the 87 naming the
-# sentinel `EXCLUDED` as the label somebody was missing.
+# rare label in every cluster: a cluster of thousands became a candidate to turn `Neural` on the
+# evidence of three Neural cells, and some candidates named the sentinel `EXCLUDED` as the label
+# somebody was missing.
 #
 # Both are fixed by the same thing - the candidate is anchored on ROUTE B'S OWN CALL for the
 # cluster - and neither would have been caught by a fourteen-cell fixture. A convenient fixture
@@ -268,8 +268,8 @@ print("\n13 - the design is tabulated, and CANNOT change what is a candidate")
 # and answering it means touching a column that names the arms. That is the same shape as
 # --sample-key: the caller names a column, the tool counts its levels and does not know what they
 # mean. What must never happen is the design reaching the DECISION. A design-differential gate
-# was built here once, refused a comparison in which two libraries of ten held 94% of the
-# unresolved nuclei, and was removed.
+# was built here once, refused a comparison whose unresolved nuclei sat almost all in a couple
+# of libraries, and was removed.
 grp = ["aged" if x in ("s1", "s2") else "young" for x in sams]
 B3 = B2.copy(); B3["grp"] = grp
 with_g = compare(A, B3, path_key="scanno_path", path_key_b="jp", sample_key="sample",
@@ -332,9 +332,9 @@ check("the denominator is DECLARED, not left to be inferred",
 print("\n15 - a population route B ABSORBED is reported, not only ones it recovered")
 # The mirror of section 12. Reporting only the direction in which the second clustering wins
 # makes it look strictly better than the first, and it is not: a coarser partition recovers some
-# populations and destroys others. Measured on a real cohort - 47 dendritic nuclei the
-# per-sample route resolved landed 45 in a 9,186-cell macrophage cluster and 2 in a lymphoid
-# one, and the joint route delivered no dendritic label anywhere.
+# populations and destroys others. The shape it takes: a small population the per-sample route
+# resolved lands as a minority inside one or two much larger joint clusters, and the joint route
+# delivers its label nowhere.
 lab_a = [MAC] * 300 + [DC] * 6 + [NEU] * 4
 lab_b = [MAC] * 310                      # route B calls the whole thing Macrophage
 sams = (["s1"] * 150 + ["s2"] * 150) + ["s1"] * 6 + ["s2"] * 4

@@ -2,26 +2,26 @@
 
 WHY THIS EXISTS
 
-Ten samples walked independently produce ten scopes. On a lineage where the sibling contrast
+Samples walked independently produce one scope each. On a lineage where the sibling contrast
 sits near the bar, one animal descends and the next truncates, so the SAME cells get a subtype
-in one library and its parent in another. Measured on a real cohort: two animals of the same
-arm, same batch and same chemistry reported 11.25% `Fibroblast` / 0.00% `Matrifibrocyte` and
-0.00% / 17.71%. Downstream that is indistinguishable from a compositional shift, and no analysis
-can undo it — abundance is conserved and merely re-labelled.
+in one library and its parent in another: two animals of the same arm, batch and chemistry can
+report a population wholly under the parent in one and wholly under a subtype in the other.
+Downstream that is indistinguishable from a compositional shift, and no analysis can undo it —
+abundance is conserved and merely re-labelled.
 
 The fix is to decide the scope ONCE, from what the samples agree on, and annotate everyone
 against it. That is three steps, and this module is the middle one:
 
-    PASS 1  SCOUT     ten independent walks, declared tree, unchanged bar
+    PASS 1  SCOUT     one independent walk per sample, declared tree, unchanged bar
     VOTE              -> this module: one common scope, written as a pruned tree
     PASS 2  ANNOTATE  the UNCHANGED walk, per sample, against that tree
 
 SEAL, NOT PRUNE — the distinction is the whole mechanism
 
   PRUNE removes SOME children of a node. The node stays open, `gap` is still computed over the
-        survivors, and samples can still disagree. On a real cohort this was measured to change
-        NOTHING: at 8 of 8 decisions with recorded score vectors every prunable child ranked 3rd
-        or lower, so it never touched `s[srt[0]]` or `s[srt[1]]` and could not move the gap.
+        survivors, and samples can still disagree. `gap` reads `s[srt[0]]` and `s[srt[1]]` and
+        nothing else, so pruning a child ranked third or lower cannot move it. Where this was
+        measured, every prunable child ranked third or lower, and pruning changed NOTHING.
 
   SEAL  removes ALL children, so the node becomes a LEAF. `node_weights` returns None, the walk
         breaks, and every sample truncates there BY CONSTRUCTION rather than statistically.
@@ -467,8 +467,8 @@ def format_tree(tree, verdicts, paths_by_sample, sep=SEP, sentinels=SENTINELS):
                 # of this drew it with no count. Those nuclei are cells a sample stranded at the
                 # parent because its gap failed where other samples' cleared -- exactly the
                 # disagreement the scope exists to surface -- and drawing the node bare made
-                # them invisible. Measured when it was found: 1,060 nuclei missing from a
-                # drawing that looked complete, and a stated total 1,060 short of the truth.
+                # them invisible: a drawing that looked complete, and a stated total short of the
+                # truth by exactly the stranded count.
                 own = cells.get(cpath, 0)
                 head = f"{pad}{stem}{c}"
                 if own:

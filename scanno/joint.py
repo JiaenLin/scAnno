@@ -58,10 +58,10 @@ def reconcile(labels, labels_b, clusters, samples, candidates,
                  route-B call.
 
     Applying only the first makes the joint route look strictly better than the per-sample one,
-    which is the thing `lost_labels` exists to deny. Measured on a real cohort: 47 dendritic
-    nuclei that route B absorbed into a macrophage cluster stayed labelled dendritic in the
-    joint column while the report beside it said they had been absorbed. The report and the
-    column disagreed, and nothing on the page said which was right.
+    which is the thing `lost_labels` exists to deny. When route B absorbed a small population
+    into a larger cluster, the joint column kept that population's old label while the report
+    beside it said it had been absorbed. The report and the column disagreed, and nothing on the
+    page said which was right.
 
     `<key>_origin` names which of the three a cell is, so the two directions never pool.
 

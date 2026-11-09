@@ -20,16 +20,12 @@ the clustering, the resolution, a share threshold, a QC metric, or anything scAn
 
 **A cluster-share mode existed until 0.3.0 and was removed rather than defaulted-off.** It
 excluded a whole cluster once some share of it was flagged, which meant excluding nuclei that
-upstream QC had PASSED because their neighbours had not. Measured on the cohort it was written
-for, at two clusterings of the same data:
-
-    resolution 1.0   2,680 excluded, 783 of them unflagged (29.2%), 1,918 of 3,815 flagged KEPT
-    resolution 2.0   2,244 excluded, 525 of them unflagged (23.4%), 2,154 of 3,873 flagged KEPT
-
-Neither a subset nor a superset of the flag, and the size moved by two orders of magnitude with
-the caller's resolution (42 nuclei at 0.25, 4,080 at 2.0) while the flag itself never changed. A
-flag computed once, upstream, must not change meaning because something downstream chose a
-different granularity. A default is not a gate; the mode is gone.
+upstream QC had PASSED because their neighbours had not, and KEEPING flagged nuclei wherever their
+cluster stayed under the share. So what it withheld was neither a subset nor a superset of the
+flag. And it moved with the caller's clustering: cluster the same data more coarsely or more
+finely and different clusters cross the share, so a different set is withheld, while the flag
+itself never changes. A flag computed once, upstream, must not change meaning because something
+downstream chose a different granularity. A default is not a gate; the mode is gone.
 
 WHY THE NON-DESTRUCTIVE FORM IS NOT AN APPROXIMATION OF THE DESTRUCTIVE ONE
 

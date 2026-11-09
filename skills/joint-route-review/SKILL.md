@@ -22,7 +22,7 @@ to be reviewable would be unreviewable on a compute node, which is where it runs
 
 `scanno compare` names which samples lack a label and stops. Deciding that a study's arms differ
 is not the tool's call: a design-differential **gate** was built into this codebase once, refused
-a real comparison in which two libraries of ten held 94% of the unresolved nuclei, and was
+a real comparison whose unresolved nuclei sat almost all in a couple of libraries, and was
 removed — `docs/PRINCIPLES.md` §3, no statistic gates an output until it is shown to separate
 correct from incorrect calls.
 

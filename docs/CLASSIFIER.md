@@ -202,9 +202,9 @@ flowchart LR
 
 **There is no design-differential gate, and one was removed rather than shipped.** A check on the
 UNRESOLVED rate per arm of an experimental design was specified here and carried over from a
-sibling QC tool by analogy. On its first run against real data it returned REFUSE on a diet
-comparison where **94% of the unresolved nuclei sat in two libraries of ten** — three of five
-samples in the "affected" arm were at zero. A rate computed per arm is dominated by whichever
+sibling QC tool by analogy. On its first run against real data it returned REFUSE on a
+comparison whose **unresolved nuclei sat almost all in a couple of libraries**, while most samples
+of the "affected" arm had none. A rate computed per arm is dominated by whichever
 libraries inside it happen to fail, and a materiality floor does not catch that, because the arm
 clears the floor on the strength of those same libraries.
 

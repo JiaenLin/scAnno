@@ -1,6 +1,6 @@
 """Write the README that says WHICH FILE TO USE.
 
-A directory of ten `*_annotated.h5ad` beside ten `*_clustered.h5ad`, three similarly-named joint
+A directory of one `*_annotated.h5ad` per sample beside as many `*_clustered.h5ad`, three joint
 objects and an `.npz` is not self-describing, and the cost of that falls on whoever arrives next.
 The question they have is never "what is in this directory" - they can list it - but **which of
 these is the answer, and which must I not use**.

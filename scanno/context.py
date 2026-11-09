@@ -1118,8 +1118,8 @@ class Context:
         is called with. `obs["sample"]` is a different string whenever the file is named for
         anything but its sample: `<sample>.filtered.h5ad` gives an object named `<sample>.filtered`
         while its obs says `<sample>`, and matching on obs alone returned an EMPTY frame. The
-        figures then reported "no QC columns in obs" for ten samples whose objects carried all
-        four — a named absence that was a lookup failure wearing a finding's clothes.
+        figures then reported "no QC columns in obs" for every sample, though the objects carried
+        all four — a named absence that was a lookup failure wearing a finding's clothes.
         """
         by_obj = self.P[self.P["_obj"] == str(sample)]
         if len(by_obj):
@@ -1218,8 +1218,8 @@ class Context:
             return []
         import scipy.sparse as sp
         # POSITIONAL, not the deduplicated index. `_gene_index` maps a symbol to its FIRST
-        # column, so its length is the number of unique symbols - 34,247 where the matrix has
-        # 34,290 columns, because symbols repeat. Sizing the accumulators from it makes every
+        # column, so its length is the number of unique symbols - fewer than the matrix has
+        # columns wherever symbols repeat. Sizing the accumulators from it makes every
         # `+=` a broadcast error, and would have silently mislabelled every gene past the first
         # duplicate if the shapes had happened to match.
         genes = self.gene_names()

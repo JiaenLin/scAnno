@@ -10,12 +10,12 @@ FORCE is the case where the cohort AGREED the split is admissible — every samp
 the node descended below it — and yet some cells still stopped ON the node, because their own
 cluster's gap fell short where every other sample's cleared. Those cells end up carrying the
 name of a COMPARTMENT: the identical string the L1 column uses for every cell beneath it. Read
-side by side, the two delivered columns then disagree about what one word means — on the cohort
-this was written for, one animal's several hundred `Endothelial` against the tens of
-thousands the compartment holds.
+side by side, the two delivered columns then disagree about what one word means: one animal's
+stranded cells under the compartment's name, against everything the compartment holds in the
+L1 column.
 
 A seal cannot repair that. Sealing a node the cohort agreed to split would throw away the split
-for all ten samples in order to tidy up two, which is a removal paid for by every animal. So the
+for every sample in order to tidy up a few, which is a removal paid for by every animal. So the
 node keeps its children and the STRANDED CELLS move instead: each is pushed to the child it was
 already measured to be most similar to.
 

@@ -162,8 +162,8 @@ check("the stats say so explicitly rather than omitting the field",
 
 print("\n5 - the cluster-share exclusion is GONE, and cannot return by default")
 # This section tests an absence. `--exclude-mode cluster` excluded nuclei upstream QC had
-# passed - 783 of 2,680 on the cohort it was written for - and was removed in 0.3.0 rather
-# than left switched off. A capability that is merely defaulted-off is one command-line
+# passed - every one in a cluster whose flagged share crossed the threshold - and was removed in
+# 0.3.0 rather than left switched off. A capability that is merely defaulted-off is one command-line
 # argument away from returning; one whose symbols are gone fails at import.
 for name in ("cluster_flags", "exclusion_record", "FLAG_SHARE", "CELL", "CLUSTER", "MODES"):
     check(f"scanno exports no {name!r}", not hasattr(scanno, name),

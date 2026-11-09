@@ -586,7 +586,7 @@ def _annotate(a):
     # --- the independent L1 tree, checked BEFORE the object is read ---
     #
     # A depth-1 tree is the only thing that can produce an L1 column, and the check is on the
-    # DECLARATION so that all ten samples of a cohort get the same verdict. It runs here, ahead
+    # DECLARATION so that every sample of a cohort gets the same verdict. It runs here, ahead
     # of the h5ad read and the background, because a refusal after the expensive part is a
     # refusal the caller pays for twice.
     l1_tree = None
@@ -1307,8 +1307,8 @@ def _cluster(a):
             if name is not None:
                 p = out_dir / f"{name}_clustered.h5ad"
             elif out_dir:
-                # Named from the INPUT's stem, so ten libraries land in ten files rather than
-                # taking turns overwriting one.
+                # Named from the INPUT's stem, so every library lands in its own file rather than
+                # each taking its turn overwriting one.
                 p = out_dir / f"{Path(src).stem}_clustered.h5ad"
             else:
                 p = Path(a.out)
@@ -2275,15 +2275,17 @@ def _store_info(a):
 
 #: Options removed in 0.3.0, with what to do instead. They are checked BEFORE parsing so an old
 #: command line gets the reason rather than argparse's "unrecognized arguments" - a generic error
-#: invites the reader to look for a typo, and the answer here is that the behaviour is gone.
+#: invites the reader to look for a typo, and the answer here is that the behaviour is gone. Each
+#: reason states what the option DID. The counts it once quoted were one cohort's, and a cohort's
+#: numbers have no place in a tool.
 RETIRED_OPTIONS = {
     "--exclude-mode": (
         "There is one exclusion path now and it is the flag itself. `--exclude-mode cluster` "
-        "widened the flag to whole clusters, which excluded observations upstream QC had PASSED "
-        "(measured: 783 of 2,680, 29.2%, on the cohort it was written for) and made the "
-        "excluded set depend on your resolution (42 withheld at 0.25, 4,080 at 2.0 from one "
-        "unchanged flag). Drop the option: `--exclude-flag COLUMN` alone now does what "
-        "`--exclude-mode cell` did."),
+        "widened the flag to whole clusters: once a share of a cluster was flagged, all of it was "
+        "withheld. So it withheld observations upstream QC had PASSED, because their neighbours "
+        "had not; it kept flagged observations wherever their cluster stayed under the share; and "
+        "the withheld set changed with your clustering resolution while the flag did not. Drop "
+        "the option: `--exclude-flag COLUMN` alone now does what `--exclude-mode cell` did."),
     "--exclude-share": (
         "A share threshold is a QC decision, and scAnno does not make QC decisions. It existed "
         "only for the removed `--exclude-mode cluster`. If you want a cluster-level exclusion, "
@@ -2293,7 +2295,7 @@ RETIRED_OPTIONS = {
 
 
 def _refuse_retired(argv) -> int | None:
-    """Refuse a retired option by name, with the measurement that retired it."""
+    """Refuse a retired option by name, with what it did and what to use instead."""
     for opt, why in RETIRED_OPTIONS.items():
         if any(t == opt or t.startswith(opt + "=") for t in (argv or [])):
             _ST.refuse(f"{opt} was removed in 0.3.0.\n\n        {why}\n")
