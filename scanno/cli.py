@@ -314,6 +314,7 @@ def _rescue(a):
     from . import __version__
     from .emit import annotate_rescue, write_h5ad
     from .rescue import document, rescue, summarise
+    _ST.lap("import")
 
     objs, labels, sweep, clus, units = {}, {}, {}, {}, []
     for path in a.h5ad:
@@ -517,6 +518,9 @@ def _annotate(a):
         print("scanno: annotate needs anndata + scanpy.  pip install -e '.[run]'",
               file=sys.stderr)
         return 1
+    # The analysis stack's import is a step of its own: on a small object it is most of the wall
+    # time, and folded into `read` it would make reading look slow.
+    _ST.lap("import")
 
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
 
@@ -1220,6 +1224,7 @@ def _cluster(a):
               file=sys.stderr)
         return 1
     from .cluster import cluster, parse_resolutions, split
+    _ST.lap("import")
 
     try:
         res = parse_resolutions(a.resolutions)

@@ -337,9 +337,10 @@ on another machine is a separate measurement.
 
 **Every run records its time.** Each `STATUS.<cmd>.json` carries `timings`: the command's wall time
 (`wall_s`), the observations it read (`n_obs`), and its steps in order, each with its own `wall_s`.
-`annotate`'s steps are `read`, `normalise`, `profile`, `background`, `standardise`, `corpus`, `walk`,
-and `force`, `l1`, `resolve`, one `sweep <key>` per further resolution, `write` and `report` when
-they run. `cluster` times each object, and `rescue` times `read`, `search` and `write`. Whatever
+`annotate`'s steps are `import` (the analysis stack, often most of a small run), `read`,
+`normalise`, `profile`, `background`, `standardise`, `corpus`, `walk`, and `force`, `l1`, `resolve`,
+one `sweep <key>` per further resolution, `write` and `report` when they run. `cluster` times its
+`import` and then each object, and `rescue` times `import`, `read`, `search` and `write`. Whatever
 ran after the last named step is `finish`, so the steps add up to the whole. Several runs that share
 an output directory overwrite one another's record. `--status-dir` keeps each one.
 
