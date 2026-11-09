@@ -18,7 +18,11 @@ the one this suite runs are the same. Gene symbols are upper case, which is the 
 convention, and `var_names` are Ensembl-shaped accessions with the symbols in
 `var["gene_symbol"]`, which is the ordinary delivered layout. The accessions are not real.
 
-    from tests._cohort import write_cohort, write_corpus, write_tree
+    from _cohort import write_cohort, write_corpus, write_tree
+
+Imported BY FILE, from a suite run as a script (tests/ is then on sys.path[0]), like `_terms`. Never
+as `tests._cohort`: an environment can carry a regular package named `tests`, which beats this
+directory on import.
 """
 from __future__ import annotations
 

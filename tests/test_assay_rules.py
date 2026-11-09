@@ -55,7 +55,10 @@ except ImportError as e:
     print(f"SKIP: needs {e.name}")
     raise SystemExit(0)
 
-from tests._cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree  # noqa: E402
+# By file, not through `tests`: an environment can carry a regular package of that name, which
+# beats this directory on import (tests/test_portability.py, section 3).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree  # noqa: E402
 
 # Every figure the run saves passes through Figure.savefig; its text is read on the way out, so a
 # word drawn into a PNG is checked like a word written into the HTML.

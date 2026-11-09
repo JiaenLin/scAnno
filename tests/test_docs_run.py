@@ -57,7 +57,10 @@ except ImportError as e:
     print(f"SKIP: needs {e.name}")
     raise SystemExit(0)
 
-from tests._cohort import TREE, write_cohort, write_corpus, write_sample, write_tree  # noqa: E402
+# By file, not through `tests`: an environment can carry a regular package of that name, which
+# beats this directory on import (tests/test_portability.py, section 3).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _cohort import TREE, write_cohort, write_corpus, write_sample, write_tree  # noqa: E402
 
 #: First words of lines this test does not run. Each is printed when it is skipped.
 NOT_RUN = {"git": "needs the network", "pip": "needs the network",

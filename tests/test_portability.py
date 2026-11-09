@@ -13,6 +13,8 @@ WHAT IS CHECKED
      SHAPES of site leakage (tests/_terms.py) and the TERMS in $SCANNO_FORBIDDEN_TERMS, a file
      outside the repository, so this guard never spells what it guards against
   2. the arguments that describe a DESIGN carry no such term in their help text
+  3. every suite imports its helpers by file (`from _terms import ...`), never through a package
+     called `tests`, which an environment can already contain
 
 This file exempts only itself. Stdlib only.
 """
@@ -70,8 +72,26 @@ for flag in ("--group-order", "--factor", "--condition-key", "--sample-key", "--
         h = hits(blob)
         check(f"{flag}'s help names no cohort", not h, "; ".join(w for _, w, _ in h[:3]))
 
+print("\n3 - every suite imports its helpers by file, never through a package called `tests`")
+# tests/ has no __init__.py, and a REGULAR package beats it on import. Some environments carry a
+# third-party regular package named `tests` in site-packages, and there
+# `from tests._cohort import ...` imports THAT package and fails, though it passes everywhere
+# else. Each suite runs as a script with tests/ on sys.path[0], so `from _cohort import ...`
+# resolves by file, which is how `_terms` has always been imported.
+import ast  # noqa: E402
+
+shadowable = []
+for p in sorted((ROOT / "tests").glob("*.py")):
+    for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+        names = ([n.module] if isinstance(n, ast.ImportFrom) and n.level == 0 and n.module
+                 else [a.name for a in n.names] if isinstance(n, ast.Import) else [])
+        shadowable += [f"tests/{p.name}:{n.lineno} imports {m}" for m in names
+                       if m == "tests" or m.startswith("tests.")]
+check("no suite imports through a package named `tests`", not shadowable,
+      "; ".join(shadowable[:4]))
+
 print("")
 if fails:
     print(f"FAIL: {len(fails)}")
     raise SystemExit(1)
-print("PASS: no site or cohort identifier in the tree")
+print("PASS: no site or cohort identifier in the tree, and no suite a site package can shadow")
