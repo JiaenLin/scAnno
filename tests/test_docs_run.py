@@ -9,9 +9,11 @@ an argparse error at the first annotation. Nothing ran the examples, so nothing 
 WHAT THIS DOES. Each fenced `bash` block of each document is run in bash, in document order, in
 one working directory per document, so a later block reads what an earlier one wrote, as a reader
 would. `scanno` on the PATH is this checkout. The reader brings three files, and the test builds
-them from tests/_cohort.py:
-    README.md            qc.h5ad (the QC'd cohort), corpus.db, tree.json
-    docs/QUICKSTART.md   sample.h5ad (one sample),   corpus.db, tree.json (its own section 3)
+them from tests/_cohort.py and tests/fixtures/mini_cellmarker.txt (an invented release in the
+CellMarker 3.0 layout, zipped as the release is fetched):
+    README.md            qc.h5ad (the QC'd cohort), all_cell_marker.zip, tree.json
+    docs/QUICKSTART.md   sample.h5ad (one sample),   all_cell_marker.zip, tree.json (its own section 3)
+The corpus is BUILT by the documents' own `scanno build-markers` (single-cell-harness B1-030).
 Every other file a command reads must be written by an earlier command of the same document.
 
 WHAT IT DOES NOT RUN, and says so line by line: commands of other programs. `git clone` and
@@ -60,7 +62,15 @@ except ImportError as e:
 # By file, not through `tests`: an environment can carry a regular package of that name, which
 # beats this directory on import (tests/test_portability.py, section 3).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _cohort import TREE, write_cohort, write_corpus, write_sample, write_tree  # noqa: E402
+from _cohort import TREE, write_cohort, write_sample, write_tree  # noqa: E402
+
+
+def write_release(path):
+    """The invented release, zipped under the member name CellMarker 3.0's archive uses."""
+    import zipfile
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(ROOT / "tests" / "fixtures" / "mini_cellmarker.txt", "all_cell_marker.txt")
+    return path
 
 #: First words of lines this test does not run. Each is printed when it is skipped.
 NOT_RUN = {"git": "needs the network", "pip": "needs the network",
@@ -170,10 +180,10 @@ from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 with ThreadPoolExecutor(max_workers=2) as pool:
     qs_job = pool.submit(run_document, "docs/QUICKSTART.md",
-                         {"sample.h5ad": write_sample, "corpus.db": write_corpus,
+                         {"sample.h5ad": write_sample, "all_cell_marker.zip": write_release,
                           "tree.json": quickstart_tree})
     rd_job = pool.submit(run_document, "README.md",
-                         {"qc.h5ad": write_cohort, "corpus.db": write_corpus,
+                         {"qc.h5ad": write_cohort, "all_cell_marker.zip": write_release,
                           "tree.json": write_tree})
     qs_work, n_qs, qs_skipped, qs_results = qs_job.result()
     rd_work, n_rd, rd_skipped, rd_results = rd_job.result()

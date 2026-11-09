@@ -2343,6 +2343,25 @@ def _panel(a):
     return 0
 
 
+def _build_markers(a):
+    """Build an evidence-graded marker corpus from a CellMarker 3.0 release (scanno/markers.py)."""
+    from . import __version__
+    from .markers import ReleaseError, build
+    try:
+        info = build(a.release, a.out, reference=a.reference_genes, member=a.member,
+                     version=__version__, log=print)
+    except ReleaseError as e:
+        _ST.refuse(e.reason, fix=e.fix, code=e.code)
+        return REFUSE
+    _ST.record("corpus", {k: info[k] for k in ("source_file", "source_sha256", "source_member",
+                                               "rows_written", "rows_malformed_skipped",
+                                               "assertions", "reference_genes")})
+    print(f"\n{int(info['assertions']):,} assertions from {int(info['rows_written']):,} rows; "
+          f"reference genes: {info['reference_genes']}. Next: `scanno panel --db {a.out} "
+          f"--species ... --tissue ...` to see what it knows about your context.")
+    return 0
+
+
 def _store_info(a):
     import numpy as np
     d = np.load(a.store, allow_pickle=True)
@@ -2966,6 +2985,24 @@ def main(argv=None):
     s.add_argument("--top", type=int, default=20)
     s.set_defaults(fn=_panel)
 
+    s = sub.add_parser("build-markers",
+                       help="build the marker corpus from a CellMarker 3.0 release you fetched: "
+                            "every row kept, one assertion per (species, tissue, cell name, gene "
+                            "symbol), evidence tiers E1-E5. The database is never redistributed")
+    s.add_argument("--release", required=True, type=Path, metavar="ZIP|TXT",
+                   help="the release: all_cell_marker.zip as fetched, read in place, or its text "
+                        "member")
+    s.add_argument("--out", required=True, type=Path, metavar="corpus.db",
+                   help="the SQLite corpus to write. An existing file is refused, never replaced")
+    s.add_argument("--reference-genes", nargs="+", type=Path, default=None, metavar="FILE",
+                   help="the gene axis of the data the corpus will be used on: a text file of "
+                        "names, one per line, or an .h5ad's var_names. Fills in_reference and "
+                        "exact_reference and the display spelling; without it they are NULL")
+    s.add_argument("--member", default=None,
+                   help=f"the archive member holding the release (default {'all_cell_marker.txt'} "
+                        f"or the archive's only text file)")
+    s.set_defaults(fn=_build_markers)
+
     s = sub.add_parser("calibrate", help="learn marker reliability from annotated atlases")
     s.add_argument("--manifest", required=True, type=Path,
                    help="TSV: path, source_id, label_key, provenance")
@@ -3095,7 +3132,8 @@ def _describe(a):
          "summary": "hierarchical cell-type annotation: walk a declared tree over cluster markers, "
                     "force nothing without saying so, and report what the sweep agrees on",
          "needs": ["matrix/{lognorm}", "column/{cluster}"],
-         "references": ["tree (JSON taxonomy)", "store.npz or a CellMarker-schema SQLite"],
+         "references": ["tree (JSON taxonomy)", "store.npz or a CellMarker-schema SQLite, built "
+                        "with `scanno build-markers` from a CellMarker 3.0 release"],
          "provides": ["column/{prefix}_cell_type", "column/{prefix}_path", "column/{prefix}_depth",
                       "column/{prefix}_gap", "column/{prefix}_survival", "column/{prefix}_support",
                       "column/{prefix}_resolved_path", "column/{prefix}_assignment",
@@ -3124,8 +3162,8 @@ def _describe(a):
 
 
 _COMMANDS = ("selftest", "cluster", "background", "annotate", "rescue", "compare", "joint-review",
-             "report", "embed", "lab", "scope", "readme", "panel", "calibrate", "store-info", "agent",
-             "resolution", "describe")
+             "report", "embed", "lab", "scope", "readme", "panel", "build-markers", "calibrate",
+             "store-info", "agent", "resolution", "describe")
 
 
 def _escapes(a) -> list:

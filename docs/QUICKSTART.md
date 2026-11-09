@@ -16,10 +16,18 @@ The decision layer itself is numpy + scipy only. `[run]` is needed to read `.h5a
 
 ## 2 · Get a marker corpus
 
-scAnno **does not ship one**. Download a CellMarker release
-(`all_cell_marker.zip`) and build the database with your own ingest, or point `--db` at
-an existing SQLite file with an `assertion` table carrying `species`, `tissue_class`,
-`cell_name`, `symbol_norm`, `evidence_tier` and `n_pmids`.
+scAnno **does not ship one**, and the database is never redistributed. Download the CellMarker 3.0
+release (`all_cell_marker.zip`) and build it:
+
+```bash
+scanno build-markers --release all_cell_marker.zip --out corpus.db
+```
+
+It keeps every row, folds `Cd3d` and `CD3D` into one gene, grades each assertion E1 (two or more
+experimental papers) to E5 (a marker detector, no paper), and records the release's sha256 in the
+database. Add `--reference-genes genes.txt` (or your `.h5ad`) to mark which markers your data can
+measure. `--db` also takes an existing SQLite file with an `assertion` table carrying `species`,
+`tissue_class`, `cell_name`, `symbol_norm`, `evidence_tier` and `n_pmids`.
 
 Check what the corpus knows about your tissue before anything else:
 

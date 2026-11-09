@@ -165,7 +165,8 @@ def products_of(d: Path, cmd: str) -> list:
     if not d.is_dir():
         return out
     for p in sorted(d.rglob("*")):
-        if p.is_file() and p.suffix in (".json", ".csv", ".tsv", ".html", ".h5ad", ".npz", ".md") \
+        if p.is_file() and p.suffix in (".json", ".csv", ".tsv", ".html", ".h5ad", ".npz", ".md",
+                                        ".db") \
                 and not p.name.startswith(("STATUS.", "RUNNING.", "SEALED.", "FAILED.")):
             out.append({"path": _rel(p, d), "bytes": p.stat().st_size})
     return out[:500]

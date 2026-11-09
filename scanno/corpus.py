@@ -4,9 +4,10 @@ This is the path most users take. A curated corpus covers far more species x tis
 contexts than annotated atlases do, and a tool that only works once someone supplies an
 atlas is not a general tool.
 
-The corpus is NOT distributed with scAnno, and no `scanno` command builds it: the user ingests
-a release they fetch themselves into the six-column `assertion` table below (README, Install),
-the same way scQC ships a reference registry and not a genome.
+The corpus is NOT distributed with scAnno, and the database built from it is never
+redistributed: `scanno build-markers` (scanno/markers.py) builds it from a CellMarker 3.0 release
+the user fetches, the same way scQC ships a reference registry and not a genome. Any SQLite file
+with the six `assertion` columns read below serves as well.
 
 WHICH ROWS A RUN READS. `resolve` turns the declared species and tissue into the corpus's own
 spellings: the species through species_check.normalise ('human', 'Homo sapiens' -> Human), the

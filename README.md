@@ -25,10 +25,19 @@ pip install -e '.[run]'      # '.[run]' adds anndata + scanpy for reading .h5ad
 scanno selftest
 ```
 
-The decision layer is numpy and scipy only. The marker corpus is **not** distributed: build a
-SQLite database from a CellMarker release, or point `--db` at any database with an `assertion`
-table carrying `species`, `tissue_class`, `cell_name`, `symbol_norm`, `evidence_tier` and
-`n_pmids`.
+The decision layer is numpy and scipy only. The marker corpus is **not** distributed, and the
+database built from it is never redistributed: fetch the CellMarker 3.0 release
+(`all_cell_marker.zip`) yourself and build your own. `--reference-genes` takes your data's gene
+axis (a text file of names, or an `.h5ad`) and records which markers it can measure.
+
+```bash
+scanno build-markers --release all_cell_marker.zip --out corpus.db
+```
+
+Every delivered row is kept; each (species, tissue, cell name, gene) becomes one assertion keyed by
+upper-cased symbol, graded E1-E5 by its evidence, and `corpus_info` records the release's sha256.
+`--db` also takes any database with an `assertion` table carrying `species`, `tissue_class`,
+`cell_name`, `symbol_norm`, `evidence_tier` and `n_pmids`.
 
 Check what the corpus knows about your tissue first — if `panel` refuses, tuning will not help:
 
@@ -374,6 +383,7 @@ renamed — code that asks for a role passes both, code that knows a column name
 | ✅ scope: SEAL / KEEP / FORCE | voted across a cohort. A forced call is never pooled with a gap-cleared one: `<prefix>_assignment` records how each cell was assigned and `uns` carries every step's margin |
 | ✅ exclusion, provenance | equivalence to deletion asserted by digest, not only by count |
 | ✅ calibration, resolution, kNN diagnostic, two-route check, agent | all built and tested |
+| ✅ the marker corpus | `scanno build-markers` builds it from a CellMarker 3.0 release: every row kept, E1-E5 tiers, the release's sha256 recorded. A rebuild of the first cohort's release reproduces its project-built corpus row for row |
 | ❌ no ingest, no task graph | step 0 is specified, not built |
 | ❌ one evidence stream | reference label transfer and de-novo marker lookup are designed, not built |
 

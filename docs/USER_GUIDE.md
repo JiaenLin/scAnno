@@ -237,6 +237,31 @@ demands a `reason` with it.
 
 ---
 
+## `scanno build-markers`
+
+The marker corpus, built from a CellMarker 3.0 release you fetched. The release and the database
+built from it are never redistributed: each project builds its own.
+
+```
+scanno build-markers --release all_cell_marker.zip --out corpus.db [--reference-genes genes.txt|data.h5ad]
+```
+
+| table | holds |
+|---|---|
+| `marker` (+ `tissue`, `celltype`, `gene`, `disease`, `source`) | every delivered row, nothing filtered |
+| `assertion` | one row per (species, tissue_class, cell_name, UPPER(symbol)): publication, dataset and method counts, `evidence_tier` 1-5, `specificity` and `specificity_pub` |
+| `ortholog` | mouse-human pairs by case-insensitive symbol, labelled `symbol_case`: renamed genes and expanded families are missed |
+| `corpus_info` | the release's file name, member and sha256, the row counts, the reference list's size and sha256, the tier ladder, the scanno version |
+
+E1: two or more experimental publications (Experiment, Review). E2: one. E3: two or more single-cell
+publications. E4: one. E5: a marker detector ran and no paper asserts it. `annotate` reads E1-E4 by
+default (`--min-tier 4`). `--reference-genes` is your data's gene axis; it fills `in_reference`,
+`exact_reference` and the display spelling, which are NULL without it. The zip is read in place.
+An existing `--out` is refused, never replaced. `specificity` is entropy over CLAIMS - a gene named
+once scores 1.0 - so it never ranks or filters on its own.
+
+---
+
 ## `scanno panel`
 
 What the corpus knows about a context, before you rely on it.
