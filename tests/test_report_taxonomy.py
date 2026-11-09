@@ -192,12 +192,45 @@ def test_an_internal_frame_key_is_translated_to_the_real_obs_column():
 
 def test_an_all_zero_dotplot_is_refused_rather_than_drawn():
     """It rendered once: every row, every gene column, every bracket, and no dots. That reads as
-    'these markers are not expressed' when nothing was measured at all."""
-    src = (ROOT_DIR / "scanno" / "figures.py").read_text()
-    assert "AN ALL-ZERO GRID IS NOT A FIGURE" in src
-    assert "nothing was measured" in src
-    ctxsrc = (ROOT_DIR / "scanno" / "context.py").read_text()
-    assert "no object carries the obs column" in ctxsrc
+    'these markers are not expressed' when nothing was measured at all.
+
+    Run, not read (single-cell-harness B1-034; this read a COMMENT in figures.py): the dotplot
+    handed a context whose expression is all zero raises NotDrawable saying nothing was measured,
+    and the real Context, asked for a column no object carries, raises naming the column instead
+    of returning the zeros that would have drawn the empty grid.
+    """
+    import numpy as np
+    from scanno.figures import F108, NotDrawable
+
+    class Zero:
+        def label_order_for(self, col):
+            return ["Alpha", "Beta"]
+
+        def has_gene(self, g):
+            return True
+
+        def expression_by_label(self, genes, depth, labels, col=None):
+            z = np.zeros((len(labels), len(genes)))
+            return z, z
+
+    with pytest.raises(NotDrawable):
+        F108(Zero(), col="path", panel_labels={"Alpha": ["G1"], "Beta": ["G2"]})
+    try:
+        F108(Zero(), col="path", panel_labels={"Alpha": ["G1"], "Beta": ["G2"]})
+    except NotDrawable as e:
+        assert "nothing was measured" in str(e), str(e)
+
+    import anndata as ad
+    from scanno.context import Context
+    A = ad.AnnData(X=np.ones((2, 2), dtype="float32"))
+    A.obs_names, A.var_names = ["c0", "c1"], ["G1", "G2"]
+    A.obs["scanno_path"] = ["Alpha", "Beta"]
+    ctx = Context(assay="scrna", objects=[("S", A)], path_key="scanno_path")
+    try:
+        ctx.expression_by_label(["G1"], 1, ["Alpha"], col="no_such_column")
+        raise AssertionError("zeros came back for a column no object carries")
+    except KeyError as e:
+        assert "no object carries the obs column" in str(e), str(e)
 
 
 def reference_cohort():
@@ -212,42 +245,12 @@ def rows_of(h, needle):
     return [r for r in re.findall(r"<tr.*?</tr>", h, re.S) if needle in r]
 
 
-# ---------------------------------------------------------------- the wiring, not the rendering
+# ---------------------------------------------------------------- the wiring is run, not read
+#
+# That `scanno report` puts this section on the cohort page, threads --l1-key and the declared
+# tree into it, and writes both columns into report.json is RUN in tests/test_report_cli.py §1.
+# It was read off document.py, cli.py and context.py (single-cell-harness B1-034).
 
-def test_the_section_is_on_the_live_path():
-    """`document.py` assembles the cohort document. `report.py` does not, and never did."""
-    doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
-    rpt = (ROOT_DIR / "scanno" / "report.py").read_text(encoding="utf-8")
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-
-    assert "def taxonomy_section(" in doc, "the section must live in the module write_all() calls"
-    cohort = doc.split("def write_cohort(", 1)[1].split("\ndef ", 1)[0]
-    assert "taxonomy_section(" in cohort, "write_cohort() must CALL it; defining it is not enough"
-    assert "def taxonomy_section(" not in rpt, (
-        "report.py is not imported by document.py; a section there renders nowhere")
-    assert "from .report" not in doc and "import report" not in doc
-    assert "from .document import write_all" in cli
-
-
-def test_the_cli_threads_the_l1_column_and_the_declared_tree_into_the_context():
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-    ctxsrc = (ROOT_DIR / "scanno" / "context.py").read_text(encoding="utf-8")
-    assert '"--l1-key"' in cli, "the report subcommand must accept --l1-key"
-    assert "l1_key=a.l1_key" in cli, "and pass it into the Context"
-    assert "l1_key=None" in ctxsrc and "self.l1_key = l1_key" in ctxsrc
-    # The declared tree is what separates `leaf` from `sealed`. It used to be loaded only on the
-    # --panels auto path, so every terminal label read as a complete call.
-    assert "tree=declared_tree" in cli, "the DECLARED tree must reach the Context"
-    assert "declared_tree = " in cli
-
-
-def test_report_json_carries_both_columns_machine_readable():
-    doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
-    payload = doc.split("payload = {", 1)[1].split("(out / \"report.json\")", 1)[0]
-    assert '"l1"' in payload, "a consumer must not have to scrape the HTML for the two columns"
-
-
-# ---------------------------------------------------------------- absence is NAMED
 
 def test_no_independent_column_is_a_named_absence_not_a_missing_section():
     ctx = reference_cohort()
@@ -396,20 +399,9 @@ def test_samples_are_counted_against_the_cohort_not_a_literal():
 
 # ---------------------------------------------------------------- the guard on --l1-key
 
-def test_the_cli_refuses_an_l1_key_that_is_the_deep_walk_itself():
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = cli.split("def _report(", 1)[1].split("\ndef ", 1)[0]
-    assert "a.l1_key == path_key" in fn, (
-        "pointing --l1-key at the deep column would report a column agreeing with itself")
-    assert 'REFUSE' in fn and '"/" in str(v)' in fn, (
-        "a PATH column passed as --l1-key must be refused: it is not an independent L1")
-
-
-def test_the_guard_does_not_refuse_the_good_outcome():
-    """Perfect agreement is the RESULT, not a defect. It must never be refused."""
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = cli.split("def _report(", 1)[1].split("\ndef ", 1)[0]
-    assert "refusing it would refuse the good outcome" in fn
+# THE --l1-key GUARD refuses the deep walk's own column and any column holding paths, and does
+# NOT refuse a column that agrees everywhere: run in tests/test_report_cli.py §2-3. It was read
+# off `_report`'s source, a comment included (B1-034).
 
 
 # ---------------------------------------------------------------- what it cannot show

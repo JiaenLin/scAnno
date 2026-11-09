@@ -10,8 +10,8 @@ untested, between the tool and the deliverable.
 
 Five things have to hold for the flag to replace that, and each has a test named for it:
 
-  1. the walk is UNCHANGED — `classify.py` is byte-identical, and the second run is a second
-     CALL with a different tree, not a mode inside the walk;
+  1. the second walk is a second CALL with a different tree, not a mode inside the walk - run
+     through the CLI in tests/test_annotate_cli.py;
   2. the L1 column keeps the name a reader keys on, and a suffixed run still cannot collide;
   3. the column is marked INDEPENDENT in the object, so a reader can tell it from a derived one;
   4. a tree that is not depth-1 is REFUSED, on the declaration, so every sample of a cohort
@@ -22,7 +22,6 @@ Five things have to hold for the flag to replace that, and each has a test named
 """
 from __future__ import annotations
 
-import ast
 import json
 import sys
 from pathlib import Path
@@ -105,41 +104,12 @@ def calls(*paths):
     return out
 
 
-# ===================================================================== 1. the walk is unchanged
-
-def test_the_independent_l1_is_a_second_call_not_a_second_mode():
-    """`cli._annotate` must reach the L1 tree by CALLING `classify` again, not by a mode flag.
-
-    Counted at exactly two until the resolution sweep was added, which walks once per further
-    resolution against `--tree`. Two was never the guarantee - the guarantee is that the L1 tree
-    is reached by one more CALL, with the same bar and the same withheld set as the walk it is
-    compared against. That property is what is asserted now, and it holds for any number of
-    resolutions.
-    """
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    calls_ = [n for n in ast.walk(fn)
-              if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "classify"]
-    assert len(calls_) >= 2, f"{len(calls_)} classify() call(s) in _annotate"
-    trees = [c.args[2].id for c in calls_]
-    assert trees.count("l1_tree") == 1, trees
-    assert set(trees) == {"tree", "l1_tree"}, trees
-    # ONE bar everywhere. A sweep walked at a different gap would not be a sweep of this run.
-    for c in calls_:
-        kw = {k.arg: ast.unparse(k.value) for k in c.keywords}
-        assert kw["gap_min"] == "a.gap_min", kw
-    # THE WITHHELD SET IS THE ONE BELONGING TO THAT CALL'S OWN CLUSTERING - `drop` for the run
-    # and its L1, `drop_k` for a sweep resolution, because which clusters are unprofilable is a
-    # property of the partition. The L1 must share the RUN's, or the two columns it is compared
-    # against are not comparable.
-    by_tree = {}
-    for c in calls_:
-        kw = {k.arg: ast.unparse(k.value) for k in c.keywords}
-        by_tree.setdefault(c.args[2].id, set()).add(kw["exclude"])
-    assert by_tree["l1_tree"] == {"drop"}, by_tree
-    assert by_tree["tree"] <= {"drop", "drop_k"}, by_tree
-    assert "drop" in by_tree["tree"], by_tree
+# ======================================================== 1. a second walk, not a second mode
+#
+# Run through the CLI in tests/test_annotate_cli.py §2: under a FORCE scope, the L1 column equals
+# a separate `annotate --tree <the depth-1 tree>` cell for cell, under the same exclusion - the
+# same walk, bar and withheld set, against the other tree. That was an AST count of `classify(`
+# calls in `cli._annotate`, and classify.py's sha256 (single-cell-harness B1-032, B1-034).
 
 
 # ================================================== 2. the column name, and the sweep collision
@@ -288,20 +258,9 @@ def test_the_library_refuses_a_walk_that_returned_a_path():
     assert "scAnno_L1" not in A.obs, "it wrote the column before refusing"
 
 
-def test_the_cli_refuses_a_deep_l1_tree_before_reading_the_object():
-    """On the DECLARATION, so every sample of a cohort gets the same verdict.
-
-    A result-based check would be data-dependent: the same tree would pass on the sample whose
-    gaps all failed and refuse on the next, leaving half a cohort's column written each way.
-    """
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    body = ast.unparse(fn)
-    guard = body.index("tree_depth(l1_tree)")
-    read = body.index("ad.read_h5ad(a.h5ad)")
-    assert guard < read, "the depth guard runs after the object is read"
-    assert "return REFUSE" in body[guard:read], "the guard reports but does not refuse"
+# THE CLI REFUSES A DEEP --l1-tree BEFORE READING THE OBJECT: run in tests/test_annotate_cli.py §4
+# (a depth-2 tree with a missing object exits 2 naming the tree, not 1 for the object). It was a
+# comparison of two source positions in `cli._annotate` (B1-034).
 
 
 def test_root_child_diff_names_the_trees_that_are_not_comparable():
@@ -329,30 +288,11 @@ def test_without_the_flag_the_annotate_path_is_untouched():
     assert not A.uns
 
 
-def test_the_flag_is_registered_on_annotate_and_read_only_there():
-    """`--out-gene-key` was once added to the wrong subparser and read by this handler."""
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    assert '"--l1-tree"' in src
-    i = src.index('sub.add_parser("annotate"')
-    j = src.index('sub.add_parser("compare"')
-    assert i < src.index('"--l1-tree"') < j, "--l1-tree is not on the annotate subparser"
-
-
-def test_the_flag_is_optional_and_defaults_to_off():
-    """No `required`, no `default` — so argparse gives None and `if l1_tree` is False."""
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    add = next(n for n in ast.walk(ast.parse(src))
-               if isinstance(n, ast.Call)
-               and getattr(n.func, "attr", "") == "add_argument"
-               and n.args and getattr(n.args[0], "value", "") == "--l1-tree")
-    kw = {k.arg for k in add.keywords}
-    assert "required" not in kw and "default" not in kw, kw
-
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    body = ast.unparse(fn)
-    assert "l1_tree = None" in body, "l1_tree must be None unless the flag was given"
-    assert "if res_l1 is not None" in body, "the second walk must be gated on the flag"
+# --l1-tree IS ANNOTATE'S OPTION, AND DEFAULTS TO OFF: run in tests/test_annotate_cli.py §3 and §5
+# (without it the L1 column is derived and claims no independence; `annotate --help` offers it
+# and `compare --help` does not). They were readings of cli.py's parser order and of
+# `l1_tree = None` in `_annotate` (B1-034). tests/test_cli_wiring.py still checks, statically,
+# that every option a handler reads is registered on its own subparser.
 
 
 # ------------------------------------------------------------------------------- helpers

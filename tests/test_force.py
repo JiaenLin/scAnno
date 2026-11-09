@@ -23,8 +23,9 @@ The fix has to hold eight things at once, and each has a test named for it:
   2. after annotation NO cell carries a bare FORCE-node name;
   3. a forced call is marked as such per CELL and its margin travels with it — it is not the
      same evidential claim as a gap-cleared call and must stay filterable;
-  4. the L1 column is untouched by seal and by force;
-  5. without `--scope` nothing whatsoever changes;
+  4. the L1 column is untouched by seal and by force (run through the CLI in
+     tests/test_annotate_cli.py §2);
+  5. without `--scope` nothing whatsoever changes (tests/test_annotate_cli.py §1);
   6. WHICH nodes are FORCE comes from the scope FILE — nothing in the library names a node, a
      sample, a cohort size or a threshold;
   7. the child FORCE pushes to first is the one the walk itself ranked highest at the node it
@@ -38,7 +39,6 @@ The fix has to hold eight things at once, and each has a test named for it:
 """
 from __future__ import annotations
 
-import ast
 import sys
 from pathlib import Path
 
@@ -418,49 +418,10 @@ def test_the_l1_column_is_untouched_by_seal_and_by_force():
     assert check_scope(scope(root="FORCE"), l1)               # root FORCE is refused, not run
 
 
-def _calls(fn, name):
-    return [n for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and getattr(n.func, "id", "") == name]
-
-
-def _guarded_by(fn, test_src):
-    """Every Call node sitting inside an `if <test_src>:` block of `fn`."""
-    out = set()
-    for n in ast.walk(fn):
-        if isinstance(n, ast.If) and ast.unparse(n.test) == test_src:
-            for b in n.body:
-                out |= {id(c) for c in ast.walk(b) if isinstance(c, ast.Call)}
-    return out
-
-
-def test_force_is_applied_to_the_deep_walk_and_never_to_the_independent_l1():
-    """AST, not behaviour: the guarantee is that the L1 result never reaches `apply_force`.
-
-    COUNTED to one until the resolution sweep was added, which legitimately forces once per
-    further resolution - the sweep is annotated against the SAME scope or it is not comparable
-    to the run it is a sweep of. A count of one asserted "there is exactly one caller", which
-    was never the guarantee; the guarantee is WHICH ARGUMENT reaches it, and that survives any
-    number of callers. A guard that fires on correct behaviour gets switched off.
-    """
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    used = _calls(fn, "apply_force")
-    assert used, "no apply_force() call in _annotate"
-    for c in used:
-        got = getattr(c.args[0], "id", "")
-        assert got in ("res", "res_k"), f"apply_force({got}) - the L1 walk must never reach it"
-        assert "l1" not in got, ast.unparse(c)
-    # THE INDEPENDENT L1 IS WALKED EXACTLY ONCE, and every other walk is against --tree. The
-    # sweep adds walks; it must add them against the same tree as the run, never against l1.
-    trees = [getattr(c.args[2], "id", ast.unparse(c.args[2])) for c in _calls(fn, "classify")]
-    assert trees.count("l1_tree") == 1, trees
-    assert set(trees) == {"tree", "l1_tree"}, trees
-    # ...and the L1 is resolved against l1_tree while every other resolve uses tree.
-    rl = [ast.unparse(k.value) for c in _calls(fn, "resolve_to_leaf") for k in c.keywords
-          if k.arg == "tree"]
-    assert rl.count("l1_tree") == 1, rl
-    assert set(rl) <= {"tree", "l1_tree"}, rl
+# THAT FORCE NEVER REACHES THE INDEPENDENT L1, and that the L1 is a second walk of its own tree,
+# are run through the CLI in tests/test_annotate_cli.py §2 (the L1 column equals a separate walk
+# of the depth-1 tree under a FORCE scope). They were AST counts of `apply_force(` and `classify(`
+# in `cli._annotate` (single-cell-harness B1-034).
 
 
 def test_the_independent_l1_column_still_says_it_is_independent_under_a_scope():
@@ -484,26 +445,9 @@ def test_the_independent_l1_column_still_says_it_is_independent_under_a_scope():
 
 # ========================================================= 5. absent --scope changes nothing
 
-def test_without_a_scope_the_annotate_path_is_untouched():
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    body = ast.unparse(fn)
-    assert _stmt("scope, force_paths = None, []") in body, "the scope must default to nothing"
-    assert "if force_paths:" in body, "the reassignment must be gated on the scope"
-    assert _stmt("force_rec = None") in body
-    assert "assignment=force_rec is not None" in body, "the column must be gated too"
-    # NOTHING MAY SEAL OR FORCE OUTSIDE THOSE GUARDS. Expressed as "every call site is inside
-    # an `if force_paths:`", not as "there is one call site": the resolution sweep forces once
-    # per further resolution, against the same scope, and a count would have refused that while
-    # the property it protects - no forcing without a scope - held throughout.
-    for site in _calls(fn, "apply_force"):
-        assert id(site) in _guarded_by(fn, "force_paths"), ast.unparse(site)
-    assert body.count("seal_tree(") == 1
-
-    opts = _annotate_parser()
-    assert "--scope" in opts, sorted(opts)
-    assert "required" not in opts["--scope"] and "default" not in opts["--scope"]
+# WITHOUT A SCOPE NOTHING CHANGES, and a scope that forces nothing changes nothing either: run in
+# tests/test_annotate_cli.py §1 (an all-KEEP scope gives the labels and the columns no scope
+# gives). It was a reading of `cli._annotate` for `if force_paths:` and its kin (B1-034).
 
 
 def test_without_the_flag_no_assignment_column_is_written():
@@ -799,47 +743,22 @@ def test_no_node_name_is_encoded_on_the_annotate_path():
 
 
 def test_force_declares_no_threshold_at_all():
-    """FORCE has no bar to tune. Every value it acts on comes out of the scope file.
+    """FORCE has no bar to tune: the margins it is handed decide nothing about WHERE it goes.
 
-    Two shapes are checked, because a hardcoded threshold can wear either: a float anywhere,
-    and a comparison against a number. Integers are allowed — they are list indices, and
-    `trace[-1]` is not a parameter.
+    Run, not scanned (single-cell-harness B1-034): the same chain pushed with a first margin just
+    below the corpus bar and with one near zero, and with a later step whose margin is near zero,
+    lands on the same leaf every time. A threshold anywhere in the push would split them.
     """
-    mod = ast.parse((ROOT / "scanno" / "force.py").read_text(encoding="utf-8"))
-    floats = [n.value for n in ast.walk(mod)
-              if isinstance(n, ast.Constant) and isinstance(n.value, float)]
-    assert floats == [], floats
-    for n in ast.walk(mod):
-        if isinstance(n, ast.Compare):
-            for c in n.comparators:
-                assert not (isinstance(c, ast.Constant)
-                            and isinstance(c.value, (int, float))
-                            and not isinstance(c.value, bool)), ast.unparse(n)
-
-    top = [t.id for s in mod.body if isinstance(s, ast.Assign) for t in s.targets
-           if isinstance(t, ast.Name)]
-    # A WHITELIST, extended deliberately and never loosened. Its job is that a tunable bar
-    # cannot arrive as a new module-level name; the RESOLVED_* entries are the vocabulary of the
-    # `resolved_origin` column, so the check below asserts they are strings rather than numbers,
-    # which is the property that actually matters.
-    # EXCLUDED and UNRESOLVED arrive by import from scanno/sentinels.py — the one definition —
-    # and tests/test_status_contract.py asserts they are the same objects everywhere.
-    assert set(top) == {"SEP", "ROOT", "FORCE", "SEAL", "BY_GAP", "BY_FORCE",
-                        "ASSIGNMENTS", "FROM_WALK", "FROM_INTERNAL", "FROM_ROOT",
-                        "RESOLVED_ORIGINS"}, top
-    for s in mod.body:
-        if not isinstance(s, ast.Assign):
-            continue
-        for tgt in s.targets:
-            if isinstance(tgt, ast.Name):
-                flat = ([s.value] if isinstance(s.value, ast.Constant)
-                        else list(getattr(s.value, "elts", [])))
-                for v in flat:
-                    assert not (isinstance(v, ast.Constant)
-                                and isinstance(v.value, (int, float))
-                                and not isinstance(v.value, bool)), \
-                        f"{tgt.id} declares a number; every value this module acts on comes " \
-                        f"out of the scope file"
+    leaf_of = {}
+    for first in (0.29, 0.001):
+        for later in (0.9, 1e-9):
+            res = calls("Stromal", trace={0: [at("root", "Stromal", .9),
+                                              at("Stromal", "Mural", first)]})
+            out, rec = apply_force(res, ["Stromal"], tree=TREE,
+                                   scorer=_scorer({"Mural": ("Pericyte", later)}))
+            leaf_of[(first, later)] = out[0]["path"]
+            assert rec["assigned"]["0"]["margins"] == [first, later], rec["assigned"]["0"]
+    assert set(leaf_of.values()) == {"Stromal/Mural/Pericyte"}, leaf_of
 
 
 def test_a_scope_that_is_not_a_scope_is_refused():
@@ -1257,34 +1176,29 @@ def test_internal_terminals_separates_a_broken_recursion_from_a_split_the_scope_
     assert [t for t in stopped if t["assignment"] == BY_FORCE] == []
 
 
-def test_the_cli_refuses_a_forced_cluster_that_stopped_on_an_internal_node():
-    """AST, not behaviour: the post-condition must be READ off the finished rows in `_annotate`,
-    and a `forced` row on any internal node must reach the same refusal as a bare FORCE name."""
-    src = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    body = ast.unparse(fn)
-    assert body.count("internal_terminals(") == 1
-    assert body.count("bare_force(") == 1
-    assert "node_scorer(" in body, "the recursion needs a real scorer, not trace[-1] twice"
-    assert _stmt("stuck += [t for t in inner "
-                 "if t['assignment'] == BY_FORCE and t['cluster'] not in seen]") in body
-    assert "if stuck:" in body and "return REFUSE" in body
+# WHAT THE CLI DOES WITH A CLUSTER FORCE CANNOT PUSH is run in tests/test_annotate_cli.py §6, on
+# a FORCE node whose children match nothing in the corpus. It was an AST reading of `stuck +=`
+# and `if stuck:` in `cli._annotate` (B1-034).
 
 
 def test_the_scorer_holds_no_bar_and_does_not_walk():
-    """`scanno/step.py` computes ONE node. The loop, the truncation rule and the gap bar stay in
-    classify.py — a second place that could decide to descend is a second classifier."""
-    src = (ROOT / "scanno" / "step.py").read_text(encoding="utf-8")
-    mod = ast.parse(src)
-    fn = next(n for n in ast.walk(mod) if isinstance(n, ast.FunctionDef) and n.name == "step")
-    assert not [n for n in ast.walk(fn) if isinstance(n, (ast.While, ast.For))], "it walks"
-    # CODE, not prose: the docstring is allowed to explain what FORCE needs this for.
-    for word in ("gap_min", "GAP_PROFILE", "GAP_CORPUS", "FORCE", "SEAL", "descend"):
-        assert word not in ast.unparse(fn), f"step.py's step() mentions {word!r}"
-    floats = {n.value for n in ast.walk(mod)
-              if isinstance(n, ast.Constant) and isinstance(n.value, float)}
-    assert floats == {1.0}, floats          # the spread guard classify.py uses, and nothing else
+    """`step.node_scorer` computes ONE node: it answers below any bar, and never goes deeper.
+
+    Run, not scanned (single-cell-harness B1-034). At the node the walk stopped on, the margin is
+    below the profile bar by construction - and the scorer still names the argmax, so it holds no
+    bar. What it names is a CHILD of that node, never a grandchild, so it does not walk. A leaf
+    and a node the weights cannot represent return None, which the caller reads as "not measured".
+    """
+    from scanno.step import node_scorer
+    res, tree, Z, usable, store, gap_min = _deep()
+    step = node_scorer(Z, usable, tree, store=store)
+    e = step(0, "Endothelial")
+    assert e is not None and e["at"] == "Endothelial"
+    assert e["gap"] < gap_min, "the fixture must ask below the bar"
+    assert e["top"] in tree["children"]["Endothelial"], e["top"]
+    assert step(0, "Arterial") is None                         # a leaf: nothing to score
+    blind = dict(tree, members={**tree["members"], "Arterial": [], "Capillary": []})
+    assert node_scorer(Z, usable, blind, store=store)(0, "Vascular endothelial") is None
 
 
 # ------------------------------------------------------------------------------- helpers
@@ -1295,51 +1209,10 @@ def _obj(n):
     return ad.AnnData(X=np.zeros((n, 3), dtype=np.float32))
 
 
-def _annotate_parser():
-    """{option: {keyword names}} for every argument the `annotate` subparser declares.
-
-    Located by SOURCE LINE between its own `add_parser` and the next one. `ast.walk` yields
-    breadth-first, so a flag that tracked "are we inside annotate yet" over that order would
-    collect arguments from whichever subparser happened to sit at the same depth.
-    """
-    mod = ast.parse((ROOT / "scanno" / "cli.py").read_text(encoding="utf-8"))
-    parsers, args = [], []
-    for n in ast.walk(mod):
-        if not isinstance(n, ast.Call):
-            continue
-        attr = getattr(n.func, "attr", "")
-        if attr == "add_parser" and n.args and isinstance(n.args[0], ast.Constant):
-            parsers.append((n.lineno, n.args[0].value))
-        elif attr == "add_argument" and n.args and isinstance(n.args[0], ast.Constant):
-            args.append((n.lineno, n.args[0].value, {k.arg for k in n.keywords}))
-    parsers.sort()
-    start = next(ln for ln, name in parsers if name == "annotate")
-    end = min((ln for ln, _ in parsers if ln > start), default=float("inf"))
-    return {opt: kw for ln, opt, kw in args if start < ln < end}
-
-
 def _same(a, b):
     """Equal, with NaN equal to NaN — `survival` is NaN on the profile path and must compare."""
     import math
     return (math.isnan(a) and math.isnan(b)) or a == pytest.approx(b)
-
-
-def _stmt(src):
-    """One statement, rendered by the SAME unparser the test reads the source with.
-
-    A hand-typed expectation compared against `ast.unparse` output is an assertion about
-    CPython's pretty-printer, not about scanno. CPython 3.11 stopped parenthesising a tuple
-    ASSIGNMENT TARGET, so `"(scope, force_paths) = (None, [])"` matched on 3.9, matched
-    nothing on 3.12, and reported the strongest guarantee in this file — that absent
-    `--scope` the annotate path is byte-identical — as BROKEN on the only interpreter the
-    pipeline actually runs on, while `cli.py` was correct throughout. The wrong half of that
-    is the one that would have been "fixed".
-
-    Round-tripping the expectation through the same unparser removes the interpreter version
-    from the assertion and removes nothing else: the string still has to be present, still
-    has to be that exact statement, and a substring that merely resembles it still fails.
-    """
-    return ast.unparse(ast.parse(src))
 
 
 if __name__ == "__main__":

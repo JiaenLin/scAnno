@@ -41,6 +41,11 @@ def check(name, ok, detail=""):
 
 SRC = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
 TREE = ast.parse(SRC)
+#: Every module of the package, parsed. The PARSER is built in cli.py, but a handler may live in
+#: any module: this check follows the handler to wherever it is defined, so moving one out of
+#: cli.py neither breaks the check nor takes the handler out of it (single-cell-harness B1-034).
+MODULES = {m.name: ast.parse(m.read_text(encoding="utf-8"))
+           for m in sorted((ROOT / "scanno").glob("*.py"))}
 
 #: argparse sets these itself, or the handler is entitled to them regardless of the subparser.
 ALWAYS = {"fn", "cmd"}
@@ -83,10 +88,18 @@ def build_parser_map():
     return {k: v for k, v in out.items() if not k.startswith("::")}
 
 
+def handler_def(handler):
+    """The handler's FunctionDef, from whichever module of the package defines it."""
+    for tree in MODULES.values():
+        for n in tree.body:
+            if isinstance(n, ast.FunctionDef) and n.name == handler:
+                return n
+    return None
+
+
 def reads_of(handler):
     """Every `a.<attr>` the handler reads, where `a` is its single parameter."""
-    fn = next((n for n in ast.walk(TREE)
-               if isinstance(n, ast.FunctionDef) and n.name == handler), None)
+    fn = handler_def(handler)
     if fn is None or not fn.args.args:
         return set()
     param = fn.args.args[0].arg
@@ -154,28 +167,33 @@ print("\n-1 - an aliased import is bound in every handler that uses it")
 # for: three other handlers import `json as _json` locally, so a tree-wide sweep declares the
 # name bound everywhere and the check passes on the very file that raised NameError. Verified
 # in both directions afterwards: red with the import removed, green with it restored.
-_mod_bound = {"__name__", "__file__", "__doc__"}
-for _n in TREE.body:
-    if isinstance(_n, (ast.Import, ast.ImportFrom)):
-        _mod_bound |= {(al.asname or al.name.split(".")[0]) for al in _n.names}
-    elif isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        _mod_bound.add(_n.name)
-    elif isinstance(_n, ast.Assign):
-        _mod_bound |= {t.id for t in _n.targets if isinstance(t, ast.Name)}
-    elif isinstance(_n, ast.Try):
-        for _b in _n.body + [x for h in _n.handlers for x in h.body]:
-            if isinstance(_b, (ast.Import, ast.ImportFrom)):
-                _mod_bound |= {(al.asname or al.name.split(".")[0]) for al in _b.names}
+def _module_bound(tree):
+    out = {"__name__", "__file__", "__doc__"}
+    for _n in tree.body:
+        if isinstance(_n, (ast.Import, ast.ImportFrom)):
+            out |= {(al.asname or al.name.split(".")[0]) for al in _n.names}
+        elif isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(_n.name)
+        elif isinstance(_n, ast.Assign):
+            out |= {t.id for t in _n.targets if isinstance(t, ast.Name)}
+        elif isinstance(_n, ast.Try):
+            for _b in _n.body + [x for h in _n.handlers for x in h.body]:
+                if isinstance(_b, (ast.Import, ast.ImportFrom)):
+                    out |= {(al.asname or al.name.split(".")[0]) for al in _b.names}
+    return out
+
+
 import builtins as _bi
-_mod_bound |= set(dir(_bi))
+_builtin = set(dir(_bi))
 # CLOSURES COUNT. A nested helper reads names from the function that encloses it, so the check
 # has to walk up the nesting - the first version flagged `write_columns` for using `_res_tag`,
 # which its parent defines, and that is correct code. A guard that fires on correct behaviour
 # gets switched off.
 _parent = {}
-for _p in ast.walk(TREE):
-    for _c in ast.iter_child_nodes(_p):
-        _parent[_c] = _p
+for _t in MODULES.values():
+    for _p in ast.walk(_t):
+        for _c in ast.iter_child_nodes(_p):
+            _parent[_c] = _p
 
 
 def _enclosing_bound(fn):
@@ -188,13 +206,19 @@ def _enclosing_bound(fn):
 
 
 _unbound = []
-for _fn in [x for x in ast.walk(TREE) if isinstance(x, ast.FunctionDef)]:
-    _have = _bound_in(_fn) | _enclosing_bound(_fn) | _mod_bound
-    for _u in ast.walk(_fn):
-        # only the aliased-import shape: a leading underscore and never bound anywhere.
-        if (isinstance(_u, ast.Name) and isinstance(_u.ctx, ast.Load)
-                and _u.id.startswith("_") and _u.id not in _have):
-            _unbound.append(f"{_fn.name}: {_u.id} (line {_u.lineno})")
+_handlers = set(build_parser_map())
+for _mname, _t in MODULES.items():
+    # cli.py in full, and every other module's handlers: a handler moved out of cli.py takes
+    # its aliased imports with it, and this must still see them.
+    _mod_bound = _module_bound(_t) | _builtin
+    for _fn in [x for x in ast.walk(_t) if isinstance(x, ast.FunctionDef)
+                and (_mname == "cli.py" or x.name in _handlers)]:
+        _have = _bound_in(_fn) | _enclosing_bound(_fn) | _mod_bound
+        for _u in ast.walk(_fn):
+            # only the aliased-import shape: a leading underscore and never bound anywhere.
+            if (isinstance(_u, ast.Name) and isinstance(_u.ctx, ast.Load)
+                    and _u.id.startswith("_") and _u.id not in _have):
+                _unbound.append(f"{_mname}:{_fn.name}: {_u.id} (line {_u.lineno})")
 check("no handler uses an aliased import it never binds", not _unbound,
       "; ".join(sorted(set(_unbound))))
 
@@ -225,10 +249,10 @@ def _guarded(fn, param, attr):
 
 _opt = optional_dests()
 _bad = []
-for _h in [n.name for n in ast.walk(TREE)
-           if isinstance(n, ast.FunctionDef) and n.name.startswith("_")]:
-    _fn = next(n for n in ast.walk(TREE)
-               if isinstance(n, ast.FunctionDef) and n.name == _h)
+_fns = [n for n in ast.walk(TREE) if isinstance(n, ast.FunctionDef) and n.name.startswith("_")]
+_fns += [d for d in (handler_def(h) for h in build_parser_map()) if d is not None and d not in _fns]
+for _fn in _fns:
+    _h = _fn.name
     if not _fn.args.args:
         continue
     _p = _fn.args.args[0].arg

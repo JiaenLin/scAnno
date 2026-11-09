@@ -1,6 +1,6 @@
 """The common scope, as a section of the STANDARD report.
 
-WHY THE FIRST TEST IS ABOUT MODULE IDENTITY RATHER THAN RENDERING
+WHERE THE WIRING IS TESTED
 
 A previous attempt put this section in `scanno/report.py`. That module is real and it IS
 imported — `scanno annotate --report` calls `report.collect`, and `scanno report --panels auto`
@@ -9,8 +9,9 @@ NOWHERE, because the cohort document is assembled by `scanno/document.py:write_a
 `document.py` does not import `report.py`. A section that compiles and does not appear is worse
 than one that raises: nothing anywhere says it is missing.
 
-So `test_the_section_is_on_the_live_path` asserts the WIRING, and every other test renders the
-section and looks for a value that could only have come from the scope JSON.
+So tests/test_report_cli.py RUNS `scanno scope` and `scanno report --scope` and looks for the
+section on the page (it read the source here until single-cell-harness B1-034), and every test
+below renders the section and looks for a value that could only have come from the scope JSON.
 
 The fixture is `test_scope.py`'s invented ten-sample reach/descend pattern. The last group of
 tests re-runs the section on a THREE-sample cohort with unrelated node names, because the one
@@ -104,44 +105,13 @@ def reference_cohort():
     return _COHORT["s"]
 
 
-# ---------------------------------------------------------------- the wiring, not the rendering
-
-def test_the_section_is_on_the_live_path():
-    """`document.py` assembles the cohort document. `report.py` does not, and never did."""
-    doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
-    rpt = (ROOT_DIR / "scanno" / "report.py").read_text(encoding="utf-8")
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-
-    assert "def scope_section(" in doc, "the section must live in the module write_all() calls"
-    # Defined is not enough: a defined-but-uncalled section is the same invisible failure with
-    # the same clean suite.
-    cohort = doc.split("def write_cohort(", 1)[1].split("\ndef ", 1)[0]
-    assert "scope_section(" in cohort, "write_cohort() must call it"
-    assert "def scope_section(" not in rpt, (
-        "report.py is not imported by document.py; a section there renders nowhere")
-    # the invariant that made the earlier attempt invisible
-    assert "from .report" not in doc and "import report" not in doc
-    assert "from .document import write_all" in cli
-
-
-def test_the_cli_threads_scope_from_flag_to_context():
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-    ctxsrc = (ROOT_DIR / "scanno" / "context.py").read_text(encoding="utf-8")
-    doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
-    assert '"--scope"' in cli, "the report subcommand must accept --scope"
-    assert "scope=scope" in cli, "and pass it into the Context"
-    assert "scope=None" in ctxsrc and "self.scope = scope" in ctxsrc
-    assert '"scope": getattr(ctx, "scope", None)' in doc, "report.json must carry it too"
-
-
-def test_the_section_reads_only_keys_the_writer_writes():
-    """Every key the section consumes must be one `cli._scope` actually emits."""
-    cli = (ROOT_DIR / "scanno" / "cli.py").read_text(encoding="utf-8")
-    fn = cli.split("def _scope(", 1)[1].split("\ndef ", 1)[0]
-    payload = fn.split("payload = {", 1)[1].split("Path(a.out).write_text", 1)[0]
-    for key in ("rule", "nodes", "sealed", "removed_labels", "tree_lines", "n_samples",
-                "samples", "tree"):
-        assert f'"{key}"' in payload, f"scope.json is not written with {key!r}"
+# ---------------------------------------------------------------- the wiring is run, not read
+#
+# That the cohort page carries this section, that `scanno report --scope` threads the file into
+# it, that report.json carries the scope unchanged, and that the section reads only keys
+# `scanno scope` writes (it renders a scope.json the real command wrote) are RUN in
+# tests/test_report_cli.py §1. They were read off document.py, report.py and cli.py
+# (single-cell-harness B1-034).
 
 
 # ---------------------------------------------------------------- what the section must show

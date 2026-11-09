@@ -241,21 +241,45 @@ def test_sample_rows():
 
 # ------------------------------------------------------------------ named absence
 def test_named_absence():
+    """An absence is NAMED and a defect is DISTINCT - run on the assembler, not read off its source
+    (single-cell-harness B1-034)."""
     print("named absence")
+    import tempfile
+    from scanno import document as D
     from scanno import figures as F
     check("NotDrawable exists and carries a reason",
           issubclass(F.NotDrawable, Exception))
-    doc = (Path(__file__).resolve().parents[1] / "scanno" / "document.py").read_text("utf-8")
-    check("absent SECTIONS are named, not omitted", "_absent_section(" in doc)
-    check("absent FIGURES are named, not omitted", "class='absent'" in doc)
+    real = D.draw
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            A = D.Assembler(ctx=None, out_dir=td, rel="figures/x", subdir="x")
+            def absent(*_a, **_k):
+                raise F.NotDrawable("no group column")
+            D.draw = absent
+            h_abs = A.fig("F154")
+            def broken(*_a, **_k):
+                raise RuntimeError("a bug")
+            D.draw = broken
+            h_bad = A.fig("F155")
+    finally:
+        D.draw = real
+    check("an absent FIGURE renders as a named absence with its reason",
+          "class='absent'" in h_abs and "no group column" in h_abs, h_abs[:120])
     # A DEFECT and an ABSENCE must never render the same. One is about scAnno, the other about
     # the data, and the page that conflates them reports a bug as a finding.
     check("a defect renders as a DEFECT, not an absence",
-          "FAILED TO DRAW" in doc and "defect in" in doc)
+          "FAILED TO DRAW" in h_bad and "defect in" in h_bad and "class='absent'" not in h_bad,
+          h_bad[:120])
     check("defects are collected separately from absences",
-          "self.failed" in doc and "figures_failed" in doc)
-    check("every figure id has a legend",
-          all(fid in doc for fid in F.FIGURES), "")
+          [x["figure"] for x in A.absent] == ["F154"] and [x["figure"] for x in A.failed] == ["F155"])
+    check("an absent SECTION is named, not omitted",
+          "This section needs" in D._absent_section("a flag column", "nothing was withheld"))
+    # Words beside every figure: its registered title, which the assembler prints over it, and a
+    # legend where one is registered (F106-F108's captions come from the call that draws them).
+    untitled = sorted(f for f, v in F.FIGURES.items() if not str(v[2]).strip())
+    check("every figure id has a title the page prints over it", not untitled, str(untitled))
+    check("and the legends registered are for figures that exist", set(D.LEGENDS) <= set(F.FIGURES),
+          str(sorted(set(D.LEGENDS) - set(F.FIGURES))))
 
 
 # ------------------------------------------------------------------ viewer fitness
@@ -264,9 +288,8 @@ def test_viewer_audit():
     from scanno.emit import audit_file, SCRATCH_UNS_PREFIXES
     check("audit_file is importable", callable(audit_file))
     check("scratch uns prefixes are declared", "_tmp" in SCRATCH_UNS_PREFIXES)
-    cli = (Path(__file__).resolve().parents[1] / "scanno" / "cli.py").read_text("utf-8")
-    check("the lab subcommand is registered", 'sub.add_parser("lab"' in cli)
-    check("the lab subcommand can fix in place", '"--fix"' in cli)
+    # That `scanno lab` exists and offers --fix is run in tests/test_report_cli.py §4; it was a
+    # search of cli.py's text for `sub.add_parser("lab"` (single-cell-harness B1-034).
 
 
 if __name__ == "__main__":
