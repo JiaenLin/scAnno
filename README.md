@@ -52,7 +52,9 @@ scanno annotate   --h5ad clustered/S1_clustered.h5ad --cluster-key leiden_1p0 --
 
 `cluster` normalises, selects variable genes over every gene, runs PCA, neighbours and Leiden at
 every resolution asked for, keeping all of them, one `leiden_<resolution>` column each (`leiden_1p0`
-for 1.0). It refuses rather than proceeding when it cannot find raw counts to preserve.
+for 1.0). Raw counts are kept in `layers['counts']`. An object that arrives with none - `X`
+log-normalised and no counts layer - is clustered as it is, with a REVIEW line and
+`uns['scanno_cluster']['counts'] = 'absent'`; a scaled `X`, or one that is neither, is refused.
 `--split-by` clusters each sample independently — no shared variable genes, no joint embedding, no
 batch key — and writes `<sample>_clustered.h5ad` into `--out-dir`.
 

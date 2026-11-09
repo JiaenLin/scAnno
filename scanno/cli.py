@@ -1313,7 +1313,8 @@ def _cluster(a):
                 _ST.refuse(f"{e}")
                 return REFUSE
             print(f"    {info['n_highly_variable']:,} variable genes of {info['n_genes']:,}; "
-                  f"raw counts kept in layers['counts']")
+                  + ("raw counts kept in layers['counts']" if info.get("counts") != "absent"
+                     else "no raw counts: X was log-normalised and is clustered as it is"))
             if name is not None:
                 p = out_dir / f"{name}_clustered.h5ad"
             elif out_dir:

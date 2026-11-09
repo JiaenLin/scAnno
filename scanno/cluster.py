@@ -11,7 +11,10 @@ WHAT IS KEPT, AND WHY EACH ONE MATTERS LATER
     unfalsifiable, and keeping them all is what lets `scanno resolution` judge the LABEL rather
     than the partition afterwards. They cost one Leiden call each over a graph already built.
   - RAW COUNTS, in `layers["counts"]`, asserted after every destructive step. Pseudobulk
-    differential expression needs them, and a gene lost here is unrecoverable there.
+    differential expression needs them, and a gene lost here is unrecoverable there. An object
+    that arrives with NO counts - X log-normalised and no counts layer - is clustered as it is
+    and recorded as `counts: absent`: a counts layer cannot be invented, and refusing on a later
+    tool's behalf is not this step's call (single-cell-harness B1-101).
   - EVERY GENE. No class is excluded from variable-gene selection - not mitochondrial, not
     ribosomal, not haemoglobin. The flagged ones that get SELECTED are reported instead. This is
     not squeamishness: an exclusion written as `^Rp[sl]` drops Rps6ka2 - ribosomal protein S6
@@ -72,6 +75,24 @@ def res_tag(res) -> str:
     return str(res).replace(".", "p")
 
 
+def looks_log_normalised(X) -> bool:
+    """Non-negative, NOT integer-valued, and below 50 everywhere sampled: the log1p scale.
+
+    log1p of counts per 10,000 tops out near 9.2, and no log scale in ordinary use reaches 50,
+    while a matrix of counts or of unlogged normalised values easily does. Read on the same
+    200-row head `looks_like_counts` reads, so the two never sample different rows.
+    """
+    import numpy as np
+    import scipy.sparse as sp
+
+    head = X[:200]
+    head = head.toarray() if sp.issparse(head) else np.asarray(head)
+    if head.size == 0:
+        return False
+    return bool(np.all(head >= 0) and float(head.max()) < 50
+                and not np.allclose(head, np.round(head)))
+
+
 def looks_like_counts(X) -> bool:
     """Integer-valued and not tiny. Measured, because the slot name lies routinely."""
     import numpy as np
@@ -105,14 +126,28 @@ def cluster(adata, *, resolutions=None, n_top_genes=None, n_pcs=None, n_neighbor
     # RAW COUNTS FIRST, before anything destructive. Checked rather than assumed: an object whose
     # .X has silently been normalised upstream reads exactly like one that has not, and every
     # number after this point would inherit it.
+    counts = True
     if COUNTS_LAYER not in adata.layers:
-        if not looks_like_counts(adata.X):
+        if looks_log_normalised(adata.X):
+            # LOG-NORMALISED, AND NO COUNTS ANYWHERE. Clustered as it is: normalising it again
+            # would log already-logged values, and a counts layer cannot be made from it. A later
+            # step that needs counts (pseudobulk) will not find them, which is that step's to say;
+            # this one records it and goes on.
+            counts = False
+            log(f"    REVIEW  .X is log-normalised (non-negative, not integer, below 50) and there "
+                f"is no layers[{COUNTS_LAYER!r}]: it is clustered as it is, with no "
+                f"normalize_total or log1p, and no counts layer is invented. Recorded as "
+                f"uns['scanno_cluster']['counts'] = 'absent'; a step that needs raw counts will "
+                f"not find them here.")
+        elif not looks_like_counts(adata.X):
             raise ValueError(
-                "adata.X does not look like raw counts (not integer-valued), and there is no "
-                f"layers[{COUNTS_LAYER!r}] to fall back on. Clustering would proceed, and stage-5 "
-                "pseudobulk would later have no counts to work from. Supply raw counts in .X or "
-                f"in layers[{COUNTS_LAYER!r}].")
-        adata.layers[COUNTS_LAYER] = adata.X.copy()
+                "adata.X is neither raw counts (integer-valued) nor log-normalised (non-negative "
+                "and below 50" + ("; it has negative values, so it is scaled" if _has_negative(adata.X)
+                                  else "") + f"), and there is no layers[{COUNTS_LAYER!r}] to fall "
+                "back on. Supply raw counts in .X or in "
+                f"layers[{COUNTS_LAYER!r}], or the log-normalised matrix.")
+        else:
+            adata.layers[COUNTS_LAYER] = adata.X.copy()
     elif not looks_like_counts(adata.X):
         # THE LAYER IS THERE AND .X HAS ALREADY BEEN NORMALISED. Until this branch existed the
         # presence of the layer skipped the check entirely and normalize_total + log1p then ran
@@ -132,14 +167,16 @@ def cluster(adata, *, resolutions=None, n_top_genes=None, n_pcs=None, n_neighbor
         adata.X = adata.layers[COUNTS_LAYER].copy()
     n_counts_genes = int(adata.n_vars)
 
-    sc.pp.normalize_total(adata, target_sum=p["target_sum"])
-    sc.pp.log1p(adata)
-    _assert_counts(adata, n_counts_genes, "after normalise/log1p")
+    if counts:
+        sc.pp.normalize_total(adata, target_sum=p["target_sum"])
+        sc.pp.log1p(adata)
+        _assert_counts(adata, n_counts_genes, "after normalise/log1p")
 
     # Over ALL genes. `flavor="seurat"` on log-normalised values is the conventional pairing.
     sc.pp.highly_variable_genes(adata, n_top_genes=p["n_top_genes"], flavor="seurat")
     n_hv = int(adata.var["highly_variable"].sum())
-    _assert_counts(adata, n_counts_genes, "after variable-gene selection")
+    if counts:
+        _assert_counts(adata, n_counts_genes, "after variable-gene selection")
 
     # Scaling and PCA on a TEMPORARY hvg-restricted copy, so the object keeps every gene and its
     # log-normalised values. Scaling in place would leave z-scores in .X, which a viewer refuses
@@ -154,7 +191,8 @@ def cluster(adata, *, resolutions=None, n_top_genes=None, n_pcs=None, n_neighbor
     sc.pp.neighbors(adata, n_neighbors=p["n_neighbors"],
                     n_pcs=adata.obsm["X_pca"].shape[1], random_state=p["seed"])
     sc.tl.umap(adata, random_state=p["seed"])
-    _assert_counts(adata, n_counts_genes, "after the embedding")
+    if counts:
+        _assert_counts(adata, n_counts_genes, "after the embedding")
 
     written = []
     for r in res:
@@ -174,11 +212,23 @@ def cluster(adata, *, resolutions=None, n_top_genes=None, n_pcs=None, n_neighbor
         "target_sum": float(p["target_sum"]), "max_value": float(p["max_value"]),
         "genes_total": n_counts_genes, "genes_highly_variable": n_hv,
         "gene_classes_excluded": "none - every gene was eligible for selection",
-        "counts_layer": COUNTS_LAYER,
+        "counts_layer": COUNTS_LAYER if counts else None,
         "note": ("every resolution computed is kept and none is chosen; `scanno resolution` "
                  "judges them on the LABEL afterwards"),
     }
-    return {"resolutions": written, "n_highly_variable": n_hv, "n_genes": n_counts_genes}
+    if not counts:
+        # Only on this path, so an object clustered from counts is written exactly as before.
+        adata.uns["scanno_cluster"]["counts"] = "absent"
+    return {"resolutions": written, "n_highly_variable": n_hv, "n_genes": n_counts_genes,
+            "counts": "kept" if counts else "absent"}
+
+
+def _has_negative(X) -> bool:
+    import numpy as np
+    import scipy.sparse as sp
+    head = X[:200]
+    head = head.toarray() if sp.issparse(head) else np.asarray(head)
+    return bool(head.size and float(head.min()) < 0)
 
 
 def _assert_counts(adata, n_genes, where):

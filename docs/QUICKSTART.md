@@ -69,7 +69,9 @@ distinguishable from its brothers, not from everything.
 
 ## 4 · Cluster, then annotate
 
-`sample.h5ad` is one QC'd sample with raw counts in `X` (or in `layers['counts']`).
+`sample.h5ad` is one QC'd sample with raw counts in `X` (or in `layers['counts']`). A sample
+delivered log-normalised, with no counts anywhere, is clustered as it is and recorded as
+`counts: absent`.
 
 ```bash
 scanno cluster  --h5ad sample.h5ad --out clustered.h5ad --resolutions 1.0

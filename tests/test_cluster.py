@@ -4,8 +4,10 @@ Three properties, each one a thing that cannot be recovered later if it goes wro
 
   1. EVERY resolution asked for is computed and kept. A sweep that discarded the evidence for
      its own stopping point would be unfalsifiable.
-  2. Raw counts survive, and the module REFUSES rather than proceeding when it cannot find
-     them. Stage-5 pseudobulk needs them and a gene lost here is unrecoverable there.
+  2. Raw counts survive where there are any. An object with NO counts - X log-normalised and no
+     counts layer - is clustered as it is and recorded `counts: absent`, never normalised twice
+     and never given an invented counts layer (single-cell-harness B1-101). A scaled X, or one
+     that is neither counts nor log-normalised, is still REFUSED.
   3. `--split-by` clusters each group independently, and drops the upstream declaration from
      each piece - carrying a cohort's declaration onto a subset would make every piece fail
      verification downstream, which reads as tampering rather than as splitting.
@@ -61,17 +63,25 @@ except ImportError as e:
     print("cluster OK (clustering checks skipped - a skip is not a pass)")
     raise SystemExit(0)
 
-from scanno.cluster import COUNTS_LAYER, cluster, looks_like_counts, split  # noqa: E402
+from scanno.cluster import (COUNTS_LAYER, cluster, looks_like_counts,  # noqa: E402
+                            looks_log_normalised, split)
 
 
-def toy(n=120, g=60, counts=True, declare=False):
+def toy(n=120, g=60, counts=True, declare=False, kind="divided"):
     rng = np.random.default_rng(0)
     X = rng.poisson(1.0, size=(n, g)).astype("float32")
     grp = np.array([i % 3 for i in range(n)])
     for c in range(3):                      # three genuinely separable populations
         X[grp == c, c * 8:(c + 1) * 8] += 30
     if not counts:
-        X = X / 3.7
+        if kind == "divided":
+            X = X / 3.7
+        elif kind == "log1p":               # log1p of counts per 10,000: what a delivery may carry
+            X = np.log1p(X / X.sum(axis=1, keepdims=True) * 1e4).astype("float32")
+        elif kind == "scaled":              # z-scores: negative values
+            X = ((X - X.mean(axis=0)) / (X.std(axis=0) + 1e-9)).astype("float32")
+        elif kind == "cpm":                 # normalised and NOT logged: non-integer, far above 50
+            X = (X / X.sum(axis=1, keepdims=True) * 1e6).astype("float32")
     A = ad.AnnData(X=sp.csr_matrix(X))
     A.obs_names = [f"c{i}" for i in range(n)]
     A.var_names = [f"G{i}" for i in range(g)]
@@ -88,13 +98,31 @@ print("\n3 - counts are detected, not assumed")
 check("integer counts read as counts", looks_like_counts(toy().X))
 check("divided values do not", not looks_like_counts(toy(counts=False).X))
 
-print("\n4 - it REFUSES when there are no counts to keep")
-try:
-    cluster(toy(counts=False), resolutions=[1.0], log=lambda *_: None)
-    check("refused", False, "it clustered anyway")
-except ValueError as e:
-    check("refused", True)
-    check("...and says what breaks later", "pseudobulk" in str(e), str(e)[:70])
+print("\n4 - no counts: a log-normalised X is clustered as it is; anything else is REFUSED")
+check("log1p of CP10k reads as log-normalised", looks_log_normalised(toy(counts=False, kind="log1p").X))
+check("counts do not", not looks_log_normalised(toy().X))
+for kind, why in (("scaled", "negative values"), ("cpm", "non-integer and far above 50")):
+    try:
+        cluster(toy(counts=False, kind=kind), resolutions=[1.0], log=lambda *_: None)
+        check(f"a {kind} X ({why}) is refused", False, "it clustered anyway")
+    except ValueError as e:
+        check(f"a {kind} X ({why}) is refused", True)
+        check(f"...and the refusal says what it needs", "raw counts" in str(e), str(e)[:70])
+_said = []
+L = toy(counts=False, kind="log1p")
+_X0 = L.X.copy()
+cluster(L, resolutions=[1.0], log=_said.append)
+check("a log-normalised X with no counts layer is clustered", "leiden_1p0" in L.obs)
+check("and recorded as counts: absent", L.uns["scanno_cluster"].get("counts") == "absent",
+      str(L.uns["scanno_cluster"].get("counts")))
+check("no counts layer is invented", COUNTS_LAYER not in L.layers, str(list(L.layers)))
+check("X is NOT normalised a second time", np.allclose(L.X.toarray(), _X0.toarray()))
+check("and it says so out loud, with REVIEW", any("REVIEW" in ln and "absent" in ln for ln in _said),
+      str(_said[:1]))
+C = toy()
+cluster(C, resolutions=[1.0], log=lambda *_: None)
+check("an object WITH counts records no 'counts' key: written exactly as before",
+      "counts" not in C.uns["scanno_cluster"], str(sorted(C.uns["scanno_cluster"])))
 
 print("\n5 - every resolution asked for is computed and kept")
 A = toy()
@@ -187,8 +215,38 @@ with tempfile.TemporaryDirectory() as _td:
           [ln for ln in _said.splitlines() if "raw counts kept" in ln][:1])
     check("and it says --out is not used with --split-by", "not used with --split-by" in _said)
 
+print("\n10 - a log-normalised object with no counts runs end to end through the CLI")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _td:
+    _td = Path(_td)
+    _o = make_object("S1", log_normalised=True)
+    _o.obs = _o.obs.drop(columns=["cluster"])
+    _o.write_h5ad(_td / "lognorm.h5ad")
+    _env = {"PYTHONPATH": str(ROOT), "PATH": "", "MPLBACKEND": "Agg"}
+    _r = subprocess.run([sys.executable, "-m", "scanno.cli", "cluster", "--h5ad",
+                         str(_td / "lognorm.h5ad"), "--out", str(_td / "c" / "clustered.h5ad"),
+                         "--resolutions", "1.0"], cwd=str(ROOT), capture_output=True, text=True,
+                        env=_env)
+    check("scanno cluster exits 0", _r.returncode == 0, (_r.stderr or _r.stdout)[-300:])
+    if _r.returncode == 0:
+        _c = ad.read_h5ad(_td / "c" / "clustered.h5ad")
+        check("the object records counts: absent",
+              _c.uns["scanno_cluster"].get("counts") == "absent")
+        check("and STATUS.cluster.json is ok",
+              __import__("json").loads((_td / "c" / "STATUS.cluster.json").read_text())["status"] == "ok")
+        _a = subprocess.run([sys.executable, "-m", "scanno.cli", "annotate", "--h5ad",
+                             str(_td / "c" / "clustered.h5ad"), "--cluster-key", "leiden_1p0",
+                             "--tree", str(write_tree(_td / "t.json")),
+                             "--db", str(write_corpus(_td / "corpus.db")), "--species", SPECIES,
+                             "--tissue", TISSUE, "--assay", "scrna", "--background-from-clusters",
+                             "--out-h5ad", str(_td / "a" / "annotated.h5ad")],
+                            cwd=str(ROOT), capture_output=True, text=True, env=_env)
+        check("and annotate labels it (exit 0)", _a.returncode == 0, (_a.stderr or _a.stdout)[-300:])
+
 print("\n" + "=" * 64)
 if fails:
     print(f"cluster: {len(fails)} FAILED - " + ", ".join(fails))
     raise SystemExit(1)
-print("cluster OK - every resolution kept, counts survive, nothing selected")
+print("cluster OK - every resolution kept, counts survive where there are any, nothing selected")
