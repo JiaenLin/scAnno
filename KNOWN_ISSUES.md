@@ -61,8 +61,9 @@ the data has not yet decided, so none is invented here.
 Every print and every document a command writes names its unit by the assay. It is the declared
 assay for `background`, `calibrate`, `annotate` and `report`. It is the assay the annotated objects
 recorded for `rescue`, `scope`, `compare`, `embed`, `readme`, and `joint-review` through the payload
-`compare` writes. Where neither is known it is "cells or nuclei": `cluster`, `lab`, `resolution`,
-objects that record no assay, and all help text, which is printed before any input is read.
+`compare` writes. Otherwise it is "cells or nuclei": `cluster`, `lab` and `resolution` (which
+read no record), objects that record no assay, and all help text, which is printed before any
+input is read.
 tests/test_assay_words.py and tests/test_help.py hold every command to this.
 
 What still says "cell(s)" whatever the assay is text RECORDED in a data product. It is kept as

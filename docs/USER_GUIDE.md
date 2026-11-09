@@ -62,16 +62,16 @@ annotated before the assay was recorded in `uns['scanno_context']`.
 `report`, `scope` and `rescue` read several annotated objects, and read the assay each recorded.
 Objects annotated under two assays are refused by name (`assay_mixed`), each assay with its objects,
 before any work: one document, one scope vote or one rescue covers one kind of observation. An
-assay this tool does not know is refused too (`assay_unknown`). Objects that record no assay are
-accepted, because they predate the record. `scope` and `rescue` take no `--assay`, so they then
-name the unit "cells or nuclei".
+assay this tool does not know is refused too (`assay_unknown`). Objects that record no assay
+predate the record: `report` needs `--assay` for them (above), and `scope` and `rescue`, which take
+no `--assay`, accept them and name the unit "cells or nuclei".
 
 This table is `scanno/assay.py`'s `RULES`, and `scanno describe` prints it as `assay_rules`.
 
 | rule | what | `scrna` | `snrna` | where its numbers came from |
 |---|---|---|---|---|
 | `background` | the gene background: per-gene mean and spread across cell types | built from whole cells | built from nuclei | each cohort's own data. A store records its assay, and `annotate --store` refuses the other assay or none. `--background-from-clusters` is the annotated object's own |
-| `words` | the unit every print and every document names: the two reports, annotate's summaries, and the prints and documents of every other command | cell, cells | nucleus, nuclei | the declared assay, or the assay the annotated objects recorded. With neither (help text, or objects that record none) the words are "cells or nuclei". Strings recorded in data products keep theirs, because reproductions compare them, and are listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md) |
+| `words` | the unit every print and every document names: the two reports, annotate's summaries, and the prints and documents of every other command | cell, cells | nucleus, nuclei | the declared assay (`background`, `calibrate`, `annotate`, `report`), or the assay the annotated objects recorded (`rescue`, `scope`, `compare`, `joint-review`, `embed`, `readme`). `cluster`, `lab`, `resolution`, objects that record none, and help text say "cells or nuclei". Strings recorded in data products keep theirs, because reproductions compare them, and are listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md) |
 | `agent_prompt` | what `scanno agent` tells the model it is annotating | single-cell RNA-seq | single-nucleus RNA-seq | the declared assay. A prompt with none is refused |
 | `corpus_weights` | marker weights from the CellMarker-schema corpus | the same | the same | the corpus records no assay, and its assertions come mostly from whole-cell and tissue studies. **On nuclei, a marker whose mRNA sits in the cytoplasm can be under-detected, and nothing corrects for it** |
 | `gap_min` | the descent bar: 0.30 on the corpus path, 0.15 on profiles | the same | the same | declared, and chosen on human blood (PBMC), which is whole cells. **Not calibrated on nuclei** |

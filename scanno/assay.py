@@ -10,11 +10,12 @@ WHAT DEPENDS ON THE ASSAY HERE, AND WHAT DOES NOT, is `RULES` below. It is print
   - the gene background. A store records the assay it was measured on, and `annotate` refuses a
     store of the other assay, or one that records none;
   - the words. Every print and every document a command writes names cells for `scrna` and
-    nuclei for `snrna`, or names no unit. A command that takes no `--assay` uses the assay its
-    annotated objects recorded, and `EITHER` - "cells or nuclei" - when they recorded none, as
-    help text always does, since it is printed before any input is read. Strings RECORDED in a
-    data product (rescue.json, compare's and the joint route's records) keep their words, because
-    reproductions compare them; KNOWN_ISSUES.md lists them;
+    nuclei for `snrna`, or names no unit. background, calibrate, annotate and report use the
+    declared assay; rescue, scope, compare, joint-review, embed and readme use the assay their
+    annotated objects recorded. cluster, lab and resolution, objects that record none, and all
+    help text (printed before any input is read) use `EITHER`: "cells or nuclei". Strings
+    RECORDED in a data product (rescue.json, compare's and the joint route's records) keep their
+    words, because reproductions compare them; KNOWN_ISSUES.md lists them;
   - what the agent is told it is annotating.
 Everything else is one rule for both assays. Each such rule says where its numbers came from,
 because "the same for both" is a claim about calibration as well as about code.
@@ -135,10 +136,11 @@ RULES = [
                             "annotate's summaries, and the prints and documents of every other "
                             "command",
      "scrna": "cell, cells", "snrna": "nucleus, nuclei", "depends": True,
-     "basis": "the declared assay, or the assay the annotated objects recorded. With neither - "
-              "help text, or objects that record none - the words are 'cells or nuclei'. Strings "
-              "recorded in data products keep theirs, because reproductions compare them, and "
-              "are listed in KNOWN_ISSUES.md"},
+     "basis": "the declared assay (background, calibrate, annotate, report), or the assay the "
+              "annotated objects recorded (rescue, scope, compare, joint-review, embed, readme). "
+              "cluster, lab, resolution, objects that record none, and help text say 'cells or "
+              "nuclei'. Strings recorded in data products keep theirs, because reproductions "
+              "compare them, and are listed in KNOWN_ISSUES.md"},
     {"id": "agent_prompt", "rule": "what `scanno agent` tells the model it is annotating",
      "scrna": "single-cell RNA-seq", "snrna": "single-nucleus RNA-seq", "depends": True,
      "basis": "the declared assay; a prompt with none is refused"},
