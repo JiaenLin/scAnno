@@ -310,7 +310,8 @@ hold-out, untested across contexts.
 
 - **General novelty detection.** E3 fixed the case where a competitor's markers are unobservable.
   It does not solve *"this cluster is a type the store has never seen."* Two formulations failed;
-  so did negative weights. Reported, not patched.
+  so did negative weights. Open (ADR-0027 N1). A new formulation ships first as a reported column
+  with its AUC on held-out labels, and gates only at AUC >= 0.6 ([PRINCIPLES](PRINCIPLES.md) §3).
 - **`gap_min = 0.15` is declared, not derived.** It has never been calibrated against held-out
   labels. It survived an independent test unchanged, which makes it a defensible default and not a
   measurement.

@@ -14,9 +14,11 @@ real populations on an independent dataset, because the true-match correlation f
 count while the unrelated-pair reference rises, and they cross. A self-normalised version scored
 the genuinely novel population as *more* distinctive than six real ones.
 
-Given that four unvalidated gates have now made results worse, this is reported rather than
-patched with a fifth. The available mitigation is the refusal in `missing_nodes()`, which covers
-the case where the user knows to expect the type.
+Open (ADR-0027 N1). A new formulation ships first as a reported column with its AUC on
+held-out labels, and gates only at AUC >= 0.6 (docs/PRINCIPLES.md §3): four unvalidated gates have
+made results worse, and the rule says how a fifth earns its place rather than forbidding one. The
+available mitigation until then is the refusal in `missing_nodes()`, which covers the case where
+the user knows to expect the type.
 
 ## Training sharpens at the cost of novelty
 
