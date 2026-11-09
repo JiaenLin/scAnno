@@ -379,13 +379,18 @@ def apply_scope(path, verdicts, sep=SEP, sentinels=SENTINELS):
     return p
 
 
-def format_report(verdicts, removed=None, sealed=None, n_samples=None):
+def format_report(verdicts, removed=None, sealed=None, n_samples=None, words=None):
     """The vote as lines a human reads before approving it.
 
     `n_samples` is the cohort size. It is a PARAMETER because the first version of this printed
     "/10" as a literal, which is the cohort this was written for baked into the tool: on seven
     samples it would have printed "7/10" and nobody reading it would have known.
+
+    `words` is scanno/assay.py's for the assay the objects recorded. Without it the unit is
+    "cell or nucleus": a vote does not know which it counted unless it is told.
     """
+    from .assay import EITHER
+    W = words or EITHER
     order = {"SEAL": 0, "FORCE": 1, "UNVOTABLE": 2, "KEEP": 3, "UNREACHED": 4}
     if n_samples is None:
         n_samples = max((v["n_reached"] for v in verdicts.values()), default=0)
@@ -404,7 +409,7 @@ def format_report(verdicts, removed=None, sealed=None, n_samples=None):
             for p, n in lost.items():
                 out.append(f"  {node}:  {n:>7,}  {p}")
     out += ["",
-            "A seal removes the possibility of a LABEL, never an observation. Every cell keeps",
+            f"A seal removes the possibility of a LABEL, never an observation. Every {W.unit} keeps",
             "its pass-1 path, so this is reversible by re-running against the declared tree."]
     return out
 

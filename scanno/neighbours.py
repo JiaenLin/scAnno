@@ -144,7 +144,7 @@ def format_report(rows, top=None) -> str:
     if top:
         rs = rs[:top]
     out = ["  %-30s %8s %10s %9s %8s %9s  %s" %
-           ("group", "cells", "agreement", "foreign", "pieces", "isolated", "borders on")]
+           ("group", "n", "agreement", "foreign", "pieces", "isolated", "borders on")]
     for r in rs:
         b = ", ".join(f"{n} {100*s:.0f}%" for n, s in r["borders_on"]) or "-"
         pc = (f"{r['pieces']}" if r["pieces"] <= 1

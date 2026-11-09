@@ -47,8 +47,8 @@ an existence proof, not a range.
 
 ## Rules chosen on whole cells are used on nuclei unvalidated
 
-`--assay` decides the gene background a run accepts, and the unit the two reports and annotate's
-summary name (USER_GUIDE, "The assay"). Three other rules are one rule for both assays, and each was set on human blood, which is
+`--assay` decides the gene background a run accepts, and the unit every print and document names
+(USER_GUIDE, "The assay"). Three other rules are one rule for both assays, and each was set on human blood, which is
 whole cells: `gap_min` (below), the corpus marker weights, and the store's size floors. The corpus
 records no assay. Its assertions come mostly from whole-cell and tissue studies. A nucleus holds
 little of the cytoplasm's mRNA, so on nuclei a marker that lives there can be under-detected.
@@ -56,27 +56,35 @@ Nothing corrects for that. The tool was nevertheless
 designed for, and has mostly been run on, single-nucleus data. A per-assay value would be a number
 the data has not yet decided, so none is invented here.
 
-## Some prints still say "cells" whatever the assay
+## Strings recorded in data products still say "cells" whatever the assay
 
-Only the two reports and annotate's own summary lines take their unit from `--assay`:
-`annotate --report`, and `scanno report`'s pages, `report.json`, tables and figures. These still
-say "cell(s)" under `snrna` too, so on nuclei they name the wrong unit:
+Every print and every document a command writes names its unit by the assay. It is the declared
+assay for `background`, `calibrate`, `annotate` and `report`. It is the assay the annotated objects
+recorded for `rescue`, `scope`, `compare`, `embed`, `readme`, and `joint-review` through the payload
+`compare` writes. Where neither is known it is "cells or nuclei": `cluster`, `lab`, `resolution`,
+objects that record no assay, and all help text, which is printed before any input is read.
+tests/test_assay_words.py and tests/test_help.py hold every command to this.
 
-- `background`: the per-object and total lines (`scanno/cli.py` `_background`);
-- `calibrate`: the per-dataset line (`scanno/cli.py` `_calibrate`);
-- `annotate`: the `--resolve` summary (`force.py` `format_resolved`), the `--scope` summary
-  (`force.py` `format_force`), the `--l1-tree` summary (`emit.py` `format_independent_l1`), and
-  the hint printed when nothing was written ("per CELL");
-- `rescue`: "cell(s) renamed" and the reach line (`scanno/cli.py` `_rescue`);
-- `compare`: "they are not the same cells";
-- the README.md that `scanno report` writes beside the pages (`readme.py`);
-- the documents and help of the commands that take no assay (`rescue`, `compare`,
-  `joint-review`, `scope`, `resolution`, `embed`, `lab`), and help text in general.
+What still says "cell(s)" whatever the assay is text RECORDED in a data product. It is kept as
+written because reproductions compare those products, and a changed record would read as a changed
+result:
 
-No string in the package names the nucleus outside `scanno/assay.py`, and
-tests/test_assay_rules.py fails if one does. This entry is the other direction: "cells" said of
-nuclei. The fix is the same as the reports': the words from the assay where there is one, and a
-neutral word where there is none.
+- `rescue.json`: `rule` and `limit`, also in each rescued object's `uns['scanno_rescue']`.
+  rescue.html quotes `limit`;
+- `merge_candidates`: `rule`, `limit` and `sweep`, in `scanno compare --out` and in
+  joint_route.json;
+- the joint route's record, `uns['scanno_joint_route']` and joint_route.json's `record`:
+  `directions` and `limit`. joint_route.html quotes `limit`;
+- the key `cells differing from the one above` in joint_route.json's `columns`. `joint-review`
+  reads it back. The page heads that column in the run's unit;
+- `uns['scanno_embed']['note']`, written by `scanno embed`;
+- the per-node `cells` and `cells_below` counts in `scanno scope --out`, which the cohort report
+  reads back.
+
+Field names such as `n_cells` count observations whatever the assay. They are names, not words.
+The fix is a record version that words these strings by the assay, changed together with the
+reproductions that compare them. tests/test_assay_words.py section E lists every literal that
+remains, with its reason, and fails on any new one.
 
 ## `scanno report` over objects annotated before the assay was recorded needs `--assay`
 

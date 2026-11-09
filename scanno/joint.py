@@ -194,7 +194,7 @@ GRADES = ("adopt", "refuse", "undecided")
 #: things a verdict cannot do, because an agent that believes it is editing the annotation will
 #: grade differently from one that knows it is annotating the annotation.
 BRIEF = """You are reviewing corrections that a JOINT clustering proposes to a per-sample
-annotation. A candidate is a joint cluster whose own delivered label is L, holding cells from
+annotation. A candidate is a joint cluster whose own delivered label is L, holding {units} from
 samples that carry no L anywhere in the first route.
 
 Your verdict changes NO label. Every candidate is applied to the third column either way; a
@@ -206,19 +206,19 @@ Grade each on the evidence given, and nothing else:
    route resolved a population the first route mostly agreed on. Low means the joint route is
    asserting something the first route DENIES on most of the cluster.
 2. SAMPLE DOMINANCE - how much of the cluster is one sample. A joint clustering of an
-   un-integrated cohort can group cells by library rather than by cell type, and a cluster that
-   is mostly one sample cannot arbitrate anything, whatever its agreement.
-3. WHERE THE CORRECTED CELLS FALL across the design levels given. A correction landing entirely
+   un-integrated cohort can group {units} by library rather than by cell type, and a cluster
+   that is mostly one sample cannot arbitrate anything, whatever its agreement.
+3. WHERE the corrected {units} FALL across the design levels given. A correction landing entirely
    in one level, or giving one level none of it, cannot be told apart from a technical effect
    when that level is confounded with something technical. This is the judgement the measuring
    tool deliberately does not make.
 4. WHAT THE JOINT ROUTE LOST. It is the coarser partition and destroys populations as well as
    recovering them.
-5. SWEEP AGREEMENT - how much of the joint route's OWN resolution sweep calls these same cells
+5. SWEEP AGREEMENT - how much of the joint route's OWN resolution sweep calls these same {units}
    L. A population too rare to form a cluster at one granularity forms one at another, so a call
    every resolution makes and a call one resolution makes are different evidence even when their
    agreement and dominance are identical. Low sweep agreement means the correction is a property
-   of the granularity that was chosen rather than of the cells. NOT MEASURED means route B was
+   of the granularity that was chosen rather than of the {units}. NOT MEASURED means route B was
    annotated at one resolution and this cannot be judged - which is not the same as low, and
    must not be graded as though it were.
 
@@ -231,8 +231,11 @@ GRADE: one of adopt, refuse, undecided
 REASON: one sentence, citing the numbers you used."""
 
 
-def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=True):
+def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=True, words=None):
     """The evidence for one candidate, in words. Numbers only; no conclusion is offered.
+
+    `words` is scanno/assay.py's for the assay the routes recorded, and fills BRIEF's `{units}`;
+    without it the unit is "cell or nucleus".
 
     `brief=False` omits the standing instructions. They were repeated per candidate because the
     first design put each candidate to a provider as its own call, where every call needs them.
@@ -240,10 +243,12 @@ def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=Tru
     file that is mostly duplication - which is not a formatting complaint: a reader who scrolls
     past the same block six times stops reading it, and the criteria are the part that matters.
     """
-    L = ([BRIEF, ""] if brief else []) + [f"CANDIDATE - joint cluster {cand['cluster']}",
+    from .assay import EITHER
+    W = words or EITHER
+    L = ([W.fill(BRIEF), ""] if brief else []) + [f"CANDIDATE - joint cluster {cand['cluster']}",
          f"  the joint route calls this cluster: {cand['label_absent']}",
-         f"  cluster size: {cand.get('n_cluster', 0):,} cells",
-         f"  cells that would be corrected: {cand['n_cells']:,}",
+         f"  cluster size: {cand.get('n_cluster', 0):,} {W.units}",
+         f"  {W.units} that would be corrected: {cand['n_cells']:,}",
          f"  they currently carry: {cand['label_carried']}",
          f"  AGREEMENT - the first route already calls "
          f"{cand.get('pct_route_a_agrees')}% of this cluster {cand['label_absent']}",
@@ -254,7 +259,7 @@ def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=Tru
          # without a sweep and one measured across a sweep that mostly disagreed would otherwise
          # read identically, and they are opposite findings.
          (f"  SWEEP AGREEMENT - {cand['pct_sweep_agrees']}% of the joint route's own resolution "
-          f"sweep calls these cells {cand['label_absent']}"
+          f"sweep calls these {W.units} {cand['label_absent']}"
           if cand.get("pct_sweep_agrees") is not None else
           "  SWEEP AGREEMENT - NOT MEASURED; route B was annotated at one resolution only, so "
           "how much this call depends on the granularity is unknown"),
@@ -262,10 +267,10 @@ def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=Tru
          f"{', '.join(cand.get('samples_lacking') or [])}"]
     if per_sample or cand.get("moving_by_sample"):
         d = per_sample or {k: sum(v.values()) for k, v in cand["moving_by_sample"].items()}
-        L.append("  corrected cells per sample: "
+        L.append(f"  corrected {W.units} per sample: "
                  + ", ".join(f"{k} {v}" for k, v in sorted(d.items())))
     if group_key and cand.get("moving_by_group"):
-        L.append(f"  corrected cells per {group_key}: "
+        L.append(f"  corrected {W.units} per {group_key}: "
                  + ", ".join(f"{k} {v}" for k, v in sorted(cand["moving_by_group"].items())))
         L.append(f"  (levels of {group_key} receiving none of it are not listed)")
     if lost and lost.get("labels"):
@@ -358,24 +363,37 @@ def document(payload) -> str:
     """One self-contained page: the three annotations, what moved, and what it cost."""
     from .report import _CSS, _esc, _table
 
+    from .assay import EITHER, words_or_either
     cmp_ = payload["compare"]
     mc = cmp_.get("merge_candidates") or {}
     rec, summ = payload["record"], payload["summary"]
+    # The unit `compare` recorded for the two routes. A payload written before it, or naming an
+    # assay this tool does not know, is drawn in both units rather than in a guessed one.
+    try:
+        W = words_or_either(payload.get("assay"))
+    except ValueError:
+        W = EITHER
+    cells = W.units
     P = [f'<div class="wrap"><h1>The joint route</h1>',
          f'<div class="sub">{_esc(payload["a_name"])} corrected against '
          f'{_esc(payload["b_name"])} &middot; scAnno {_esc(payload.get("version", ""))} '
          f'&middot; generated {_esc(payload["generated"])}</div>']
 
     P.append("<h2>Three annotations, and what separates them</h2>")
-    P.append(_table(["column", "what it is", "cells differing from the one above"],
-                    payload["columns"], numeric=("cells differing from the one above",)))
+    # The payload's own key is kept as written - `joint-review` reads it back - and the page heads
+    # the column in the run's unit.
+    differ = f"{cells} differing from the one above"
+    P.append(_table(["column", "what it is", differ],
+                    [{"column": r.get("column"), "what it is": r.get("what it is"),
+                      differ: r.get("cells differing from the one above", "")}
+                     for r in payload["columns"]], numeric=(differ,)))
     P.append('<div class="cannot"><b>What this cannot show.</b> That any of the three is '
              'correct. They are three readings of the same evidence, and the joint route is '
              'the COARSER clustering of the two - it recovers populations the per-sample route '
              'merged and merges populations the per-sample route recovered.</div>')
 
     P.append(f"<h2>What the joint route changed</h2>"
-             f'<p><b>{rec["n_corrected"]:,} of {rec["n_cells"]:,} cells '
+             f'<p><b>{rec["n_corrected"]:,} of {rec["n_cells"]:,} {cells} '
              f'({rec["pct_corrected"]}%)</b> &mdash; '
              f'<b>{rec.get("n_recovered", 0):,} recovered</b> onto a label the joint partition '
              f'separated, <b>{rec.get("n_absorbed", 0):,} absorbed</b> off a label it could not '
@@ -383,7 +401,7 @@ def document(payload) -> str:
              f'<code>{_esc(payload["out_key"])}</code> than in '
              f'<code>{_esc(payload["forced_key"])}</code>, from '
              f'{rec["n_candidates_applied"]} candidate(s).</p>')
-    rows = [{"cluster": m["cluster"], "to": m["to"], "cells": m["n"],
+    rows = [{"cluster": m["cluster"], "to": m["to"], cells: m["n"],
              "from": ", ".join(f"{k} {v}" for k, v in sorted(m["from"].items(),
                                                              key=lambda kv: -kv[1])[:3]),
              "route A agrees": f'{m["pct_route_a_agrees"]}%',
@@ -395,8 +413,8 @@ def document(payload) -> str:
              "most one sample": f'{m["top_share_pct"]}% {m["top_sample"]}',
              "samples lacking it": ", ".join(m["samples"])}
             for m in sorted(rec["moved"], key=lambda r: -r["n"])]
-    P.append(_table(["cluster", "to", "cells", "from", "route A agrees", "sweep agrees",
-                     "most one sample", "samples lacking it"], rows, numeric=("cells",)))
+    P.append(_table(["cluster", "to", cells, "from", "route A agrees", "sweep agrees",
+                     "most one sample", "samples lacking it"], rows, numeric=(cells,)))
     P.append('<div class="cannot"><b>What this cannot show.</b> ' + _esc(rec["gating"]) + " "
              + _esc(rec["limit"]) + "</div>")
 
@@ -407,16 +425,16 @@ def document(payload) -> str:
 
     if rec.get("absorbed"):
         P.append("<h3>Absorbed &mdash; labels this partition could not separate</h3>")
-        P.append(_table(["label", "cells", "moved onto", "from samples"],
-                        [{"label": k, "cells": v["n"],
+        P.append(_table(["label", cells, "moved onto", "from samples"],
+                        [{"label": k, cells: v["n"],
                           "moved onto": ", ".join(f"{a} {b}" for a, b in
                                                   sorted(v["into"].items(), key=lambda kv: -kv[1])),
                           "from samples": ", ".join(v["samples"])}
                          for k, v in sorted(rec["absorbed"].items(),
                                             key=lambda kv: -kv[1]["n"])],
-                        numeric=("cells",)))
-        P.append('<div class="cannot"><b>What this cannot show.</b> That absorbing them was '
-                 'right. These cells carried a label the FIRST route resolved and this one '
+                        numeric=(cells,)))
+        P.append(f'<div class="cannot"><b>What this cannot show.</b> That absorbing them was '
+                 f'right. These {cells} carried a label the FIRST route resolved and this one '
                  'delivers nowhere; the column follows the joint partition because that is what '
                  'the column is, and the earlier annotation keeps them.</div>')
 
@@ -459,15 +477,15 @@ def document(payload) -> str:
         P.append("<h2>Verdicts</h2>")
         P.append(f'<p>{rev["n_graded"]} of {rev["n_candidates"]} candidates carry a recorded '
                  f'verdict. ' + " &middot; ".join(
-                     f'<b>{_esc(g)}</b> {rev["n_cells_by_grade"].get(g, 0):,} cells'
+                     f'<b>{_esc(g)}</b> {rev["n_cells_by_grade"].get(g, 0):,} {cells}'
                      for g in rev["grades"]) +
-                 f' &middot; ungraded {rev["n_cells_ungraded"]:,} cells.</p>')
-        P.append(_table(["cluster", "grade", "label", "cells", "reason"],
+                 f' &middot; ungraded {rev["n_cells_ungraded"]:,} {cells}.</p>')
+        P.append(_table(["cluster", "grade", "label", cells, "reason"],
                         [{"cluster": v["cluster"], "grade": v["grade"],
-                          "label": v["label_absent"], "cells": v["n_cells"],
+                          "label": v["label_absent"], cells: v["n_cells"],
                           "reason": v["reason"]}
                          for v in sorted(rev["verdicts"].values(), key=lambda v: -v["n_cells"])],
-                        numeric=("cells",)))
+                        numeric=(cells,)))
         if rev["ungraded"]:
             P.append(f'<div class="cannot"><b>Ungraded.</b> cluster(s) '
                      f'{_esc(", ".join(rev["ungraded"]))} carry no verdict. '

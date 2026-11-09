@@ -75,6 +75,7 @@ import numpy as np
 
 #: The label an excluded nucleus receives. Upper case and not a cell type in any taxonomy, so a
 #: consumer that treats it as one is making an obvious error rather than a quiet one.
+from .assay import EITHER  # noqa: E402 — the unit, where no assay was given
 from .sentinels import EXCLUDED  # noqa: E402 — one definition
 
 
@@ -119,8 +120,8 @@ def unprofilable(labels, keep, n_clusters: int | None = None) -> np.ndarray:
     keep = np.asarray(keep, dtype=bool)
     if labels.shape != keep.shape:
         raise ExclusionMismatch(
-            f"labels has {labels.shape[0]} cells and the keep mask has {keep.shape[0]}. "
-            f"They must describe the same cells, in the same order.")
+            f"labels has {labels.shape[0]} {EITHER.units} and the keep mask has "
+            f"{keep.shape[0]}. They must describe the same {EITHER.units}, in the same order.")
     k = int(n_clusters if n_clusters is not None else (labels.max() + 1 if labels.size else 0))
     out = np.zeros(k, dtype=bool)
     for c in range(k):
@@ -151,8 +152,8 @@ def exclusion_record_cells(flagged, labels, n_clusters: int | None = None, *,
     labels = np.asarray(labels)
     if flagged.shape != labels.shape:
         raise ExclusionMismatch(
-            f"the flag covers {flagged.shape[0]} cells and the labels {labels.shape[0]}. "
-            f"They must describe the same cells, in the same order.")
+            f"the flag covers {flagged.shape[0]} {EITHER.units} and the labels "
+            f"{labels.shape[0]}. They must describe the same {EITHER.units}, in the same order.")
     total = int(flagged.size)
     n_out = int(flagged.sum())
     if total and n_out == total:

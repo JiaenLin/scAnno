@@ -9,10 +9,12 @@ WHAT DEPENDS ON THE ASSAY HERE, AND WHAT DOES NOT, is `RULES` below. It is print
 `scanno describe` and set out in docs/USER_GUIDE.md. Three things depend on it:
   - the gene background. A store records the assay it was measured on, and `annotate` refuses a
     store of the other assay, or one that records none;
-  - the words of the two reports and of annotate's summary: `annotate --report`, `scanno
-    report`'s pages, report.json, tables and figures, and annotate's own summary lines name cells
-    for `scrna` and nuclei for `snrna`, or name no unit. Other prints still say "cell(s)" whatever
-    the assay, and are open in KNOWN_ISSUES.md;
+  - the words. Every print and every document a command writes names cells for `scrna` and
+    nuclei for `snrna`, or names no unit. A command that takes no `--assay` uses the assay its
+    annotated objects recorded, and `EITHER` - "cells or nuclei" - when they recorded none, as
+    help text always does, since it is printed before any input is read. Strings RECORDED in a
+    data product (rescue.json, compare's and the joint route's records) keep their words, because
+    reproductions compare them; KNOWN_ISSUES.md lists them;
   - what the agent is told it is annotating.
 Everything else is one rule for both assays. Each such rule says where its numbers came from,
 because "the same for both" is a claim about calibration as well as about code.
@@ -101,6 +103,22 @@ def words(value) -> Words:
     return Words(a, **ASSAYS[a])
 
 
+#: The words for an observation whose assay is NOT KNOWN: help text, which is printed before any
+#: input is read, and a command whose inputs record no assay. They name both units, so neither
+#: assay becomes the default by being the word that was printed. `assay` is not an assay's name,
+#: and `canonical` refuses it.
+EITHER = Words("unrecorded", "single-cell or single-nucleus", "cell or nucleus", "cells or nuclei")
+
+
+def words_or_either(value) -> Words:
+    """The assay's words when one is known - declared, or recorded by an object - and EITHER's
+    when none is. An UNRECOGNISED value still raises: an assay nobody stated is not the same as
+    one stated wrongly."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return EITHER
+    return words(value)
+
+
 #: Every rule that decides a label, a reference or a word, against the assay. `depends` says
 #: whether scrna and snrna are treated differently. Where they are not, `basis` says where the
 #: rule's numbers came from - and says so only as far as the record goes.
@@ -113,13 +131,14 @@ RULES = [
               "and `annotate --store` refuses a store of the other assay or one that records none. "
               "`--background-from-clusters` builds it from the object being annotated, so it is "
               "that object's assay by construction"},
-    {"id": "words", "rule": "the unit named by `annotate --report`, by `scanno report`'s pages, "
-                            "report.json, tables and figures, and by annotate's own summary lines",
+    {"id": "words", "rule": "the unit every print and every document names: the two reports, "
+                            "annotate's summaries, and the prints and documents of every other "
+                            "command",
      "scrna": "cell, cells", "snrna": "nucleus, nuclei", "depends": True,
-     "basis": "the declared assay. Other prints still say cell(s) whatever the assay, and are "
-              "open in KNOWN_ISSUES.md: background, calibrate, rescue and compare, annotate's "
-              "--resolve, --scope and --l1-tree summaries, and the README.md `scanno report` "
-              "writes"},
+     "basis": "the declared assay, or the assay the annotated objects recorded. With neither - "
+              "help text, or objects that record none - the words are 'cells or nuclei'. Strings "
+              "recorded in data products keep theirs, because reproductions compare them, and "
+              "are listed in KNOWN_ISSUES.md"},
     {"id": "agent_prompt", "rule": "what `scanno agent` tells the model it is annotating",
      "scrna": "single-cell RNA-seq", "snrna": "single-nucleus RNA-seq", "depends": True,
      "basis": "the declared assay; a prompt with none is refused"},

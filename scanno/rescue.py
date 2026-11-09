@@ -204,12 +204,15 @@ def rescue(labels_by_unit, sweep_by_unit_rung, clusters_by_unit_rung, rungs,
             {u: origin[u].astype(str) for u in units}, record)
 
 
-def summarise(before_by_unit, after_by_unit, sentinels=SENTINELS):
+def summarise(before_by_unit, after_by_unit, sentinels=SENTINELS, words=None):
     """Per-unit, per-label counts before and after, read off the two arrays themselves.
 
     Derived from the delivered arrays rather than from the record, so a mistake in the record
     cannot agree with itself. A caller that reports both has checked one against the other.
+    `words` names the unit the denominator counts (scanno/assay.py); "cell or nucleus" without it.
     """
+    from .assay import EITHER
+    W = words or EITHER
     sent = set(sentinels)
     rows = []
     for u in before_by_unit:
@@ -225,14 +228,16 @@ def summarise(before_by_unit, after_by_unit, sentinels=SENTINELS):
                          "pct_after": round(100.0 * na / n, 4),
                          "pct_delta": round(100.0 * (na - nb) / n, 4),
                          "is_sentinel": lab in sent})
-    return {"denominator": "every cell of that unit, sentinels included", "rows": rows}
+    return {"denominator": f"every {W.unit} of that unit, sentinels included", "rows": rows}
 
 
 def document(payload) -> str:
     """One self-contained page: what was searched, what was found, and what moved."""
     from .report import _CSS, _esc, _table
 
+    from .assay import EITHER
     rec, summ = payload["record"], payload["summary"]
+    W = payload.get("words") or EITHER          # the assay the objects recorded, else both units
     P = ['<div class="wrap"><h1>Targeted rescue of missing cell types</h1>',
          f'<div class="sub">{_esc(payload["label_key"])} &middot; '
          f'{rec["n_targets"]} targeted searches over rungs '
@@ -253,15 +258,16 @@ def document(payload) -> str:
                     numeric=("units carrying it",)))
 
     P.append("<h2>What was renamed</h2>")
-    P.append(f'<p><b>{rec["n_renamed"]:,} cells</b> across {rec["n_found"]} of '
-             f'{rec["n_targets"]} searches. Only the located cluster&rsquo;s cells move; the '
+    P.append(f'<p><b>{rec["n_renamed"]:,} {W.units}</b> across {rec["n_found"]} of '
+             f'{rec["n_targets"]} searches. Only the located cluster&rsquo;s {W.units} move; the '
              f'finer clustering is discarded, never adopted.</p>')
-    P.append(_table(["label", "unit", "found at", "clusters", "cells renamed", "taken from"],
+    renamed = f"{W.units} renamed"
+    P.append(_table(["label", "unit", "found at", "clusters", renamed, "taken from"],
                     [{"label": m["label"], "unit": m["unit"], "found at": m["rung"],
-                      "clusters": ", ".join(m["clusters"]), "cells renamed": m["n_renamed"],
+                      "clusters": ", ".join(m["clusters"]), renamed: m["n_renamed"],
                       "taken from": ", ".join(f"{k} {v}" for k, v in
                                               sorted(m["from"].items(), key=lambda kv: -kv[1]))}
-                     for m in rec["moved"]], numeric=("cells renamed",)))
+                     for m in rec["moved"]], numeric=(renamed,)))
     P.append('<div class="cannot"><b>What this cannot show.</b> ' + _esc(rec["limit"]) + "</div>")
 
     P.append("<h2>Where nothing was found</h2>")

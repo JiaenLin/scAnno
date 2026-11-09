@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .assay import EITHER
+
 #: Floor on the derived tolerance, in percentage points. A sweep whose adjacent resolutions
 #: agree perfectly would otherwise get a tolerance of zero and call a 0.001-point difference
 #: decisive. Not a tuning knob - it is the resolution below which a percentage of cells is not
@@ -101,7 +103,7 @@ def sweep_stability(labels_by_res, tree=None, groups=None, depth=None,
     L = {r: _truncate(labels_by_res[r], depth) for r in res}
     n = len(L[res[0]])
     if any(len(L[r]) != n for r in res):
-        raise ValueError("every resolution must label the same cells, in the same order")
+        raise ValueError(f"every resolution must label the same {EITHER.units}, in the same order")
 
     modal = _modal(np.vstack([L[r] for r in res]))
     leaves = _leaves(tree)
@@ -178,7 +180,7 @@ def sweep_agreement(labels_by_res, reference, depth=None):
     ref = _truncate(reference, depth)
     n = len(ref)
     if any(len(L[r]) != n for r in res):
-        raise ValueError("every resolution must label the same cells, in the same order")
+        raise ValueError(f"every resolution must label the same {EITHER.units}, in the same order")
     stack = np.vstack([L[r] for r in res])
     return (stack == ref).sum(axis=0) / float(len(res))
 

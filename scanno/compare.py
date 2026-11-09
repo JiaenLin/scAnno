@@ -402,9 +402,12 @@ def _impact_per_sample(candidates, pa, sam, sentinels):
             "n_samples": len(samples), "rows": rows}
 
 
-def format_report(res, a_name="A", b_name="B") -> list:
-    """The comparison as lines, with the limit attached rather than left to a footnote."""
-    L = [f"{a_name} {res['n_a']:,} cells   {b_name} {res['n_b']:,} cells   "
+def format_report(res, a_name="A", b_name="B", words=None) -> list:
+    """The comparison as lines, with the limit attached rather than left to a footnote. `words` is
+    scanno/assay.py's for the assay the routes recorded; without it the unit is "cell or nucleus"."""
+    from .assay import EITHER
+    W = words or EITHER
+    L = [f"{a_name} {res['n_a']:,} {W.units}   {b_name} {res['n_b']:,} {W.units}   "
          f"shared {res['n_shared']:,}   scored {res['n_scored']:,}"]
     if res["n_sentinel_either"]:
         L.append(f"    {res['n_sentinel_either']:,} excluded from the denominator: one route or "
@@ -427,12 +430,13 @@ def format_report(res, a_name="A", b_name="B") -> list:
                  f"absent from a sample ENTIRELY")
         for r in mc["candidates"][:4]:
             L.append(f"      {r['n_cells']:>6,}  cluster {r['cluster']} = "
-                     f"{r['label_absent']} ({r['n_cluster']:,} cells, route A already agrees on "
+                     f"{r['label_absent']} ({r['n_cluster']:,} {W.units}, route A already agrees on "
                      f"{r['pct_route_a_agrees']}%)   {r['label_carried']} -> "
                      f"{r['label_absent']}   lacking {','.join(r['samples_lacking'])}   "
                      f"cluster is {r['top_share_pct']}% {r['top_sample']}")
         if mc["n_candidates"]:
-            L.append("      co-membership is not a label: these cells GROUP with cells called")
+            L.append(f"      co-membership is not a label: these {W.units} GROUP with {W.units} "
+                     f"called")
             L.append("      that, which is not the same as scoring as it.")
         lost = mc.get("lost_labels") or {}
         if lost.get("labels"):
@@ -444,7 +448,7 @@ def format_report(res, a_name="A", b_name="B") -> list:
             L.append("      some populations and destroys others.")
         imp = mc.get("impact") or {}
         if imp.get("labels"):
-            L.append(f"  IF EVERY CANDIDATE WERE ADOPTED - {imp['n_cells_total']:,} cells move:")
+            L.append(f"  IF EVERY CANDIDATE WERE ADOPTED - {imp['n_cells_total']:,} {W.units} move:")
             for r in imp["labels"]:
                 g = ("   " + ", ".join(f"{k} {v}" for k, v in sorted(r["by_group"].items()))
                      if r["by_group"] else "")

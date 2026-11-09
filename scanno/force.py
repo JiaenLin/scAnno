@@ -182,13 +182,16 @@ def _children(tree, node, sep=SEP):
     return list((tree.get("children") or {}).get(node.split(sep)[-1], []))
 
 
-def check_scope(scope, tree, sep=SEP):
+def check_scope(scope, tree, sep=SEP, words=None):
     """Every reason this scope and this tree cannot be walked together. Empty means go.
 
     Returned as strings rather than raised one at a time, so a caller fixing a scope file sees
-    all of its problems in one run instead of discovering them one refusal per hour.
+    all of its problems in one run instead of discovering them one refusal per hour. `words` is
+    scanno/assay.py's for the run's assay; without it the unit is "cell or nucleus".
     """
+    from .assay import EITHER
     from .scope import bare_names_unique, internal_nodes
+    W = words or EITHER
 
     verdicts = scope_verdicts(scope)
     problems = []
@@ -204,23 +207,23 @@ def check_scope(scope, tree, sep=SEP):
 
     if ROOT in forced:
         problems.append(
-            "the scope marks the ROOT as FORCE. Truncation at the root is UNRESOLVED, which is "
-            "a different decision from a cell stranded on a compartment; `scanno scope` never "
-            "emits it and this command will not invent it.")
+            f"the scope marks the ROOT as FORCE. Truncation at the root is UNRESOLVED, which is "
+            f"a different decision from a {W.unit} stranded on a compartment; `scanno scope` "
+            f"never emits it and this command will not invent it.")
 
     for node in sorted(forced - {ROOT}):
         kids = _children(tree, node, sep=sep)
         if not kids:
             problems.append(
                 f"{node} is FORCE but --tree gives it no children, so there is nothing to push "
-                f"its stranded cells onto. Either the tree is already sealed there or the scope "
-                f"describes a different taxonomy.")
+                f"its stranded {W.units} onto. Either the tree is already sealed there or the "
+                f"scope describes a different taxonomy.")
             continue
         clash = [c for c in kids if f"{node}{sep}{c}" in forced]
         if clash:
             problems.append(
                 f"{node} is FORCE and so is its child {', '.join(clash)}. Forcing would land "
-                f"the cell on a bare FORCE-node name one level down, which is the very thing "
+                f"the {W.unit} on a bare FORCE-node name one level down, which is the very thing "
                 f"FORCE exists to remove.")
 
     # Taxonomy drift. A scope voted on one tree and applied to another is silent: the seals land
@@ -525,18 +528,21 @@ def resolve_to_leaf(res, tree=None, scorer=None, counts=None, sep=SEP):
     return out, record
 
 
-def format_resolved(record, sep=SEP):
-    """The resolved-label summary, as report lines. Says what was ASSIGNED, not merely what is."""
+def format_resolved(record, sep=SEP, words=None):
+    """The resolved-label summary, as report lines. Says what was ASSIGNED, not merely what is.
+    `words` is scanno/assay.py's for the run's assay; without it the unit is "cell or nucleus"."""
+    from .assay import EITHER
+    W = words or EITHER
     if not record:
         return []
     by, cells = record["by_origin"], record["cells_by_origin"]
-    L = [f"resolved labels: every walked cell carries a leaf in `<prefix>_resolved`, and "
+    L = [f"resolved labels: every walked {W.unit} carries a leaf in `<prefix>_resolved`, and "
          f"`<prefix>_resolved_origin` says how it got there."]
     for k in RESOLVED_ORIGINS:
         if by.get(k):
-            L.append(f"    {k:<12} {by[k]:>4} cluster(s), {cells[k]:>8,} cell(s)")
+            L.append(f"    {k:<12} {by[k]:>4} cluster(s), {cells[k]:>8,} {W.units}")
     if by.get(FROM_ROOT):
-        L.append(f"    {cells[FROM_ROOT]:,} cell(s) were UNRESOLVED and are now labelled. Their "
+        L.append(f"    {cells[FROM_ROOT]:,} {W.units} were UNRESOLVED and are now labelled. Their "
                  f"margin is below the gap bar BY CONSTRUCTION - that is why the walk stopped - "
                  f"so these are the least certain labels in the object.")
     if record.get("unresolvable"):
@@ -579,12 +585,15 @@ def bare_force(res, force_paths):
             for r in res if str(r.get("path", "")) in force]
 
 
-def format_force(record, gap_min=None, sep=SEP):
+def format_force(record, gap_min=None, sep=SEP, words=None):
     """The reassignment as lines a human reads. What moved, where to, and on what margin.
 
     The WHOLE chain is printed, not the destination alone. A cell pushed twice was decided twice,
     and a line reading `A -> C` would let a reader believe a single measurement put it there.
+    `words` is scanno/assay.py's for the run's assay; without it the unit is "cell or nucleus".
     """
+    from .assay import EITHER
+    W = words or EITHER
     L = [f"  FORCE  {len(record['nodes'])} node(s) the cohort agreed to split, on which nothing "
          f"may terminate: {', '.join(record['nodes']) or '(none)'}"]
     if not record["nodes"]:
@@ -592,14 +601,14 @@ def format_force(record, gap_min=None, sep=SEP):
     if record["n_forced"]:
         cells = record["n_cells_forced"]
         L.append(f"    {record['n_forced']} cluster(s)"
-                 + (f" / {cells:,} cell(s)" if cells else "")
+                 + (f" / {cells:,} {W.units}" if cells else "")
                  + " were stranded and have been pushed, step by step, to the most similar "
                    "child at each node until a leaf:")
         for cid, a in sorted(record["assigned"].items(), key=lambda kv: -kv[1]["n_cells"]):
             n = f"{a['n_cells']:,}" if a["n_cells"] else "?"
             chain = " -> ".join([a["node"]] + [p.split(sep)[-1] for p in a["steps"]])
             margins = ", ".join(f"{m:.3f}" for m in a["margins"])
-            L.append(f"      cluster {cid:>6}  {n:>9} cell(s)  {chain}"
+            L.append(f"      cluster {cid:>6}  {n:>9} {W.units}  {chain}"
                      f"   margin(s) {margins}")
         deep = {cid: a for cid, a in record["assigned"].items() if a["steps"][1:]}
         if deep:
@@ -609,8 +618,8 @@ def format_force(record, gap_min=None, sep=SEP):
             for cid, a in sorted(deep.items(), key=lambda kv: -kv[1]["n_cells"]):
                 L.append(f"      cluster {cid:>6}  weakest step {min(a['margins']):.3f}"
                          f"   ({a['force_depth']} steps)")
-            L.append(f"    `<prefix>_force_depth` carries the count per cell. It says how many "
-                     f"decisions were taken")
+            L.append(f"    `<prefix>_force_depth` carries the count per {W.unit}. It says how "
+                     f"many decisions were taken")
             L.append(f"    outside the walk, NOT how weak they were — read the margins for "
                      f"that.")
     else:
@@ -618,14 +627,14 @@ def format_force(record, gap_min=None, sep=SEP):
     if gap_min is not None and record["n_forced"]:
         L.append(f"    A forced call is NOT a gap-cleared call: the FIRST margin of each chain "
                  f"above is below the bar")
-        L.append(f"    ({gap_min}) by construction — that is why the walk stopped — while cells "
-                 f"reaching the same child in")
+        L.append(f"    ({gap_min}) by construction — that is why the walk stopped — while "
+                 f"{W.units} reaching the same child in")
         L.append(f"    other samples cleared it. A LATER step is scored fresh at a node the "
                  f"walk never reached and may")
         L.append(f"    fall either side of the bar; it does not inherit the first step's "
                  f"weakness and does not cancel it.")
-        L.append(f"    `<prefix>_assignment` says which cells are which, `<prefix>_gap` is the "
-                 f"FIRST step's margin, and")
+        L.append(f"    `<prefix>_assignment` says which {W.units} are which, `<prefix>_gap` is "
+                 f"the FIRST step's margin, and")
         L.append(f"    uns holds the rest — filter on them before any cross-sample claim.")
     for cid, u in sorted(record["unforceable"].items()):
         L.append(f"    REFUSE  cluster {cid} stopped on {u['node']}, reached {u['reached']} and "

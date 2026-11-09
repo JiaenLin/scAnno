@@ -26,6 +26,7 @@ NOT_A_UNIT = (
     r"cell ontology", r"cell names?",                 # the corpus's vocabulary
     r"\(cell, gene\)",                                # a corpus claim: (cell name, gene)
     r"not cells and not animals",                     # the snrna report saying nuclei are not cells
+    r"--exclude-mode cell\b",                         # a retired option's value, quoted to name it
 )
 _NOT = re.compile("|".join(NOT_A_UNIT), re.I)
 UNIT = re.compile(r"\bcells?\b|\bcell\(s\)", re.I)

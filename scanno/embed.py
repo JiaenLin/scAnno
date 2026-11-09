@@ -94,16 +94,20 @@ def slim_annotation_obs(obs, label_map, prefixes=ANNOTATION_PREFIXES, name="obje
 
 
 def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50, n_neighbors=15,
-          min_dist=0.2, seed=0, gene_key=None, log=print):
+          min_dist=0.2, seed=0, gene_key=None, log=print, words=None):
     """Concatenate, normalise, select HVGs over all genes, PCA, neighbours, UMAP.
 
     `objects` is [(name, AnnData), ...] with raw counts in `layers['counts']` or in `.X`.
     Returns the joint AnnData. Every step prints what it did, because an embedding whose
-    parameters are not recorded cannot be reproduced or argued with.
+    parameters are not recorded cannot be reproduced or argued with. `words` is
+    scanno/assay.py's for the assay the objects recorded; without it the unit is "cell or nucleus".
     """
     import anndata as ad
     import numpy as np
     import scanpy as sc
+
+    from .assay import EITHER
+    W = words or EITHER
 
     # ---- PREFLIGHT. Check every input BEFORE spending anything ----------------------
     #
@@ -119,7 +123,7 @@ def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50,
         elif getattr(X, "shape", (0, 0))[1] == 0:
             bad.append(f"{name}: matrix has zero genes")
         if A.n_obs == 0:
-            bad.append(f"{name}: zero cells")
+            bad.append(f"{name}: zero {W.units}")
     if bad:
         raise SystemExit("scanno embed: REFUSE - " + str(len(bad)) + " input(s) cannot be used:\n  "
                          + "\n  ".join(bad))
@@ -174,11 +178,11 @@ def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50,
             raise SystemExit(f"scanno embed: {name} has no expression matrix (.X is None) "
                              f"after selecting counts. Nothing downstream can be computed.")
         parts.append(B)
-        log(f"  read {name}: {B.n_obs:,} cells x {B.n_vars:,} genes")
+        log(f"  read {name}: {B.n_obs:,} {W.units} x {B.n_vars:,} genes")
 
     J = ad.concat(parts, join="inner", label=None, index_unique=None)
     lost = [p.n_vars - J.n_vars for p in parts]
-    log(f"  concatenated: {J.n_obs:,} cells x {J.n_vars:,} genes"
+    log(f"  concatenated: {J.n_obs:,} {W.units} x {J.n_vars:,} genes"
         + (f"   (inner join dropped up to {max(lost):,} genes from a sample)" if max(lost) else ""))
     del parts
 

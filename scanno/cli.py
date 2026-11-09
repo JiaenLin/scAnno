@@ -24,6 +24,8 @@ STATE_VERSION = 1      # the numbers, versioned: bump when the same inputs would
 from . import status as _ST  # noqa: E402
 from .assay import ASSAYS as _ASSAYS, CHOICES as _ASSAY_CHOICES, HELP as _ASSAY_HELP  # noqa: E402
 from .assay import RULES as _ASSAY_RULES  # noqa: E402
+# Help is printed before any input is read, so no assay is known when it is: it names both units.
+from .assay import EITHER as _EITHER  # noqa: E402
 
 #: Where `annotate` records the context it ran under - species, tissue and assay, as declared -
 #: so a later command reads the assay from the object instead of being told it again.
@@ -210,6 +212,8 @@ def _calibrate(a):
     man = _read_manifest(a.manifest)
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
     ctx = {"species": a.species, "tissue": a.tissue, "assay": a.assay}
+    from . import assay as AS
+    W = AS.words(a.assay)
 
     print(f"scanno calibrate — {ctx['species']}/{ctx['tissue']}/{ctx['assay']}, "
           f"{len(man)} dataset(s)")
@@ -265,7 +269,7 @@ def _calibrate(a):
             g = np.array([str(v).upper() for v in src.var_names])
             sel = np.array([np.where(g == x)[0][0] for x in order])
             X = src.X[:, sel]
-            print(f"  {r['source_id']:<16} {A.shape[0]:>7,} cells  "
+            print(f"  {r['source_id']:<16} {A.shape[0]:>7,} {W.units}  "
                   f"{len(order):>6,} genes  labels={r['label_key']}  "
                   f"provenance={r['provenance']}")
             yield (r["source_id"], order, X,
@@ -349,6 +353,19 @@ def _rescue(a):
         clus[u] = {r: np.asarray(A.obs[k].astype(str)) for r, (_c, k) in found.items()}
         units.append(u)
 
+    # THE ASSAY, FROM WHAT THE OBJECTS RECORDED, before any search. A label one unit lacks is
+    # looked for in that unit's own clusters; a cohort of cells and nuclei would compare one kind
+    # of observation's composition with the other's, so a mixture is refused by name, as
+    # `scanno report` refuses it. The words come from the same record.
+    from . import assay as AS
+    _assay, _recs, refused = _objects_assay(
+        [(Path(objs[u][0]).name, objs[u][1]) for u in units],
+        what="One rescue searches one kind of observation",
+        fix="rescue each assay's objects separately")
+    if refused:
+        return REFUSE
+    W = AS.words_or_either(_assay)
+
     common = sorted(set.intersection(*(set(sweep[u]) for u in units)))
     lo = a.from_resolution if a.from_resolution is not None else common[0]
     hi = a.to_resolution if a.to_resolution is not None else common[-1]
@@ -362,7 +379,8 @@ def _rescue(a):
 
     _ST.lap("read")
     new, origin, rec = rescue(labels, sweep, clus, rungs)
-    summ = summarise(labels, new)
+    summ = summarise(labels, new, words=W)
+    _ST.lap("search")
 
     print("")
     print(f"{len(rec['trigger'])} imbalanced label(s) -> {rec['n_targets']} targeted searches")
@@ -370,19 +388,19 @@ def _rescue(a):
         print(f"    {lab:<40} carried by {len(v['with'])}, searched in {len(v['without'])}")
     print("")
     print(f"found {rec['n_found']}, not found {rec['n_not_found']}, "
-          f"{rec['n_renamed']:,} cell(s) renamed")
+          f"{rec['n_renamed']:,} {W.units} renamed")
     for m in rec["moved"]:
         src = ", ".join(f"{k.split('/')[-1]} {v}" for k, v in
                         sorted(m["from"].items(), key=lambda kv: -kv[1]))
         print(f"    {m['label']:<34} {m['unit']:<14} rung {m['rung']:<6} "
-              f"{m['n_renamed']:>6,} cell(s)   from {src}")
+              f"{m['n_renamed']:>6,} {W.units}   from {src}")
     if rec["not_found"]:
         print("")
         print("  nothing found - and whether that means anything depends on whether the "
               "finest\n  clustering reached could have HELD the population:")
         for m in rec["not_found"]:
             print(f"    {m['label']:<34} {m['unit']:<14} "
-                  f"would be {m['expected_cells']:>6.0f} cell(s), finest cluster "
+                  f"would be {m['expected_cells']:>6.0f} {W.units}, finest cluster "
                   f"{m['mean_cluster_finest']:>6.0f}   "
                   f"{'a real absence' if m['could_form'] else 'UNDECIDED - out of reach'}")
 
@@ -413,11 +431,45 @@ def _rescue(a):
         Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out_report).write_text(document(
             {"record": rec, "summary": summ, "label_key": a.label_key, "version": __version__,
+             "words": W,
              "generated": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}),
             encoding="utf-8")
         print(f"wrote {a.out_report}")
     _ST.lap("write")
     return 0
+
+
+def _objects_assay(objs, *, what, fix):
+    """The ONE assay a set of annotated objects recorded, for a command that reads several.
+
+    `objs` is [(name, AnnData)], read from each object's `uns['scanno_context']`. Returns
+    `(assay, recs, refused)`: the canonical assay, or None when no object records one; each
+    object's record; and whether the command was refused, in which case the refusal has already
+    been recorded through the status contract and the caller returns REFUSE. Two things refuse, by
+    name, before any work: an assay this tool does not know (`assay_unknown`), and objects
+    annotated under different assays (`assay_mixed`), which is one cohort described as two kinds of
+    observation - `what` says what this command would have made of them. Objects that record no
+    assay are accepted, as `scanno report` accepts them, because they predate the record.
+    """
+    from . import assay as AS
+    recs, unknown = {}, []
+    for name, A in objs:
+        try:
+            recs[name] = AS.recorded(dict(A.uns.get(CONTEXT_KEY, {}) or {}))
+        except ValueError as e:
+            unknown.append(f"{name}: {e}")
+    if unknown:
+        _ST.refuse(f"{len(unknown)} object(s) record an assay this tool does not know: "
+                   f"{'; '.join(unknown[:3])}", code="assay_unknown")
+        return None, recs, True
+    said = sorted({v for v in recs.values() if v})
+    if len(said) > 1:
+        by = {v: [n for n, r in recs.items() if r == v] for v in said}
+        _ST.refuse("these objects were annotated under different assays - "
+                   + "; ".join(f"{v}: {', '.join(ns[:4])}" for v, ns in by.items())
+                   + f". {what}", code="assay_mixed", fix=fix)
+        return None, recs, True
+    return (said[0] if said else None), recs, False
 
 
 def _store_assay(path, run_assay):
@@ -513,7 +565,7 @@ def _annotate(a):
         except ValueError as e:
             _ST.refuse(f"--scope {a.scope} is {e}")
             return REFUSE
-        problems = check_scope(scope, tree)
+        problems = check_scope(scope, tree, words=W)
         if problems:
             _ST.refuse(f"--scope {a.scope} cannot be walked against --tree "
                   f"{a.tree}:")
@@ -771,7 +823,7 @@ def _annotate(a):
                   f"the\n        scope says a subtype belongs:")
             for s in sorted(stuck, key=lambda s: s["cluster"]):
                 print(f"        - cluster {s['cluster']} on {s['node']}", file=sys.stderr)
-            for line in format_force(force_rec, gap_min=a.gap_min):
+            for line in format_force(force_rec, gap_min=a.gap_min, words=W):
                 print(f"        {line.strip()}", file=sys.stderr)
             print("        Nothing was written. Seal that node in the scope, or give its "
                   "children corpus support.", file=sys.stderr)
@@ -839,7 +891,7 @@ def _annotate(a):
     if force_rec is not None:
         from .force import format_force
         print("")
-        for line in format_force(force_rec, gap_min=a.gap_min):
+        for line in format_force(force_rec, gap_min=a.gap_min, words=W):
             print(line)
 
     if res_l1 is not None:
@@ -901,7 +953,7 @@ def _annotate(a):
             _scorer = node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr)
         res, resolve_rec = resolve_to_leaf(res, tree=tree, scorer=_scorer, counts=counts)
         print("")
-        for line in format_resolved(resolve_rec):
+        for line in format_resolved(resolve_rec, words=W):
             print(line)
         # THE INDEPENDENT L1 IS RESOLVED SEPARATELY, against its OWN depth-1 tree. Resolving it
         # from the deep tree would push an L1 cell to a subtype, which is not an L1 answer; and
@@ -915,7 +967,7 @@ def _annotate(a):
                                    store=None if asr else store, assertions=asr))
             print("")
             print("  independent L1:")
-            for line in format_resolved(resolve_l1_rec):
+            for line in format_resolved(resolve_l1_rec, words=W):
                 print("  " + line)
         _ST.lap("resolve")
 
@@ -1031,7 +1083,7 @@ def _annotate(a):
                                       tree=str(a.l1_tree),
                                       resolved=resolve_rec is not None)
             print("")
-            for line in format_independent_l1(rec):
+            for line in format_independent_l1(rec, words=W):
                 print(line)
             if col not in w:
                 w.append(col)
@@ -1109,7 +1161,7 @@ def _annotate(a):
         print("  what a viewer will find in it")
         label_key = (f"{a.label_prefix}_cell_type" if not a.label_suffix
                      else f"{a.label_prefix}_label{a.label_suffix}")
-        checks = lab_readiness(A, label_key)
+        checks = lab_readiness(A, label_key, words=W)
         for line in format_readiness(checks):
             print(line)
         if any(lvl == "missing" for lvl, _ in checks):
@@ -1146,11 +1198,15 @@ def _annotate(a):
         print(f"      {js}   every number in the document, machine-readable")
         if doc.get("defects"):
             print(f"  {len(doc['defects'])} defect(s) counted on the report's own front page")
-    elif not a.out:
+        _ST.lap("report")
+    elif not a.out and not a.out_h5ad:
+        # Only when NOTHING was written. It looked at --out alone, so every run that wrote its
+        # object with --out-h5ad and no table ended by saying that nothing had been written.
         print("")
-        print("scanno: nothing was written. The labels above exist only in this output.\n"
-              "        --out-h5ad PATH  writes the object with the annotation per CELL\n"
-              "        --out PATH       writes the per-CLUSTER table as TSV")
+        print(f"scanno: nothing was written. The labels above exist only in this output.\n"
+              f"        --out-h5ad PATH  writes the object with the annotation per "
+              f"{W.unit.upper()}\n"
+              f"        --out PATH       writes the per-CLUSTER table as TSV")
     return 0
 
 
@@ -1227,10 +1283,13 @@ def _cluster(a):
             print(f"--split-by {a.split_by}: {len(pieces)} groups, each clustered "
                   f"INDEPENDENTLY - no shared variable genes, no joint embedding, no batch key")
             if "scqc" in A.uns:
-                print("    the upstream declaration is dropped from each piece: it describes "
-                      "the cohort,\n    so carrying it onto a subset would fail verification "
-                      "downstream and read as\n    tampering. The flag column travels with the "
-                      "cells - name it with --exclude-flag.")
+                # `cluster` takes no assay, and its input is not annotated yet, so no record
+                # says which unit the flag column describes: both are named.
+                from .assay import EITHER
+                print(f"    the upstream declaration is dropped from each piece: it describes "
+                      f"the cohort,\n    so carrying it onto a subset would fail verification "
+                      f"downstream and read as\n    tampering. The flag column travels with the "
+                      f"{EITHER.units} - name it with --exclude-flag.")
         else:
             print(f"\n{Path(src).name}: {A.n_obs:,} x {A.n_vars:,}")
 
@@ -1292,8 +1351,10 @@ def _background(a):
     except ImportError:
         print("scanno: background needs anndata.  pip install -e '.[run]'", file=sys.stderr)
         return 1
+    from . import assay as AS
     from .store import build_store
 
+    W = AS.words(a.assay)
     parts, n_total = [], 0
     for src in a.h5ad:
         A = ad.read_h5ad(src)
@@ -1316,7 +1377,7 @@ def _background(a):
         lab = np.char.add(tag + ":", A.obs[a.cluster_key].astype(str).values)
         parts.append((tag, genes, A.X, lab))
         n_total += int(A.n_obs)
-        print(f"  {tag:<28} {A.n_obs:>8,} cells  {len(set(lab)):>4} clusters")
+        print(f"  {tag:<28} {A.n_obs:>8,} {W.units}  {len(set(lab)):>4} clusters")
     if not parts:
         _ST.refuse("no objects given.")
         return REFUSE
@@ -1336,7 +1397,7 @@ def _background(a):
         n_sources=store.n_sources, n_clean=store.n_clean, between_sd=store.between_sd,
         gene_mu=store.gene_mu, gene_sd=store.gene_sd, digest=store.digest)
     print(f"\nwrote {a.out}   digest {store.digest}")
-    print(f"  {n_total:,} cells from {len(parts)} object(s), {len(store.genes):,} genes")
+    print(f"  {n_total:,} {W.units} from {len(parts)} object(s), {len(store.genes):,} genes")
     print("  Pass it to every `scanno annotate` in this cohort with --store, so a cluster's")
     print("  score does not depend on which library it happened to sit in.")
     print("  It is still THIS cohort's background: independent of the library, not of the study.")
@@ -1356,6 +1417,15 @@ def _compare(a):
 
     A = ad.read_h5ad(a.a, backed="r")
     B = ad.read_h5ad(a.b, backed="r")
+    # THE UNIT, FROM WHAT THE TWO ROUTES RECORDED. `compare` takes no assay. When the routes record
+    # one between them its words are used; when they record none, or two that disagree, both
+    # units are named rather than one being guessed.
+    from . import assay as AS
+    try:
+        _said = {AS.recorded(dict(o.uns.get(CONTEXT_KEY, {}) or {})) for o in (A, B)} - {None}
+    except ValueError:
+        _said = set()
+    W = AS.words_or_either(next(iter(_said)) if len(_said) == 1 else None)
     for obj, path, key in ((A, a.a, a.path_key), (B, a.b, a.path_key_b or a.path_key)):
         if key not in obj.obs:
             print(f"scanno: {path} has no obs column {key!r}. Annotate it first with "
@@ -1372,7 +1442,7 @@ def _compare(a):
                   sample_key=a.sample_key, cluster_key=a.cluster_key, group_key=a.group_key,
                   agreement_key=a.agreement_key)
     print("")
-    for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem):
+    for line in format_report(res, a_name=Path(a.a).stem, b_name=Path(a.b).stem, words=W):
         print(line)
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -1442,7 +1512,7 @@ def _compare(a):
         ai = A2.obs.index.astype(str)
         n_shared = int(ai.isin(clu.index).sum())
         if not n_shared:
-            print(f"scanno: {a.a} and {a.b} share no barcodes; they are not the same cells.",
+            print(f"scanno: {a.a} and {a.b} share no barcodes; they are not the same {W.units}.",
                   file=sys.stderr)
             return 1
         clu = clu.reindex(ai).fillna("__not_in_route_b__").to_numpy()
@@ -1479,7 +1549,7 @@ def _compare(a):
             Path(a.out_h5ad).parent.mkdir(parents=True, exist_ok=True)
             write_h5ad(A2, a.out_h5ad)
             print(f"wrote {a.out_h5ad}   +obs[{info['key']!r}] and "
-                  f"obs[{info['origin_key']!r}]   {info['n_corrected']:,} cells corrected")
+                  f"obs[{info['origin_key']!r}]   {info['n_corrected']:,} {W.units} corrected")
 
         if a.out_report:
             cols = [
@@ -1512,11 +1582,11 @@ def _compare(a):
                     "",
                     "The procedure, the four criteria and the four prohibitions are in "
                     "skills/joint-route-review.", ""]
-            _req += ["", _prompt(mc["candidates"][0], lost=_lost, group_key=_gk).split(
+            _req += ["", _prompt(mc["candidates"][0], lost=_lost, group_key=_gk, words=W).split(
                 "CANDIDATE -")[0].rstrip(), ""] if mc["candidates"] else []
             for _c in mc["candidates"]:
                 _req += ["", "---", "",
-                         _prompt(_c, lost=_lost, group_key=_gk, brief=False)]
+                         _prompt(_c, lost=_lost, group_key=_gk, brief=False, words=W)]
             if a.out_report:
                 _rp = Path(a.out_report).with_name("review_request.md")
                 _rp.parent.mkdir(parents=True, exist_ok=True)
@@ -1540,13 +1610,16 @@ def _compare(a):
                                             encoding="utf-8")
                 print(f"wrote {a.verdicts}   NO reviewer attached - "
                       f"{rev['n_candidates']} candidate(s) ungraded, "
-                      f"{rev['n_cells_ungraded']:,} cells")
+                      f"{rev['n_cells_ungraded']:,} {W.units}")
             payload = {
                 "generated": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
                 "version": __import__("scanno").__version__,
                 "a_name": Path(a.a).name, "b_name": Path(a.b).name,
                 "forced_key": a.path_key, "out_key": out_key, "columns": cols,
                 "record": record, "summary": summ, "compare": res, "review": rev,
+                # The assay the two routes recorded, so `joint-review` re-renders this page in
+                # the same unit. None when they recorded none, or disagree.
+                "assay": W.assay if W is not AS.EITHER else None,
             }
             html = document(payload)
             Path(a.out_report).parent.mkdir(parents=True, exist_ok=True)
@@ -1557,7 +1630,7 @@ def _compare(a):
             _pj = Path(a.out_report).with_suffix(".json")
             _pj.write_text(_json.dumps(payload, indent=1, default=str), encoding="utf-8")
             print(f"wrote {_pj}   the document's own inputs, for `scanno joint-review`")
-            print(f"wrote {a.out_report}   {summ['n_changed']:,} cells differ")
+            print(f"wrote {a.out_report}   {summ['n_changed']:,} {W.units} differ")
     return 0
 
 
@@ -1568,6 +1641,12 @@ def _joint_review(a):
     from .joint import document, review
 
     payload = _json.loads(Path(a.payload).read_text(encoding="utf-8"))
+    # The unit `compare` recorded for the two routes; a payload written before it names both.
+    from . import assay as AS
+    try:
+        W = AS.words_or_either(payload.get("assay"))
+    except ValueError:
+        W = AS.EITHER
     mc = ((payload.get("compare") or {}).get("merge_candidates")) or {}
     if not mc.get("candidates"):
         print(f"scanno: {a.payload} carries no candidates to grade.", file=sys.stderr)
@@ -1594,9 +1673,9 @@ def _joint_review(a):
     print(f"{rec['n_graded']} of {rec['n_candidates']} candidate(s) graded"
           f"{' by ' + a.reviewer if a.reviewer else ''}")
     for g in rec["grades"]:
-        print(f"  {g:<10} {rec['n_cells_by_grade'].get(g, 0):>7,} cells")
+        print(f"  {g:<10} {rec['n_cells_by_grade'].get(g, 0):>7,} {W.units}")
     if rec["ungraded"]:
-        print(f"  UNGRADED   {rec['n_cells_ungraded']:>7,} cells in cluster(s) "
+        print(f"  UNGRADED   {rec['n_cells_ungraded']:>7,} {W.units} in cluster(s) "
               f"{', '.join(rec['ungraded'])}   — ungraded is NOT approved")
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -1631,9 +1710,11 @@ def _scope(a):
               f"tree, so a seal cannot be applied unambiguously: {dup}", file=sys.stderr)
         return 1
 
-    paths_by_sample = {}
+    paths_by_sample, read = {}, []
     for p in a.h5ad:
-        obs = ad.read_h5ad(p, backed="r").obs
+        B = ad.read_h5ad(p, backed="r")
+        obs = B.obs
+        read.append((Path(p).name, B))
         if a.path_key not in obs:
             print(f"scanno: {p} has no obs column {a.path_key!r}. Run pass 1 first with "
                   f"`scanno annotate --out-h5ad`.", file=sys.stderr)
@@ -1646,6 +1727,17 @@ def _scope(a):
             return 1
         paths_by_sample[name] = [str(v) for v in obs[a.path_key]]
 
+    # THE ASSAY, FROM WHAT THE OBJECTS RECORDED, before the vote. A scope voted over cells and
+    # nuclei together counts one kind of observation's descent as the other's, so a mixture is
+    # refused by name, as `scanno report` refuses it. The words come from the same record.
+    from . import assay as AS
+    _assay, _recs, refused = _objects_assay(
+        read, what="One scope is voted over one kind of observation",
+        fix="vote a scope over each assay's objects separately")
+    if refused:
+        return REFUSE
+    W = AS.words_or_either(_assay)
+
     verdicts = vote(paths_by_sample, tree, min_support=a.min_support,
                     min_reach=a.min_reach, descend_rule=a.descend_rule)
     lost = sealed_labels(verdicts, paths_by_sample)
@@ -1656,7 +1748,7 @@ def _scope(a):
     print(f"rule: seal unless support >= {a.min_support} (descend-rule {a.descend_rule!r}, "
           f"min-reach {a.min_reach})\n")
     for line in format_report(verdicts, removed=removed, sealed=lost,
-                              n_samples=len(paths_by_sample)):
+                              n_samples=len(paths_by_sample), words=W):
         print(line)
 
     # THE SCOPE ITSELF, drawn. The table above says what the vote decided; this says what you
@@ -1743,24 +1835,11 @@ def _report(a):
     # cohort of mixed assays is refused, and so is an `--assay` that contradicts the record: both
     # are one cohort described as two kinds of thing.
     from . import assay as AS
-    recs, unknown = {}, []
-    for name, A in objs:
-        try:
-            recs[name] = AS.recorded(dict(A.uns.get(CONTEXT_KEY, {}) or {}))
-        except ValueError as e:
-            unknown.append(f"{name}: {e}")
-    if unknown:
-        _ST.refuse(f"{len(unknown)} object(s) record an assay this tool does not know: "
-                   f"{'; '.join(unknown[:3])}", code="assay_unknown")
+    _one, recs, refused = _objects_assay(objs, what="One document describes one kind of observation",
+                                         fix="report each assay's objects separately")
+    if refused:
         return REFUSE
-    said = sorted({v for v in recs.values() if v})
-    if len(said) > 1:
-        by = {v: [n for n, r in recs.items() if r == v] for v in said}
-        _ST.refuse("these objects were annotated under different assays - "
-                   + "; ".join(f"{v}: {', '.join(ns[:4])}" for v, ns in by.items())
-                   + ". One document describes one kind of observation", code="assay_mixed",
-                   fix="report each assay's objects separately")
-        return REFUSE
+    said = [_one] if _one else []
     given = AS.canonical(a.assay) if a.assay else None
     if given and said and given != said[0]:
         _ST.refuse(f"--assay {a.assay} contradicts the objects, which were annotated as "
@@ -2001,7 +2080,7 @@ def _report(a):
                       n_cells=int(ctx.n), n_samples=len(ctx.samples),
                       taxonomy_depth=int(ctx.depth), version=__version__,
                       inputs=", ".join(str(x) for x in a.h5ad[:3]) + (" ..." if len(a.h5ad) > 3 else ""),
-                      withheld=int(ctx.P["flag"].sum()) if ctx.has_flag else None,
+                      withheld=int(ctx.P["flag"].sum()) if ctx.has_flag else None, words=W,
                       limits=["No label here is established as correct: there is no truth set, "
                               "and this tool reports what the corpus supports, not what is true.",
                               "The embedding is NOT integrated unless a separate step did so.",
@@ -2046,17 +2125,25 @@ def _embed(a):
 
     objs = [(Path(src).stem.replace("_annotated", ""), ad.read_h5ad(src)) for src in a.h5ad]
     print(f"{len(objs)} object(s)")
+    # THE UNIT, FROM WHAT THE OBJECTS RECORDED. `embed` takes no assay. One assay between them
+    # words its prints; none, or two, names both units rather than guessing one.
+    from . import assay as AS
+    try:
+        _said = {AS.recorded(dict(o.uns.get(CONTEXT_KEY, {}) or {})) for _n, o in objs} - {None}
+    except ValueError:
+        _said = set()
+    W = AS.words_or_either(next(iter(_said)) if len(_said) == 1 else None)
     J = build(objs, sample_key=a.sample_key, label_map=label_map or None,
               n_hvg=a.n_hvg, n_pcs=a.n_pcs,
               n_neighbors=a.n_neighbors, min_dist=a.min_dist, seed=a.seed,
-              gene_key=a.gene_key)
+              gene_key=a.gene_key, words=W)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     plain_string_labels(J)
     with classic_string_encoding():
         J.write_h5ad(a.out)
     print("")
-    print(f"wrote {a.out}   {J.n_obs:,} cells x {J.n_vars:,} genes")
-    print("      NOT integrated: computed over the pooled cells with no batch correction.")
+    print(f"wrote {a.out}   {J.n_obs:,} {W.units} x {J.n_vars:,} genes")
+    print(f"      NOT integrated: computed over the pooled {W.units} with no batch correction.")
     print("      Whether integration is needed is a separate decision with its own evidence.")
     return 0
 
@@ -2123,12 +2210,19 @@ def _readme(a):
     from .readme import write
     from . import __version__
     obs, n_cells, n_samples, depth, withheld = [], None, None, None, None
+    W = None                    # the words of the assay the objects recorded; both units without
     src = sorted(Path(a.dir).glob("annotated/*_annotated.h5ad")) or \
           sorted(Path(a.dir).glob("*.h5ad"))
     if src:
         try:
             import anndata as ad
-            o = ad.read_h5ad(src[0], backed="r").obs
+            _first = ad.read_h5ad(src[0], backed="r")
+            o = _first.obs
+            from . import assay as AS
+            try:
+                W = AS.words_or_either(AS.recorded(dict(_first.uns.get(CONTEXT_KEY, {}) or {})))
+            except ValueError:
+                W = None
             obs = list(o.columns)
             n_samples = len(src)
             n_cells = sum(ad.read_h5ad(f, backed="r").n_obs for f in src)
@@ -2143,7 +2237,7 @@ def _readme(a):
               obs_columns=obs, n_cells=n_cells, n_samples=n_samples,
               taxonomy_depth=depth, version=__version__, command=a.command,
               inputs=a.inputs, withheld=withheld,
-              limits=[l for l in (a.limit or [])])
+              limits=[l for l in (a.limit or [])], words=W)
     print(f"wrote {p}")
     return 0
 
@@ -2193,8 +2287,8 @@ RETIRED_OPTIONS = {
     "--exclude-share": (
         "A share threshold is a QC decision, and scAnno does not make QC decisions. It existed "
         "only for the removed `--exclude-mode cluster`. If you want a cluster-level exclusion, "
-        "compute it upstream where it can be assessed, and hand scAnno the resulting per-cell "
-        "column."),
+        "compute it upstream where it can be assessed, and hand scAnno the resulting column, one "
+        f"value per {_EITHER.unit}."),
 }
 
 
@@ -2276,26 +2370,31 @@ def main(argv=None):
                         "already written. Each further key adds ONE column, "
                         "`<prefix>_resolved_path<suffix>_r<tag>`, and two more are voted from "
                         "the family: `<prefix>_sweep_agreement<suffix>`, the "
-                        "share of the sweep whose label matches the delivered one, per cell. "
+                        f"share of the sweep whose label matches the delivered one, per "
+                        f"{_EITHER.unit}. "
                         "A population too rare to form a cluster at one granularity forms one "
                         "at another, so a call that survives the sweep is a different claim "
                         "from one that does not, and a single resolution cannot state either. "
                         "REPORTED ONLY: no label is voted, chosen or changed by the sweep")
     s.add_argument("--tree", required=True, type=Path)
     s.add_argument("--resolve", action="store_true",
-                   help="ALSO write a label column with no holes in it. Every walked cell gets a "
+                   help="ALSO write a label column with no holes in it. Every walked "
+                        f"{_EITHER.unit} gets a "
                         "LEAF in `<prefix>_resolved`, `<prefix>_resolved_path` and "
                         "`<prefix>_resolved_origin`; the ordinary label columns are untouched, so "
-                        "the decision not to guess is still in the object beside it. A cell the "
+                        f"the decision not to guess is still in the object beside it. A "
+                        f"{_EITHER.unit} the "
                         "walk left UNRESOLVED is pushed from the ROOT down to a leaf, and one "
                         "stranded on an internal node is pushed from there - by the same descent "
                         "the FORCE pass uses, over the argmax the walk ALREADY recorded, so "
                         "nothing is scored that was not scored anyway and nothing is invented. "
-                        "Where a chain cannot reach a leaf the cell stays UNRESOLVED and the "
-                        "reason is recorded. EXCLUDED cells are never resolved: they were "
+                        f"Where a chain cannot reach a leaf the {_EITHER.unit} stays UNRESOLVED "
+                        f"and the reason is recorded. EXCLUDED {_EITHER.units} are never "
+                        "resolved: they were "
                         "withheld before the walk, so there is no trace to descend. "
                         "`<prefix>_resolved_origin` is the column that matters - it says per "
-                        "cell whether the leaf was REACHED (`walk`) or ASSIGNED (`forced`, "
+                        f"{_EITHER.unit} whether the leaf was REACHED (`walk`) or ASSIGNED "
+                        "(`forced`, "
                         "`root_forced`), and a root-forced margin is below the gap bar by "
                         "construction, which is why the walk stopped there in the first place.")
 
@@ -2310,8 +2409,9 @@ def main(argv=None):
                         "- scoring each further node with the same weights over the same data - "
                         "until a leaf is reached, however deep the tree is. classify() is not "
                         "called again and not modified. Because a forced call lands below the "
-                        "gap bar while other samples' cells cleared it, the two are never pooled "
-                        "silently: every cell carries `<prefix>_assignment` (gap / forced / "
+                        f"gap bar while other samples' {_EITHER.units} cleared it, the two are "
+                        f"never pooled silently: every {_EITHER.unit} carries "
+                        "`<prefix>_assignment` (gap / forced / "
                         "EXCLUDED) and `<prefix>_force_depth` (how many steps outside the walk "
                         "produced its label), `<prefix>_gap` is the first step's margin, and "
                         "uns['<prefix>_assignment_provenance'] holds the node, the leaf and "
@@ -2368,7 +2468,8 @@ def main(argv=None):
     s.add_argument("--use-raw", action="store_true")
     s.add_argument("--out", type=Path, help="per-CLUSTER table, as TSV")
     s.add_argument("--out-h5ad", type=Path, metavar="PATH",
-                   help="write the annotated object: the input with the label added per CELL, "
+                   help="write the annotated object: the input with the label added per "
+                        f"{_EITHER.unit.upper()}, "
                         "as <prefix>_cell_type plus the evidence behind each call. X, var and "
                         "obsm are the input's, untouched. This is the file a viewer opens")
     s.add_argument("--report", type=Path, metavar="PATH",
@@ -2377,7 +2478,8 @@ def main(argv=None):
                         "the embedding, reliability by tree depth, what was withheld and how "
                         "unevenly, every cluster call, and what none of it can show")
     s.add_argument("--sample-key", metavar="OBS_COLUMN",
-                   help="obs column naming the sample/animal each cell came from. Optional: "
+                   help=f"obs column naming the sample/animal each {_EITHER.unit} came from. "
+                        "Optional: "
                         "with it the report shows composition and exclusion PER SAMPLE, which "
                         "is where unevenness is visible and a cohort bar hides it")
     s.add_argument("--condition-key", metavar="OBS_COLUMN",
@@ -2425,7 +2527,8 @@ def main(argv=None):
                         "shattered. Default: the finest rung every object carries")
     s.add_argument("--out-key", default=None, metavar="OBS_COLUMN",
                    help="name of the rescued column (default <label-key>_rescued). "
-                        "`<name>_origin` says per cell whether it was kept or rescued")
+                        f"`<name>_origin` says per {_EITHER.unit} whether it was kept or "
+                        "rescued")
     s.add_argument("--out-dir", type=Path, help="write each object with the rescued columns")
     s.add_argument("--out", type=Path, metavar="JSON", help="every search and its result")
     s.add_argument("--out-table", type=Path, metavar="CSV",
@@ -2446,23 +2549,28 @@ def main(argv=None):
                         "them with different column names. Defaults to --path-key")
     s.add_argument("--sample-key", metavar="OBS_COLUMN",
                    help="with --cluster-key, measures how much of each route-B cluster is one "
-                        "sample. A joint clustering of an un-integrated cohort can group cells "
-                        "by library rather than by cell type, and then disagreement indicts B. "
+                        f"sample. A joint clustering of an un-integrated cohort can group "
+                        f"{_EITHER.units} by library rather than by cell type, and then "
+                        "disagreement indicts B. "
                         "It also turns on the per-cluster crosstab of route A's labels BY "
                         "SAMPLE, and the merge candidates read off it")
     s.add_argument("--cluster-key", metavar="OBS_COLUMN", help="route B's cluster column")
     s.add_argument("--agreement-key", metavar="OBS_COLUMN",
-                   help="route B's per-cell sweep agreement - `<prefix>_sweep_agreement<suffix>`, written by `scanno annotate` with more than one "
+                   help=f"route B's sweep agreement per {_EITHER.unit} - "
+                        "`<prefix>_sweep_agreement<suffix>`, written by `scanno annotate` with "
+                        "more than one "
                         "--cluster-key. With it every candidate carries `pct_sweep_agrees`: how "
                         "much of route B's OWN resolution sweep carries the label it is "
-                        "offering, over exactly the cells that would move. A population too "
+                        f"offering, over exactly the {_EITHER.units} that would move. A "
+                        "population too "
                         "rare to cluster at one granularity clusters at another, so a call the "
                         "whole sweep makes and a call one resolution makes are different "
                         "evidence, and a single-resolution comparison cannot tell them apart. "
                         "REPORTED, never acted on - the candidate set is identical with and "
                         "without it")
     s.add_argument("--group-key", metavar="OBS_COLUMN",
-                   help="obs column naming the experimental group. With it, the cells a "
+                   help=f"obs column naming the experimental group. With it, the "
+                        f"{_EITHER.units} a "
                         "candidate would move are tabulated across that column's levels - rule "
                         "one's third question, is the change differential across the design. It "
                         "is REPORTED and takes no part in deciding what is a candidate")
@@ -2476,7 +2584,8 @@ def main(argv=None):
     s.add_argument("--out-h5ad", type=Path, metavar="PATH",
                    help="write route A's object with a THIRD label column added: the "
                         "--path-key label with every merge candidate applied, plus "
-                        "<--out-key>_origin naming per cell whether it was kept or corrected. "
+                        f"<--out-key>_origin naming per {_EITHER.unit} whether it was kept or "
+                        "corrected. "
                         "The corrected column sits BESIDE the one it corrects and never "
                         "replaces it, so reverting is a column drop. Needs --sample-key and "
                         "--cluster-key")
@@ -2505,7 +2614,7 @@ def main(argv=None):
                         "--out-report`. Everything the page was built from, so recording a "
                         "verdict costs no clustering, no annotation and no comparison")
     s.add_argument("--verdict", action="append", default=[], metavar="CLUSTER=GRADE:REASON",
-                   help="e.g. --verdict '20=refuse:every corrected cell falls in one level of a "
+                   help="e.g. --verdict '20=refuse:all of the correction falls in one level of a "
                         "confounded factor'. GRADE is adopt, refuse or undecided; the reason is "
                         "required and recorded verbatim. Repeatable")
     s.add_argument("--reviewer", default="", metavar="NAME",
@@ -2560,7 +2669,7 @@ def main(argv=None):
                    help="the JOINT route's own label column. Required for the two-route "
                         "agreement: a joint object assembled from the per-sample annotations "
                         "carries those columns too, so the default key would compare the "
-                        "per-sample labels with themselves and report ~100%")
+                        "per-sample labels with themselves and report ~100%%")
     s.add_argument("--panels", metavar="JSON|auto",
                    help="marker panels, {node: [genes]} or {depth: {node: [genes]}}. Pass "
                         "'auto' with --db and --tree to build them from the SAME corpus the "
@@ -2605,7 +2714,7 @@ def main(argv=None):
                         "picture, and the measured concordance between them. Do NOT point this "
                         "at the deep walk's own level-1 prefix - that column is DERIVED from "
                         "the path and agrees with it by construction, so the section would "
-                        "report 100% agreement between one column and itself")
+                        "report 100%% agreement between one column and itself")
     s.add_argument("--no-per-sample", action="store_true",
                    help="write only the cohort document. The per-sample pages are the detail "
                         "behind its rows and are cheap; this is for a cohort of hundreds")
@@ -2644,7 +2753,8 @@ def main(argv=None):
                         "them there, e.g. `scanno_path_scope=cell_type "
                         "scAnno_L1_scope=cell_compartment`. Every column scAnno did NOT write is "
                         "kept untouched - the design factors, the group, and the QC statistics the "
-                        "cells arrived with all travel, because this tool did not write them and "
+                        f"{_EITHER.units} arrived with all travel, because this tool did not "
+                        "write them and "
                         "has no business discarding them. Of the columns it DID write it keeps "
                         "only these, because annotation emits a statistic per label suffix per "
                         "resolution - label, path, depth, gap, survival, support, assignment, "
@@ -2719,7 +2829,8 @@ def main(argv=None):
                         "quorum behind it (default 2)")
     s.add_argument("--descend-rule", choices=("any", "majority"), default="any",
                    help="what counts as one sample having descended. 'any' — at least one of "
-                        "its cells went below. 'majority' — more than half the cells arriving "
+                        f"its {_EITHER.units} went below. 'majority' — more than half the "
+                        f"{_EITHER.units} arriving "
                         "at the node did. They differ because a single sample can do both: "
                         "different clusters of one lineage truncating differently inside one "
                         "animal is common (default any)")
@@ -2862,7 +2973,9 @@ CANNOT_SHOW = [
     "evidence that the cell type exists in this tissue, and a tree that lacks the right type "
     "yields the nearest wrong one.",
     "UNRESOLVED and EXCLUDED are not cell types: never a population in a composition, never a "
-    "denominator. A forced column has no holes and every forced cell is marked as such.",
+    # "observation", not a unit: this declaration is written into every STATUS.<cmd>.json, a
+    # whole-cell run's included, so it must name neither cells nor nuclei.
+    "denominator. A forced column has no holes and every forced observation is marked as such.",
     "A resolution sweep reports; it does not vote. The delivered label is the one the declared "
     "resolution produced, and agreement across the sweep is a number beside it, not a decision.",
     "Composition is over the observations upstream QC kept; a differential filter upstream is a "

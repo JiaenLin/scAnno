@@ -249,7 +249,8 @@ pr = review_prompt(cg, lost={"labels": [{"label": DC, "n": 47,
                                          "absorbed_into": {MP: 45}}]},
                    group_key="grp")
 check("the prompt states the criteria before the candidate", pr.startswith(BRIEF[:40]))
-for want in ("AGREEMENT", "SAMPLE DOMINANCE", "samples carrying no", "corrected cells per grp",
+# No `words` are given, so the unit is both: "cells or nuclei" (scanno/assay.py EITHER).
+for want in ("AGREEMENT", "SAMPLE DOMINANCE", "samples carrying no", "corrected cells or nuclei per grp",
              "WHAT THIS JOINT CLUSTERING LOST"):
     check(f"it carries {want!r}", want in pr)
 check("it offers no conclusion", "you should" not in pr.lower())

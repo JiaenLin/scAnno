@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .assay import EITHER
 from .exclude import EXCLUDED
 from .force import BY_GAP, FROM_WALK
 
@@ -64,7 +65,7 @@ def per_cell(res, y, flag=None):
         # Not a warning. A cell whose cluster has no call would silently receive some other
         # cluster's label, or a plausible-looking UNRESOLVED that is really "we lost it".
         raise KeyError(
-            f"{len(missing)} cluster(s) present in the cell assignment have no call from "
+            f"{len(missing)} cluster(s) that {EITHER.units} are assigned to have no call from "
             f"classify(): {missing[:8]}{' ...' if len(missing) > 8 else ''}. "
             f"classify() returns one row per cluster in order - the caller has reindexed or "
             f"filtered `res`.")
@@ -113,7 +114,7 @@ def per_cell(res, y, flag=None):
     if flag is not None:
         flag = np.asarray(flag, dtype=bool)
         if flag.shape[0] != n:
-            raise ValueError(f"flag has {flag.shape[0]} values for {n} cells")
+            raise ValueError(f"flag has {flag.shape[0]} values for {n} {EITHER.units}")
         out["cell_type"][flag] = EXCLUDED
         out["path"][flag] = EXCLUDED
         out["depth"][flag] = 0
@@ -338,7 +339,7 @@ def sweep_agreement_column(adata, agreement, record, *, prefix=DEFAULT_PREFIX, s
     if key in adata.obs:
         raise ValueError(f"obs[{key!r}] already exists.")
     if len(agreement) != adata.n_obs:
-        raise ValueError(f"agreement is {len(agreement)} for {adata.n_obs} cells")
+        raise ValueError(f"agreement is {len(agreement)} for {adata.n_obs} {EITHER.units}")
     adata.obs[key] = np.asarray(agreement, dtype=np.float32)
     adata.uns[f"{prefix}_sweep_provenance{suffix}"] = _uns_safe(dict(record, key=key))
     return {"key": key}
@@ -359,7 +360,8 @@ def annotate_joint(adata, labels, origin, record, *, key, origin_suffix="_origin
             f"obs[{key!r}] already exists. The joint route ADDS a column beside the annotation "
             f"it corrects and never replaces one - choose another name with --out-key.")
     if len(labels) != adata.n_obs or len(origin) != adata.n_obs:
-        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} cells")
+        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} "
+                         f"{EITHER.units}")
     adata.obs[key] = pd.Categorical([str(x) for x in labels])
     adata.obs[key + origin_suffix] = pd.Categorical([str(x) for x in origin])
     adata.uns["scanno_joint_route"] = _uns_safe(
@@ -384,7 +386,8 @@ def annotate_rescue(adata, labels, origin, record, *, key, origin_suffix="_origi
             f"obs[{key!r}] already exists. A rescue ADDS a column beside the annotation it "
             f"corrects and never replaces one - choose another name with --out-key.")
     if len(labels) != adata.n_obs or len(origin) != adata.n_obs:
-        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} cells")
+        raise ValueError(f"labels/origin are {len(labels)}/{len(origin)} for {adata.n_obs} "
+                         f"{EITHER.units}")
     adata.obs[key] = pd.Categorical([str(x) for x in labels])
     adata.obs[key + origin_suffix] = pd.Categorical([str(x) for x in origin])
     adata.uns["scanno_rescue"] = _uns_safe(dict(record, key=key,
@@ -576,14 +579,16 @@ def _looks_like_accession(names, sample=500):
     return seen > 0 and hits / seen > 0.5
 
 
-def lab_readiness(adata, label_key):
+def lab_readiness(adata, label_key, words=None):
     """What a downstream viewer needs from this object. Returns [(level, message), ...].
 
     `level` is "ok", "warn" or "missing". Nothing here raises: scAnno's job is to annotate, and
     an object with no embedding is not a bad annotation - it is an object somebody still has to
     run UMAP on. Saying so at write time is the whole value; refusing would be scAnno deciding
-    what the object is for.
+    what the object is for. `words` is scanno/assay.py's for the run's assay; without it the unit
+    is "cell or nucleus".
     """
+    W = words or EITHER
     out = []
 
     # 1. the annotation itself
@@ -595,8 +600,8 @@ def lab_readiness(adata, label_key):
             out.append(("warn", f"{label_key} has one level ({levels[0] if levels else 'none'})"
                                 f" - a viewer needs at least two to group by"))
         elif n >= 4 and k >= n * 0.9:
-            out.append(("warn", f"{label_key} has {k:,} levels across {n:,} cells - that reads "
-                                f"as an identifier rather than an annotation"))
+            out.append(("warn", f"{label_key} has {k:,} levels across {n:,} {W.units} - that "
+                                f"reads as an identifier rather than an annotation"))
         elif k > 300:
             out.append(("warn", f"{label_key} has {k:,} levels; readers commonly treat more "
                                 f"than 300 as an identifier"))
@@ -604,7 +609,7 @@ def lab_readiness(adata, label_key):
             out.append(("warn", f"{label_key} is entirely numeric - a viewer will prefer a "
                                 f"named column if the object has one"))
         else:
-            out.append(("ok", f"cell annotation: {label_key}, {k} levels"))
+            out.append(("ok", f"annotation: {label_key}, {k} levels"))
     else:
         out.append(("missing", f"no {label_key} column was written"))
 
@@ -619,8 +624,8 @@ def lab_readiness(adata, label_key):
         out.append(("warn", f"obsm has {', '.join(two_d)} but nothing named like a UMAP, "
                             f"t-SNE or PCA; a viewer may not recognise it"))
     else:
-        out.append(("missing", "no 2-D embedding in obsm - a viewer needs one to draw cells. "
-                               "scAnno does not compute embeddings; run UMAP upstream"))
+        out.append(("missing", f"no 2-D embedding in obsm - a viewer needs one to draw "
+                               f"{W.units}. scAnno does not compute embeddings; run UMAP upstream"))
 
     # 3. expression a viewer will accept
     X = adata.X
@@ -702,6 +707,9 @@ def audit_file(path):
     Returns [(level, code, message), ...] with level in "ok" | "warn" | "missing".
     """
     import h5py
+
+    # `lab` takes no assay and reads the file below the level of an object's record, so a unit it
+    # names is both of them: EITHER.
     out = []
     with h5py.File(str(path), "r") as f:
         for grp in ("obs", "var"):
@@ -736,7 +744,7 @@ def audit_file(path):
                         f"a viewer may not recognise it"))
         else:
             out.append(("missing", "embedding-absent",
-                        "no embedding in obsm - a viewer needs one to draw cells"))
+                        f"no embedding in obsm - a viewer needs one to draw {EITHER.units}"))
 
         junk = [k for k in (f.get("uns", {}) or {})
                 if str(k).startswith(SCRATCH_UNS_PREFIXES)]
@@ -921,11 +929,13 @@ def independent_l1(adata, res, y, flag=None, level_prefix="scAnno_L", suffix="",
     return col, rec
 
 
-def format_independent_l1(rec) -> list:
-    """The independent-L1 record as lines: what it replaced, and where the two differ."""
+def format_independent_l1(rec, words=None) -> list:
+    """The independent-L1 record as lines: what it replaced, and where the two differ. `words` is
+    scanno/assay.py's for the run's assay; without it the unit is "cell or nucleus"."""
+    W = words or EITHER
     prov = f"{rec['column']}_provenance"
     L = [f"  {rec['column']}: an INDEPENDENT walk against {rec['tree'] or 'the depth-1 tree'} — "
-         f"{len(rec['labels'])} label(s) over {rec['n_cells']:,} cells",
+         f"{len(rec['labels'])} label(s) over {rec['n_cells']:,} {W.units}",
          f"    provenance in uns[{prov!r}], source={rec['source']!r}, so a reader can tell this "
          f"column from a derived one"]
     if rec.get("replaced"):
@@ -933,12 +943,13 @@ def format_independent_l1(rec) -> list:
                  f"level 1")
     n = rec.get("n_disagree", -1)
     if n == 0:
-        L.append("    the two agree on every cell, which is what an unchanged root decision "
-                 "predicts. Measured here, not assumed")
+        L.append(f"    the two agree on every {W.unit}, which is what an unchanged root "
+                 f"decision predicts. Measured here, not assumed")
     elif n > 0:
         pct = 100 * n / max(rec["n_cells"], 1)
-        L.append(f"    REVIEW  they differ on {n:,} cell(s) ({pct:.3f}%). The deeper level "
-                 f"columns are still the DEEP walk's, so L1 and L2 disagree for those cells:")
+        L.append(f"    REVIEW  they differ on {n:,} {W.units} ({pct:.3f}%). The deeper level "
+                 f"columns are still the DEEP walk's, so L1 and L2 disagree for those "
+                 f"{W.units}:")
         for k, v in list(rec.get("disagreements", {}).items())[:6]:
             L.append(f"      {v:>8,}  {k}")
     return L
