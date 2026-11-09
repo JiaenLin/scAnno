@@ -165,7 +165,7 @@ def toy(n=60, g=25, accession=False, embedding=True, negative=False):
                    else [f"Gene{i}" for i in range(g)])
     A.obs["leiden"] = pd.Categorical([str(i % 3) for i in range(n)])
     A.obs["sample"] = pd.Categorical(["s1"] * (n // 2) + ["s2"] * (n - n // 2))
-    A.obs["condition"] = pd.Categorical(["ctrl"] * (n // 2) + ["hfd"] * (n - n // 2))
+    A.obs["condition"] = pd.Categorical(["ctrl"] * (n // 2) + ["treated"] * (n - n // 2))
     if embedding:
         A.obsm["X_umap"] = rng.normal(size=(n, 2)).astype("float32")
     return A

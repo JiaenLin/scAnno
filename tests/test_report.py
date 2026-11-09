@@ -64,7 +64,7 @@ def toy(n=90, embedding=True, sample=True, flag=True):
     A.obs["cluster"] = pd.Categorical([str(v) for v in y])
     if sample:
         A.obs["sample"] = pd.Categorical(["s1"] * (n // 2) + ["s2"] * (n - n // 2))
-        A.obs["condition"] = pd.Categorical(["ctrl"] * (n // 2) + ["hfd"] * (n - n // 2))
+        A.obs["condition"] = pd.Categorical(["ctrl"] * (n // 2) + ["treated"] * (n - n // 2))
     if embedding:
         A.obsm["X_umap"] = rng.normal(size=(n, 2)).astype("float32")
     mask = None

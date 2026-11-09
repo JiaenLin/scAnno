@@ -42,10 +42,6 @@ from .primitives import (ACCENT, AMBER, COOL, GREY, INK, MUT, NotDrawable, conti
 
 BOX_TINTS = ["#e3d7f2", "#cfe3f2", "#d9ecd9", "#f7e3cf", "#e9e9e9"]
 
-#: Rule one's refusal line: a removal whose rate differs more than this between arms of a design
-#: factor converts a technical property into an apparent biological difference.
-DIFFERENTIAL_LIMIT = 3.0
-
 #: Group colours are keyed by index into the DECLARED group order, never into the groups that
 #: happen to be present - otherwise an arm missing from a subset shifts every later arm's colour
 #: and two runs are not comparable by colour at all.
@@ -866,13 +862,16 @@ def F153(ctx):
                  f"which reports the populations rather than these {W.units}")
 
 
-def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
-    """Rule one question three, DRAWN rather than tabulated.
+def F154(ctx):
+    """The withheld fraction by design factor, DRAWN rather than tabulated.
 
     Left: the percentage of each sample's nuclei withheld, one point per sample, grouped by arm
     with the arm mean behind — an arm mean drawn from two or three samples is a statement about
     which samples landed in which arm. Right: the ratio between the highest and lowest arm rate
-    for each design factor, against the refusal line.
+    for each design factor, with NO line across it. A design-differential gate that refused
+    beyond a ratio was specified, refused a comparison whose withheld observations sat almost all
+    in a couple of libraries, and was removed (KNOWN_ISSUES): a line drawn at its old value would
+    tell the reader a gate exists. Deciding that a study's arms differ is not the tool's call.
 
     The two panels use different denominators deliberately: the left bar is the unweighted mean
     of per-sample rates, the right is the pooled per-nucleus rate.
@@ -891,7 +890,7 @@ def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
     else:
         fig, axs = p.subplots(1, 1, figsize=(8.0, 5.0), squeeze=False)
     ax = axs.ravel()[0]
-    # The DECLARED order, so a 2x2 reads young/aged x chow/HFD rather than alphabetically,
+    # The DECLARED order, so a 2x2 reads A/B x C/D rather than alphabetically,
     # which interleaves the two factors and leaves no pair of adjacent bars comparable.
     order = ctx._levels("group")
     have = {r["arm"] for r in per}
@@ -921,10 +920,9 @@ def F154(ctx, refuse_at=DIFFERENTIAL_LIMIT):
                    names=[f["factor"] + ("  (auto-detected)" if f["auto"] else "")
                           for f in facs],
                    ratios=[f["ratio"] for f in facs], lo=[f["lo"] for f in facs],
-                   hi=[f["hi"] for f in facs], limit=refuse_at,
-                   note=f"rule one refuses beyond {refuse_at:g}x",
+                   hi=[f["hi"] for f in facs],
                    xlabel="highest arm rate / lowest arm rate")
-        axs.ravel()[1].set_title("rule one Q3, per design factor", fontsize=10, loc="left")
+        axs.ravel()[1].set_title("withheld fraction by design factor", fontsize=10, loc="left")
     return fig, "How the withheld fraction falls across the design"
 
 

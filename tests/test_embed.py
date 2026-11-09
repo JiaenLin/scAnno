@@ -84,8 +84,8 @@ from scanno.embed import slim_annotation_obs, ANNOTATION_PREFIXES        # noqa
 import pandas as _pd                                                    # noqa
 _obs = _pd.DataFrame({
     # upstream: the design, the group, and QC statistics. scAnno wrote NONE of these.
-    "sample": ["s1", "s1"], "age": ["aged", "aged"], "diet": ["chow", "chow"],
-    "group": ["aged_chow"] * 2, "batch": ["A", "A"], "pct_counts_mt": [1.0, 2.0],
+    "sample": ["s1", "s1"], "factor_a": ["a1", "a1"], "factor_b": ["b1", "b1"],
+    "group": ["a1_b1"] * 2, "batch": ["A", "A"], "pct_counts_mt": [1.0, 2.0],
     "doublet_score": [0.1, 0.2], "leiden_1p0": ["0", "1"],
     # scAnno's own: two labels worth keeping and six that are redundant with them
     "scanno_path_scope": ["Immune/Myeloid/Macrophage"] * 2,
@@ -97,10 +97,10 @@ _obs = _pd.DataFrame({
 _map = {"scanno_path_scope": "cell_type", "scAnno_L1_scope": "cell_compartment"}
 _out, _dropped, _up = slim_annotation_obs(_obs, _map)
 check("every upstream column survives", 
-      set(_up) == {"sample", "age", "diet", "group", "batch", "pct_counts_mt",
+      set(_up) == {"sample", "factor_a", "factor_b", "group", "batch", "pct_counts_mt",
                    "doublet_score", "leiden_1p0"}, str(sorted(_up)))
 check("the design factors are NOT dropped - a keep-list threw these away",
-      all(c in _out.columns for c in ("age", "diet", "group", "batch")))
+      all(c in _out.columns for c in ("factor_a", "factor_b", "group", "batch")))
 check("QC statistics are not dropped either",
       all(c in _out.columns for c in ("pct_counts_mt", "doublet_score")))
 check("the two labels are renamed", "cell_type" in _out.columns
@@ -119,10 +119,10 @@ except SystemExit as e:
     check("a missing column refuses by NAME", "nope" in str(e))
     check("and lists what the object actually has", "scanno_path_scope" in str(e))
 try:
-    slim_annotation_obs(_obs, {"scanno_path_scope": "age"})
+    slim_annotation_obs(_obs, {"scanno_path_scope": "factor_a"})
     check("renaming onto an upstream column refuses", False)
 except SystemExit as e:
-    check("renaming onto an upstream column refuses", "age" in str(e))
+    check("renaming onto an upstream column refuses", "factor_a" in str(e))
 
 print("")
 if fails:

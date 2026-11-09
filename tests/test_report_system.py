@@ -282,6 +282,41 @@ def test_named_absence():
           str(sorted(set(D.LEGENDS) - set(F.FIGURES))))
 
 
+# ------------------------------------------------------------------ a removed gate draws no line
+def test_the_design_figure_draws_no_gate():
+    """F154 drew a dashed line at 3x labelled "rule one refuses beyond 3x" for a design-differential
+    gate that was REMOVED (KNOWN_ISSUES; single-cell-harness B1-038). A line on a figure reads as a
+    gate. Drawn here from a stub context: the ratio panel has bars and their true ratios, no line,
+    no refusal wording, and is titled for what it shows."""
+    print("design figure")
+    from scanno.assay import words as assay_words
+    from scanno.figures import F154
+
+    class Ctx:
+        words = assay_words("scrna")
+        has_flag = True
+
+        def flag_per_animal(self):
+            return [{"arm": "arm1", "rate": 2.0}, {"arm": "arm1", "rate": 3.0},
+                    {"arm": "arm2", "rate": 9.0}, {"arm": "arm2", "rate": 11.0}]
+
+        def flag_by_factor(self):
+            return [{"factor": "factor_a", "auto": False, "ratio": 4.0, "lo": 2.5, "hi": 10.0}]
+
+        def _levels(self, key):
+            return ["arm1", "arm2"]
+
+    fig, caption = F154(Ctx())
+    right = fig.axes[1]
+    texts = [t.get_text() for t in right.texts] + [right.get_title(loc="left")]
+    check("the ratio panel draws no line across the bars", not right.lines,
+          f"{len(right.lines)} line(s)")
+    check("and no refusal wording", not [t for t in texts if "refuse" in t.lower()], str(texts))
+    check("it still prints the true ratio", any("4.00x" in t for t in texts), str(texts))
+    check("titled for what it shows", right.get_title(loc="left") == "withheld fraction by design factor",
+          right.get_title(loc="left"))
+
+
 # ------------------------------------------------------------------ viewer fitness
 def test_viewer_audit():
     print("viewer audit")
@@ -295,7 +330,7 @@ def test_viewer_audit():
 if __name__ == "__main__":
     for t in (test_palette, test_primitives, test_one_colour_rule, test_depth_general,
               test_sample_rows,
-              test_named_absence, test_viewer_audit):
+              test_named_absence, test_the_design_figure_draws_no_gate, test_viewer_audit):
         t()
     print("")
     if FAIL:

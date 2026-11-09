@@ -270,7 +270,7 @@ print("\n13 - the design is tabulated, and CANNOT change what is a candidate")
 # mean. What must never happen is the design reaching the DECISION. A design-differential gate
 # was built here once, refused a comparison whose unresolved nuclei sat almost all in a couple
 # of libraries, and was removed.
-grp = ["aged" if x in ("s1", "s2") else "young" for x in sams]
+grp = ["arm1" if x in ("s1", "s2") else "arm2" for x in sams]
 B3 = B2.copy(); B3["grp"] = grp
 with_g = compare(A, B3, path_key="scanno_path", path_key_b="jp", sample_key="sample",
                  cluster_key="cl", group_key="grp")
@@ -289,7 +289,7 @@ cg = with_g["merge_candidates"]["candidates"][0]
 check("the moving cells are counted per arm",
       sum(cg["moving_by_group"].values()) == cg["n_cells"], str(cg["moving_by_group"]))
 check("and the arms are NAMED, not ranked or judged",
-      set(cg["moving_by_group"]) <= {"aged", "young"})
+      set(cg["moving_by_group"]) <= {"arm1", "arm2"})
 imp = with_g["merge_candidates"]["impact"]
 check("the impact is derived from the rows, so it cannot disagree with them",
       imp["n_cells_total"] == sum(r["n_cells"]

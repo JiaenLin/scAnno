@@ -454,7 +454,7 @@ class Context:
         """The levels of a column, in the order they should be READ.
 
         For the experimental group that is the order the caller declared - a 2x2 is read
-        young/aged x chow/HFD, and alphabetical order interleaves the two factors so that
+        A/B x C/D, and alphabetical order interleaves the two factors so that
         neighbouring rows differ in both at once, which is the one arrangement in which no
         pair of adjacent rows is a comparison. A level the caller did not name is APPENDED
         and reported, never dropped: silently omitting an arm turns a missing declaration

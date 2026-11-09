@@ -528,18 +528,22 @@ def paired_barh(ax, *, labels, filled, hollow, offset=0.19, height=0.36,
         ax.spines[sp].set_visible(False)
 
 
-def ratio_bars(ax, *, names, ratios, lo, hi, limit=3.0, clip=12.0, height=0.55,
+def ratio_bars(ax, *, names, ratios, lo, hi, limit=None, clip=12.0, height=0.55,
                ann_fontsize=8.5, note=None, xlabel=None):
     """Bar length is `min(ratio, clip)`; the printed label carries the TRUE ratio.
 
     A ratio far beyond `clip` draws a bar of length `clip` labelled with its true value. Clipping
     the bar keeps the other factors readable; clipping the NUMBER would hide the finding.
+
+    `limit` draws a dashed reference line and colours the bars beyond it. It has NO default: a
+    line on a figure reads as a gate, so a caller draws one only for a threshold that exists.
     """
     yy = np.arange(len(names))
     ax.barh(yy, [min(r, clip) for r in ratios], height=height,
-            color=[ACCENT if r > limit else PASS for r in ratios])
-    ax.axvline(limit, color=INK, ls="--", lw=1.3)
-    if note:
+            color=(COOL if limit is None else [ACCENT if r > limit else PASS for r in ratios]))
+    if limit is not None:
+        ax.axvline(limit, color=INK, ls="--", lw=1.3)
+    if note and limit is not None:
         # Anchored to the LINE in x and to the axes floor in y. Data coordinates in y put it
         # either under the x-axis label (past the last bar) or over the panel title (before the
         # first), because the y axis is inverted below and the bar count varies.
