@@ -321,6 +321,20 @@ database is designed to keep learning, which means the same classifier and the s
 will give different labels against a newer store — correct behaviour, and a hazard if the
 digest is not written down beside the result.
 
+**The same input gives the same labels, and that is tested.** tests/test_consistency.py runs the
+synthetic cohort from the start twice, each command in its own process: `cluster`, `background`,
+`annotate` at two resolutions with `--resolve`, and `rescue`. It requires every obs column of every
+object to be identical by value between the two runs. It shows this on one machine. A reproduction
+on another machine is a separate measurement.
+
+**Every run records its time.** Each `STATUS.<cmd>.json` carries `timings`: the command's wall time
+(`wall_s`), the observations it read (`n_obs`), and its steps in order, each with its own `wall_s`.
+`annotate`'s steps are `read`, `normalise`, `profile`, `background`, `standardise`, `corpus`, `walk`,
+and `force`, `l1`, `resolve`, one `sweep <key>` per further resolution, `write` and `report` when
+they run. `cluster` times each object, and `rescue` times `read`, `search` and `write`. Whatever
+ran after the last named step is `finish`, so the steps add up to the whole. Several runs that share
+an output directory overwrite one another's record. `--status-dir` keeps each one.
+
 ---
 
 ## Things worth knowing before you trust an answer

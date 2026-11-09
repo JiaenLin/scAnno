@@ -343,6 +343,7 @@ def _rescue(a):
                   f"first: `scanno annotate --cluster-key ... --cluster-key ...`", file=sys.stderr)
             return REFUSE
         objs[u] = (path, A)
+        _ST.observed(A.n_obs)
         labels[u] = np.asarray(A.obs[a.label_key].astype(str))
         sweep[u] = {r: np.asarray(A.obs[c].astype(str)) for r, (c, _k) in found.items()}
         clus[u] = {r: np.asarray(A.obs[k].astype(str)) for r, (_c, k) in found.items()}
@@ -359,6 +360,7 @@ def _rescue(a):
     print(f"{len(units)} unit(s); searching rungs {', '.join(str(r) for r in rungs)}")
     print(f"  label being corrected: obs[{a.label_key!r}]")
 
+    _ST.lap("read")
     new, origin, rec = rescue(labels, sweep, clus, rungs)
     summ = summarise(labels, new)
 
@@ -414,6 +416,7 @@ def _rescue(a):
              "generated": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}),
             encoding="utf-8")
         print(f"wrote {a.out_report}")
+    _ST.lap("write")
     return 0
 
 
@@ -615,6 +618,8 @@ def _annotate(a):
                              "scAnno has no ortholog map, so a corpus of another species cannot be used",
                    code="species_contradicted")
         return REFUSE
+    _ST.observed(A.n_obs)
+    _ST.lap("read")
 
     # Counts or already normalised? Measured, not assumed - feeding scaled or raw values
     # to a scorer expecting log1p returns a number for the wrong quantity.
@@ -631,6 +636,7 @@ def _annotate(a):
               "\n        log-normalised. Pass --use-raw, or supply an object whose .X is"
               "\n        log1p counts.")
         return REFUSE
+    _ST.lap("normalise")
 
     lab = A.obs[a.cluster_key].astype(str).values
     cats = sorted(set(lab), key=lambda s: (len(s), s))
@@ -677,6 +683,7 @@ def _annotate(a):
                   f"profiled: {', '.join(cats[i] for i in np.flatnonzero(drop))}")
     else:
         M, D, counts = cluster_profile(X, y, len(cats))
+    _ST.lap("profile")
 
     # The gene background. Without one there is nothing external to standardise against,
     # and a cluster's score becomes a property of what else was sequenced beside it.
@@ -698,6 +705,7 @@ def _annotate(a):
               "        derive one from this object and accept that scores are then not\n"
               "        independent of its composition.")
         return REFUSE
+    _ST.lap("background")
 
     # `drop` goes to BOTH: the usable-gene set is `any` over clusters, so without it here an
     # excluded cluster still decides which genes the kept ones are scored on.
@@ -708,6 +716,7 @@ def _annotate(a):
               f"(floor {100*OOD_MIN_COVERED:.0f}%).\n"
               f"        It cannot speak to this data.")
         return REFUSE
+    _ST.lap("standardise")
 
     asr = None
     if a.db:
@@ -726,9 +735,11 @@ def _annotate(a):
         except GeneSpaceMismatch as e:
             _ST.refuse(str(e).replace("scanno: REFUSE - ", "", 1), fix="pass --harmonise, or a store built on this object's gene space")
             return REFUSE
+        _ST.lap("corpus")
     tree["genes"] = store.genes
     res = classify(Z, usable, tree, store=None if asr else store, assertions=asr,
                    gap_min=a.gap_min, exclude=drop)
+    _ST.lap("walk")
 
     # --- FORCE: nothing terminates on a node the cohort agreed to split ---
     #
@@ -779,6 +790,7 @@ def _annotate(a):
         for t in sorted(open_stop, key=lambda t: -counts[t["cluster"]]):
             print(f"      cluster {t['cluster']:>6}  {counts[t['cluster']]:>9,.0f} {W.units}  "
                   f"{t['node']}   (children kept: {t['children']})")
+        _ST.lap("force")
 
     # THE SECOND WALK. The same `classify`, the same Z, the same usable-gene set, the same
     # background and the same bar - only the tree differs. Nothing about the walk is
@@ -790,6 +802,7 @@ def _annotate(a):
         l1_tree["genes"] = store.genes
         res_l1 = classify(Z, usable, l1_tree, store=None if asr else store, assertions=asr,
                           gap_min=a.gap_min, exclude=drop)
+        _ST.lap("l1")
 
     support = {}
     if a.db:
@@ -904,6 +917,7 @@ def _annotate(a):
             print("  independent L1:")
             for line in format_resolved(resolve_l1_rec):
                 print("  " + line)
+        _ST.lap("resolve")
 
     # The annotated object. Everything above is per CLUSTER; this is the only place the labels
     # become per CELL, which is the form every consumer of an annotation actually wants.
@@ -969,6 +983,7 @@ def _annotate(a):
                   f"{len({r['path'] for r in res_k}):>3} label(s)   "
                   f"{n_un_k} UNRESOLVED")
             sweep.append((_res_tag(k), res_k, y_k))
+            _ST.lap(f"sweep {k}")
 
     from .emit import (annotate_obs, force_provenance, trace_provenance, format_independent_l1,
                        format_plain_labels, format_readiness, format_reindex, independent_l1,
@@ -1101,6 +1116,7 @@ def _annotate(a):
             print("")
             print("  MISSING items are things scAnno cannot supply and will not invent. The "
                   "object\n  is written either way; add them upstream and re-run.")
+        _ST.lap("write")
 
     # The report. Assembled from the run that produced the annotation rather than recomputed:
     # a report that derives its own numbers can disagree with the run it describes, and nothing
@@ -1199,6 +1215,8 @@ def _cluster(a):
     written = []
     for src in inputs:
         A = ad.read_h5ad(src)
+        _ST.observed(A.n_obs)
+        _ST.lap(f"read {Path(src).stem}")
         pieces = [(None, A)]
         if a.split_by:
             if a.split_by not in A.obs:
@@ -1241,6 +1259,7 @@ def _cluster(a):
                 print(line)
             written.append(p)
             print(f"    wrote {p}")
+            _ST.lap(f"cluster {name if name is not None else Path(src).stem}")
 
     print(f"\n{len(written)} object(s) written. Next: `scanno annotate --cluster-key "
           f"leiden_{ _RES_TAG(res[len(res)//2]) }` (or any of the others), then "
@@ -1301,6 +1320,8 @@ def _background(a):
     if not parts:
         _ST.refuse("no objects given.")
         return REFUSE
+    _ST.observed(n_total)
+    _ST.lap("read")
 
     store = build_store(parts, {"species": a.species, "tissue": a.tissue, "assay": a.assay})
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -2918,8 +2939,13 @@ def _with_status(a, argv):
             print(f"scanno: NOTE - {e['decision']['flag']} lifts a default and no --by names who "
                   f"lifted it; recorded without a person", file=sys.stderr)
     if d is not None:
+        # `begin` starts the clock whose steps `finish` writes as the record's `timings`.
         _ST.begin(d, a.cmd, version=__version__, state_version=STATE_VERSION, sees=[],
                   cannot_show=CANNOT_SHOW, argv=list(argv) if argv is not None else None, escapes=esc)
+    else:
+        # No record is written, but the command still laps: it must not lap on the clock of the
+        # command before it, which is what a second `main()` in one process would otherwise do.
+        _ST.clock_start()
     try:
         rc = a.fn(a)
     except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:

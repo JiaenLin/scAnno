@@ -266,7 +266,7 @@ own output. Four states are distinguishable from the filesystem alone:
 
 | file | written | says |
 |---|---|---|
-| `STATUS.<cmd>.json` | first as `partial`, last with the outcome | `ok` · `partial` (it died) · `refused` with the `fix` the refusal named · `failed`; the commit read from `.git` by file, the job, the products on disk, and every escape flag as an ask/decision pair with `--by` |
+| `STATUS.<cmd>.json` | first as `partial`, last with the outcome | `ok` · `partial` (it died) · `refused` with the `fix` the refusal named · `failed`; the commit read from `.git` by file, the job, the products on disk, every escape flag as an ask/decision pair with `--by`, and `timings`: the wall time, the observations read, and each step's own wall time |
 | `RUNNING.<cmd>.txt` | at start | replaced at exit by one of the two below |
 | `SEALED.<cmd>.txt` | exit 0 | the products listed |
 | `FAILED.<cmd>.txt` | anything else | a crash is sealed before it is reported; a bad input is one line, not a traceback |

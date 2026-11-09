@@ -12,6 +12,13 @@ The directory is `--status-dir` when given, else the directory the command's pri
 lands in. A command that dies leaves `partial` and RUNNING standing — a different fact from
 refused and from ok. Stdlib only; the same shape as the status contract shared with the tools
 this one is orchestrated beside.
+
+THE CLOCK. `begin` starts it, a command closes each of its steps with `lap(name)`, and `finish`
+writes `timings` into the record: the command's wall time, the observations it read, and every
+step in order with its own wall time. Whatever ran after the last named step is the step
+`finish`, so the steps add up to the whole. A refusal or a failure is timed too, up to where it
+stopped. The clock reads time and nothing else, so it cannot change an output. The key is
+`timings` because a run's own account of itself is not content: the harness's baselines skip it.
 """
 from __future__ import annotations
 
@@ -28,6 +35,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 #: the last refusal a command recorded through `refuse()`, so the wrapper can carry its fix
 LAST_REFUSAL: dict = {}
+
+#: the running command's clock (module docstring, THE CLOCK). `at` is seconds since `t0`, rounded
+#: when each step closed, so the steps' times telescope to the last close and never add up to more
+#: than the whole however many there are.
+CLOCK: dict = {"t0": None, "at": 0.0, "steps": [], "n_obs": None}
+
+
+def clock_start() -> None:
+    """Start the clock for a command: no step closed yet, no observation counted."""
+    CLOCK.update(t0=time.perf_counter(), at=0.0, steps=[], n_obs=None)
+
+
+def lap(step: str) -> None:
+    """Close the step that has just ended: its wall time since the previous close, or the start."""
+    if CLOCK["t0"] is None:
+        clock_start()
+    at = round(time.perf_counter() - CLOCK["t0"], 3)
+    CLOCK["steps"].append({"step": str(step), "wall_s": round(at - CLOCK["at"], 3)})
+    CLOCK["at"] = at
+
+
+def observed(n) -> None:
+    """Count observations this command read, so its time per observation can be stated."""
+    CLOCK["n_obs"] = int(CLOCK["n_obs"] or 0) + int(n)
+
+
+def timings() -> dict | None:
+    """The record's `timings`: None when no clock ran."""
+    if CLOCK["t0"] is None:
+        return None
+    wall = round(time.perf_counter() - CLOCK["t0"], 3)
+    steps = list(CLOCK["steps"])
+    rest = round(wall - CLOCK["at"], 3)
+    if rest > 0 or not steps:
+        steps.append({"step": "finish" if steps else "whole", "wall_s": max(rest, 0.0)})
+    return {"wall_s": wall, "n_obs": CLOCK["n_obs"], "steps": steps}
 
 
 def _now() -> str:
@@ -109,6 +152,7 @@ def begin(d: Path, cmd: str, *, version: str, state_version: int, sees: list, ca
           argv: list | None = None, escapes: list | None = None) -> Path:
     d = Path(d)
     d.mkdir(parents=True, exist_ok=True)
+    clock_start()
     rec = {"contract": CONTRACT, "tool": "scanno", "command": cmd, "version": version,
            "commit": commit(), "state_version": state_version, "status": "partial",
            "headline": "started", "started": _now(), "finished": None, "job": job(),
@@ -144,7 +188,7 @@ def finish(d: Path, cmd: str, *, status: str, headline: str, exit_code: int,
         refusal.setdefault("reason", headline)
         refusal.setdefault("fix", "the refusal names what to change; read the line above it")
     rec.update({"status": status, "headline": headline, "finished": _now(), "exit": exit_code,
-                "products": products, "missing": missing,
+                "timings": timings(), "products": products, "missing": missing,
                 "refusal": refusal if status == "refused" else None,
                 "wrapped_versions": dict(wrapped_versions or rec.get("wrapped_versions") or {})})
     p.write_text(json.dumps(rec, indent=1, default=str) + "\n", encoding="utf-8")
