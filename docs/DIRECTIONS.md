@@ -1,18 +1,20 @@
 # Directions
 
-Designs that have been thought through and **not built**. Nothing here is decided, nothing here
-is implemented, and no number in this file was produced by a run.
+Designs that have been thought through. Each one's **Status** line says whether it is built:
+Direction 2 is (`scanno rescue`), the others are not, and no number in this file was produced by a
+run.
 
 A direction earns a place here by surviving a discussion, not by sounding good. Each one records
-what it would answer, the objection that nearly killed it, and what has to be settled before any
-code is written — because the expensive mistake is not building the wrong thing, it is building
-the right thing before its open questions have been answered.
+what it would answer, the objection that nearly killed it, and the questions its wave's
+registration must answer. A registration takes minutes and is written before any number, so the
+open questions are answered there, in the wave that builds the direction, and never hold it back.
 
 ---
 
 ## Direction 1 — rare cell type ABSENCE quality control
 
-**Status:** noted 2026-09-02, discussed, **not designed and not built**. Named by the PI.
+**Status:** noted 2026-09-02, discussed, named by the PI. **Open**: the next wave that takes it
+answers Q1-Q3 ("Open questions its registration answers", below) in its registration, then builds it.
 
 ### The question it answers
 
@@ -102,7 +104,7 @@ S is, or is not, consistent with `L` being genuinely absent, given how `L` looks
 that have it.** It establishes no identity — there is no truth set for this tissue and scAnno has
 never been validated on snRNA.
 
-### Open before anything is designed
+### Open questions its registration answers
 
 1. **Train `L` against what?** Every other cell, or only its confusable siblings inside the
    compartment? The second is far better conditioned and matches the tree, but it presumes the
@@ -233,7 +235,9 @@ optional** (PI, 2026-09-02). Three distinct failures, and the third is disqualif
 
 **Failure 3 is rule one.** A resolution change that deletes a label is a removal, and removals
 require the list of what was removed BEFORE the fact, not a count afterwards. The churn QC is
-therefore the gate this direction has to pass to be run at all.
+therefore the gate this direction has to pass to be run at all (adoption mode only; the built
+rescue adopts nothing - see Direction 2's three errors, above: only the located cluster moves, and
+every label whose count changed is listed).
 
 **Churn has structure and the tree already knows it.** `compare.level()` truncates paths to a
 depth, splitting churn into two very different quantities for free:
