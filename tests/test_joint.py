@@ -163,12 +163,10 @@ try:
 except ImportError:
     print("  SKIP the h5ad checks: needs anndata")
 
-print("\n9 - nothing in the module names a project, a tissue or a design")
-import scanno.joint as _j  # noqa: E402
-src = Path(_j.__file__).read_text(encoding="utf-8").lower()
-check("no species, tissue or study vocabulary",
-      not any(w in src for w in ("mouse", "human", "heart", "cardiomyocyte", "pbmc")),
-      "found project vocabulary")
+print("\n9 - reconcile cannot be given a design")
+# A scan of joint.py for species and tissue words stood here (single-cell-harness B1-072). Those
+# are vocabulary, not a cohort's data; a cohort's names and numbers are the leak guard's, which
+# reads them from $SCANNO_FORBIDDEN_TERMS (tests/test_portability.py).
 import inspect  # noqa: E402
 check("reconcile cannot be given a design",
       not any(w in p_ for p_ in inspect.signature(reconcile).parameters

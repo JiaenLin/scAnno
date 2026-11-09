@@ -374,11 +374,13 @@ def test_the_section_renders_on_an_unrelated_cohort_of_a_different_depth():
         "a name from the cohort this was written for has leaked into the output")
 
 
-def test_no_cohort_size_or_node_name_is_hardcoded_in_the_source():
+def test_no_cohort_size_is_hardcoded_in_the_source():
+    # No node names: they are the field's vocabulary, and that the section renders only the
+    # names it is given is run by test_samples_are_counted_against_the_cohort_not_a_literal and
+    # the OTHER-cohort tests above (single-cell-harness B1-072).
     doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
     sec = doc.split("def taxonomy_section(", 1)[1].split("\n# ====", 1)[0]
-    for banned in ("/10", "Cardiomyocyte", "Fibroblast", "Endothelial", "Mesothelial",
-                   "Ten ", " ten "):
+    for banned in ("/10", "Ten ", " ten "):
         assert banned not in sec, f"{banned!r} is hardcoded in taxonomy_section"
     # and the same for the scope section, which HAD a literal cohort size in its lede
     scope_sec = doc.split("def scope_section(", 1)[1].split("\n# ====", 1)[0]

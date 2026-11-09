@@ -365,16 +365,16 @@ def _without_comments(src):
                    for i, line in enumerate(lines))
 
 
-def test_the_module_hardcodes_no_node_name_and_no_cohort_size():
+def test_the_module_hardcodes_no_cohort_size():
     doc = (ROOT_DIR / "scanno" / "document.py").read_text(encoding="utf-8")
     head = "def scope_section("
     section = doc.split(head, 1)[1].split("\n# ====", 1)[0]
     # the head is put back only so the fragment tokenizes; it is not part of the scan
     section = _without_comments(head + section)[len(head):]
     code = re.sub(r'""".*?"""', "", section, flags=re.S)
-    for banned in ("Fibroblast", "Matrifibrocyte", "Lymphoid", "Cardiomyocyte", "Endothelial",
-                   "B cell", "NK cell", "Macrophage", "Pericyte"):
-        assert banned not in code, f"{banned} is one cohort's node name"
+    # No list of node names: cell-type words are the field's vocabulary, and that the section
+    # renders only the names of the scope it is given is run, not scanned, by
+    # test_a_three_sample_cohort_never_prints_a_ten (single-cell-harness B1-072).
     # The cohort's own counts are not spelled here: tests/test_portability.py reads them from
     # $SCANNO_FORBIDDEN_TERMS, a file outside the repository, and scans this module with them.
     for m in re.finditer(r"/10\b|\b10 samples\b", code):

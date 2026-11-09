@@ -729,30 +729,73 @@ def test_no_forced_column_without_the_flag():
     assert not [c for c in A.obs.columns if "resolved" in c], list(A.obs.columns)
 
 
-def test_the_library_names_no_node_no_sample_and_no_cohort_size():
-    """Docstrings may cite the cohort this was written for. CODE may not encode it.
+def test_no_node_name_is_encoded_on_the_annotate_path():
+    """Rename every node of the tree and the labels come back renamed, and nothing else moves.
 
-    A literal `/10` shipped in `format_report` once: on seven samples it printed "7/10" and
-    nobody reading it would have known. This is the check that keeps its kin out.
+    This was a scan of the package's code strings for one cohort's cell-type words
+    (single-cell-harness B1-072). Those words are the field's vocabulary, not a cohort's data, and
+    a scan can only find the words somebody listed. Run instead: the synthetic sample annotated
+    under the QUICKSTART tree, and under the same tree with every node renamed to an invented
+    token (patterns, which are the CORPUS's words, unchanged), through the real CLI, with a scope
+    that FORCEs a node. If any name were encoded on the path, some depth, margin or assignment
+    would differ between the two.
     """
-    # Cell types and tissue words of the study this was built against. The cohort's and the
-    # site's NAMES are not spelled here: tests/test_portability.py loads them from a file
-    # outside the repository.
-    cohort = ("Cardiomyocyte", "Endothelial", "Fibroblast", "Matrifibrocyte", "Pericyte",
-              "Macrophage", "Mesothelial", "Endocardial", "Lymphoid")
-    # EVERY module, not a list of four. A guard naming its own files stops covering the package
-    # the moment a module is added, and the newest module is the likeliest to carry a leak.
-    for mod in sorted(x.name for x in (ROOT / "scanno").glob("*.py")):
-        for s in _code_strings(ROOT / "scanno" / mod):
-            hit = [w for w in cohort if w in s]
-            assert not hit, f"scanno/{mod} encodes {hit} in a code string: {s!r}"
+    import json
+    import os
+    import subprocess
+    import tempfile
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import anndata as ad
+        from _cohort import SPECIES, TISSUE, TREE as QTREE, make_object, write_corpus
+    except ImportError as e:                                              # noqa: BLE001
+        raise ImportError(f"the CLI check needs anndata: {e}")
 
-    fn = next(n for n in ast.walk(ast.parse((ROOT / "scanno" / "cli.py").read_text("utf-8")))
-              if isinstance(n, ast.FunctionDef) and n.name == "_annotate")
-    for n in ast.walk(fn):
-        if isinstance(n, ast.Constant) and isinstance(n.value, str):
-            hit = [w for w in cohort if w in n.value]
-            assert not hit, f"cli._annotate encodes {hit}: {n.value!r}"
+    names = sorted({n for kids in QTREE["children"].values() for n in kids} | set(QTREE["children"]))
+    names.remove("root")
+    token = {n: f"Node{i:02d}" for i, n in enumerate(names)}
+    token["root"] = "root"
+    renamed = {"children": {token[k]: [token[c] for c in v] for k, v in QTREE["children"].items()},
+               "patterns": {token[k]: v for k, v in QTREE["patterns"].items()}, "members": {}}
+
+    def scope_for(tree, force):
+        from scanno.scope import internal_nodes
+        return {"nodes": {n: {"verdict": "FORCE" if n == force else "KEEP",
+                              "children_declared": kids}
+                          for n, kids in internal_nodes(tree).items()},
+                "n_samples": 1, "removed_labels": {}, "rule": {}}
+
+    root = str(ROOT)
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        make_object("S1").write_h5ad(td / "obj.h5ad")
+        write_corpus(td / "corpus.db")
+        runs = {}
+        for tag, tree, force in (("named", QTREE, "Lymphoid"), ("tokens", renamed, token["Lymphoid"])):
+            (td / f"{tag}.json").write_text(json.dumps(tree), encoding="utf-8")
+            (td / f"{tag}_scope.json").write_text(json.dumps(scope_for(tree, force)), encoding="utf-8")
+            r = subprocess.run(
+                [sys.executable, "-m", "scanno.cli", "annotate", "--h5ad", str(td / "obj.h5ad"),
+                 "--cluster-key", "cluster", "--tree", str(td / f"{tag}.json"),
+                 "--scope", str(td / f"{tag}_scope.json"), "--resolve",
+                 "--db", str(td / "corpus.db"), "--species", SPECIES, "--tissue", TISSUE,
+                 "--assay", "scrna", "--background-from-clusters",
+                 "--out-h5ad", str(td / f"{tag}.h5ad")],
+                cwd=root, capture_output=True, text=True,
+                env={**os.environ, "PYTHONPATH": root, "MPLBACKEND": "Agg"})
+            assert r.returncode == 0, (tag, r.stderr[-400:])
+            runs[tag] = ad.read_h5ad(td / f"{tag}.h5ad").obs
+
+    a, b = runs["named"], runs["tokens"]
+    def rename(path):
+        return "/".join(token.get(x, x) for x in str(path).split("/"))
+    assert [rename(x) for x in a["scanno_path"]] == [str(x) for x in b["scanno_path"]]
+    assert [rename(x) for x in a["scanno_resolved_path"]] == [str(x) for x in b["scanno_resolved_path"]]
+    for col in ("scanno_depth", "scanno_gap", "scanno_survival", "scanno_assignment",
+                "scanno_force_depth", "scanno_resolved_origin"):
+        assert a[col].astype(str).tolist() == b[col].astype(str).tolist(), col
+    assert {rename(x) for x in a["scanno_path"]} != {str(x) for x in a["scanno_path"]}, \
+        "the fixture must put at least one renamed node in a label"
 
 
 def test_force_declares_no_threshold_at_all():
@@ -1297,20 +1340,6 @@ def _stmt(src):
     has to be that exact statement, and a substring that merely resembles it still fails.
     """
     return ast.unparse(ast.parse(src))
-
-
-def _code_strings(path):
-    """Every string CONSTANT that is not a docstring. Prose may cite a cohort; code may not."""
-    mod = ast.parse(Path(path).read_text(encoding="utf-8"))
-    doc = set()
-    for n in ast.walk(mod):
-        body = getattr(n, "body", None)
-        if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
-                and isinstance(body[0].value, ast.Constant) \
-                and isinstance(body[0].value.value, str):
-            doc.add(id(body[0].value))
-    return [n.value for n in ast.walk(mod)
-            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc]
 
 
 if __name__ == "__main__":

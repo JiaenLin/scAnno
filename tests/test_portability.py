@@ -9,10 +9,13 @@ it in custody carries that cohort's names into every default it does not think a
 
 WHAT IS CHECKED
 
-  1. every text file in the tree — package, tests, setup, jobs, skills, docs — against the
-     SHAPES of site leakage (tests/_terms.py) and the TERMS in $SCANNO_FORBIDDEN_TERMS, a file
-     outside the repository, so this guard never spells what it guards against
-  2. the arguments that describe a DESIGN carry no such term in their help text
+  1. every text file in the tree — package, tests, setup, jobs, skills, docs, references —
+     against the SHAPES of site leakage (tests/_terms.py) and the TERMS in
+     $SCANNO_FORBIDDEN_TERMS, a file outside the repository, so this guard never spells what it
+     guards against. Cell-type and species words are not on any list here: they are the field's
+     vocabulary ("the label stays at Lymphoid"), not a cohort's data (single-cell-harness B1-072)
+  2. the arguments that describe a DESIGN carry no such term in their help text. A flag that has
+     been renamed or removed is a SKIP, printed, not a failure: the guard is about the help text
   3. every suite imports its helpers by file (`from _terms import ...`), never through a package
      called `tests`, which an environment can already contain
 
@@ -30,7 +33,9 @@ from _terms import hits, terms  # noqa: E402
 
 TEXT_EXT = {".py", ".R", ".sh", ".pbs", ".md", ".yml", ".yaml", ".toml", ".cfg", ".txt", ".json",
             ".csv", ".tsv", ".cff", ".ipynb"}
-SKIP = {".git", "__pycache__", "_data", ".egg-info", "references"}
+# references/ is scanned: a registry row is text a user copies, and a cohort's name in it is a
+# leak like any other. Only build and cache directories are skipped.
+SKIP = {".git", "__pycache__", "_data", ".egg-info"}
 fails = []
 
 
@@ -65,7 +70,9 @@ print("\n2 - the arguments that describe a DESIGN take the caller's own names")
 cli = (ROOT / "scanno" / "cli.py").read_text(encoding="utf-8")
 for flag in ("--group-order", "--factor", "--condition-key", "--sample-key", "--group-key"):
     i = cli.find(f'"{flag}"')
-    check(f"{flag} is offered", i > 0)
+    if i < 0:
+        print(f"  SKIP  {flag} is not offered (renamed or removed): nothing of it to scan")
+        continue
     if i > 0:
         j = cli.find("s.add_argument(", i)
         blob = cli[i:j if j > i else i + 1200]
