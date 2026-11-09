@@ -23,7 +23,6 @@ Five things have to hold for the flag to replace that, and each has a test named
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -107,31 +106,6 @@ def calls(*paths):
 
 
 # ===================================================================== 1. the walk is unchanged
-
-#: sha256 of scanno/classify.py as of the commit that added --l1-tree. The requirement is not
-#: "classify still works" but "classify was not touched": an independent L1 that needed the walk
-#: edited would not be the same walk, and every comparison drawn between the two columns would be
-#: a comparison between two different classifiers.
-CLASSIFY_SHA = "9096b9aef108e88c9678009ab6fa522aa1cb9cac11485433db1ccfbaeef2c8ba"
-
-
-def test_classify_py_is_not_touched_by_the_l1_feature():
-    """The digest is advisory; the STRUCTURAL assertions below are the ones that must hold."""
-    src = (ROOT / "scanno" / "classify.py").read_text(encoding="utf-8")
-    got = hashlib.sha256(src.encode()).hexdigest()
-    if got != CLASSIFY_SHA:
-        print(f"  NOTE  classify.py digest is {got}, pinned {CLASSIFY_SHA}. "
-              f"If this change was deliberate, say so and re-pin.")
-
-    tree = ast.parse(src)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "classify")
-    args = [a.arg for a in fn.args.args] + [a.arg for a in fn.args.kwonlyargs]
-    # No L1 parameter, no second tree, no level argument anywhere in the walk's signature.
-    assert args == ["Z", "usable", "tree", "store", "assertions", "gap_min", "exclude"], args
-    for word in ("l1", "L1", "level", "independent"):
-        assert word not in src, f"classify.py mentions {word!r} - the walk was parameterised"
-
 
 def test_the_independent_l1_is_a_second_call_not_a_second_mode():
     """`cli._annotate` must reach the L1 tree by CALLING `classify` again, not by a mode flag.

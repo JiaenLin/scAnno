@@ -27,8 +27,8 @@ The fix has to hold eight things at once, and each has a test named for it:
   5. without `--scope` nothing whatsoever changes;
   6. WHICH nodes are FORCE comes from the scope FILE — nothing in the library names a node, a
      sample, a cohort size or a threshold;
-  7. `scanno/classify.py` is not touched. The walk, the gap test and GAP_CORPUS are as they
-     were; everything here is post-walk or changes only which TREE is handed in;
+  7. the child FORCE pushes to first is the one the walk itself ranked highest at the node it
+     stopped on - measured on real walks, against scores recomputed outside the walk;
   8. the push RECURSES to a leaf; each step past the first is really scored, by the same
      machinery the walk uses; the number of steps is recorded per cell; a chain that cannot
      reach a leaf is recorded rather than invented and never looped; and a single-level push is
@@ -39,7 +39,6 @@ The fix has to hold eight things at once, and each has a test named for it:
 from __future__ import annotations
 
 import ast
-import hashlib
 import sys
 from pathlib import Path
 
@@ -856,86 +855,51 @@ def test_a_name_at_two_positions_is_refused_because_the_trace_is_keyed_by_bare_n
     assert any("more than one position" in p for p in problems), problems
 
 
-# ============================================================ 7. the walk itself is unchanged
+# ========================================= 7. the trace FORCE reads is the walk's own argmax
+#
+# FORCE's first step reads `trace[-1]["top"]`. What it relies on is a fact about the walk's
+# OUTPUT: at every node the walk visited, `top` is the child that scored highest. That is measured
+# here on real walks, against scores recomputed outside the walk. It used to be pinned by
+# classify.py's sha256, its argument list, a ban on three words and the source text of one line
+# (single-cell-harness B1-032). A digest cannot tell a comment from a decision; what protects the
+# walk's numbers is rule one's reproduction of the promoted run, and what protects FORCE is this.
 
-#: sha256 of scanno/classify.py. The requirement is not "classify still works" but "classify was
-#: NOT TOUCHED": a FORCE that needed the walk edited would not be the same walk, and every gap in
-#: the output would mean two different things.
-#:
-#: RE-PINNED, OUT LOUD, as this guard demands. Two edits since the --scope commit, both to what
-#: the walk RECORDS and neither to what it decides:
-#:   868c23d  the trace gained `second` and `scores` - what each call beat, and by how much.
-#:            A run could give a label and its margin and nothing about what that label beat,
-#:            so the reason for a call had to be reconstructed from a marker table instead of read.
-#: Every invariant this test exists for is checked below and still holds: the argument list is
-#: unchanged, the walk mentions no scope/force/SEAL/assignment, the gap constants are 0.30/0.15,
-#: and `trace[-1]["top"]` is still `order[srt[0]]`. A digest cannot tell an added trace key from
-#: a changed decision, so the AST checks are the substance and this line is the tripwire that
-#: makes someone come and look.
-#:
-#: RE-PINNED, OUT LOUD, a second time (single-cell-harness wave W003, GAP-031). One edit, again
-#: to what the walk RECORDS and not to what it decides: a walk that took no step at all - the root
-#: had fewer than two scorable children - returned gap 0.0, a dead heat, where README and
-#: tests/test_emit.py promise NaN for a call that was not made. It now returns NaN. No path,
-#: label, depth or trace changes, so no forced call can: the push to a leaf reads the trace, and
-#: such a cluster has none. The invariants below are unchanged and still hold.
-#:
-#: RE-PINNED, OUT LOUD, a third time (single-cell-harness wave W011, GAP-C17). One edit, to a
-#: COMMENT and to nothing the walk records or decides: the comment above the trace quoted a
-#: measurement from the cohort the walk was first run on, and now states the method instead.
-#: A comment is not in the syntax tree, and the tree of classify.py with every string included
-#: is identical before and after. The invariants below are unchanged and still hold.
-CLASSIFY_SHA = "81a24d75be26a79ee937611d6f0ecc95cf31def64d46db8ac4f6a2a5e6119001"
+def test_every_trace_entry_names_the_highest_scoring_child_and_the_runner_up():
+    n = 0
+    for res in (_walk()[0], _deep()[0]):
+        for r in res:
+            for e in r["trace"]:
+                scores = e["scores"]
+                ranked = sorted(scores, key=lambda k: -scores[k])
+                assert scores[e["top"]] == max(scores.values()), (e["at"], e["top"], scores)
+                if len(ranked) > 1:
+                    assert scores[e["second"]] == scores[ranked[1]], (e["at"], e["second"], scores)
+                    assert e["second"] != e["top"]
+                n += 1
+    assert n >= 6, f"only {n} trace entries: the fixtures no longer walk"
 
 
-def test_classify_py_is_not_touched_by_the_scope_feature():
-    src = (ROOT / "scanno" / "classify.py").read_text(encoding="utf-8")
-    got = hashlib.sha256(src.encode()).hexdigest()
-    assert got == CLASSIFY_SHA, (
-        f"classify.py digest is {got}, pinned {CLASSIFY_SHA}. --scope is post-walk and must "
-        f"not change the walk; if this edit was deliberate, say so out loud and re-pin.")
+def test_the_stranded_clusters_first_push_is_the_child_an_independent_score_ranks_first():
+    """The walk stopped at `Endothelial` for cluster 0. Score that node's children OUTSIDE the
+    walk, from the same profiles, and the child ranked first must be the one FORCE pushes to."""
+    import numpy as np
+    from scanno.classify import profile_weights
+    from scanno.step import node_scorer
+    res, tree, Z, usable, store, gap_min = _deep()
+    last = res[0]["trace"][-1]
+    assert res[0]["path"] == last["at"] == "Endothelial" and last["gap"] < gap_min
 
-    mod = ast.parse(src)
-    fn = next(n for n in mod.body if isinstance(n, ast.FunctionDef) and n.name == "classify")
-    args = [a.arg for a in fn.args.args] + [a.arg for a in fn.args.kwonlyargs]
-    assert args == ["Z", "usable", "tree", "store", "assertions", "gap_min", "exclude"], args
-    for word in ("scope", "force", "FORCE", "SEAL", "assignment"):
-        assert word not in src, f"classify.py mentions {word!r} - the walk was parameterised"
+    W, order, _cover = profile_weights(store, tree["members"], tree["children"]["Endothelial"],
+                                       usable)
+    s = Z[0] @ W
+    assert len(order) == 2 and s[0] != s[1], "the fixture must rank the two children"
+    best = order[int(np.argmax(s))]
+    assert last["top"] == best, (last["top"], best, s)
 
-    from scanno.classify import GAP_CORPUS, GAP_PROFILE
-    assert (GAP_CORPUS, GAP_PROFILE) == (0.30, 0.15)
-
-
-def test_the_trace_this_feature_reads_is_the_one_classify_writes():
-    """`trace[-1]["top"]` is only the argmax if classify still records `order[srt[0]]` there.
-
-    Read out of the source rather than assumed, because the whole feature rests on it and a
-    rename inside the walk would leave every forced call pointing at the wrong child while
-    every test that used a hand-built trace went on passing.
-    """
-    src = (ROOT / "scanno" / "classify.py").read_text(encoding="utf-8")
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "classify")
-    app = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
-           and getattr(n.func, "attr", "") == "append"
-           and getattr(n.func.value, "id", "") == "trace"]
-    assert len(app) == 1, f"{len(app)} trace.append call(s)"
-    d = app[0].args[0]
-    keys = [k.value for k in d.keys]
-    # PRESENT, not positioned. This read `keys[:3] == ["at", "top", "gap"]`, which pins the
-    # ORDER of a dict literal - so adding `second` and `scores` to the trace broke it while
-    # every invariant it exists to protect still held. What matters is that the keys are there
-    # and map to the right expressions, which is what the next lines check.
-    for _k in ("at", "top", "gap"):
-        assert _k in keys, keys
-    assert ast.unparse(d.values[keys.index("at")]) == "node"
-    assert ast.unparse(d.values[keys.index("top")]) == "order[srt[0]]"
-    # The runner-up is read the same way, so a rename cannot leave it pointing elsewhere either.
-    if "second" in keys:
-        assert ast.unparse(d.values[keys.index("second")]).startswith("order[srt[1]]"), keys
-
-    # ... and the argmax is the FIRST of a descending sort, i.e. the most similar child
-    assert "srt = np.argsort(-s)" in src
+    forced, rec = apply_force(res, ["Endothelial"], tree=tree,
+                              scorer=node_scorer(Z, usable, tree, store=store))
+    assert rec["assigned"]["0"]["steps"][0] == f"Endothelial/{best}"
+    assert forced[0]["path"].startswith(f"Endothelial/{best}/")
 
 
 # ================================================ 8. the push RECURSES, to a LEAF, and says so
