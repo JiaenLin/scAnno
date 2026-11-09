@@ -669,7 +669,7 @@ def F130(ctx):
     return _dotplot_figure(
         ctx, 1,
         "Corpus markers against the level-1 label, each block bracketed with the node whose "
-        "panel it is.\nDot size is the fraction of cells detecting the gene, on an ABSOLUTE "
+        "panel it is.\nDot size is the share of each label that detects the gene, on an ABSOLUTE "
         "scale; colour is mean expression scaled per column. Read EXCLUSIVITY, not intensity.")
 
 

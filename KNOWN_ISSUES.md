@@ -47,14 +47,45 @@ an existence proof, not a range.
 
 ## Rules chosen on whole cells are used on nuclei unvalidated
 
-`--assay` decides the gene background a run accepts, and the words it writes (USER_GUIDE, "The
-assay"). Three other rules are one rule for both assays, and each was set on human blood, which is
+`--assay` decides the gene background a run accepts, and the unit the two reports and annotate's
+summary name (USER_GUIDE, "The assay"). Three other rules are one rule for both assays, and each was set on human blood, which is
 whole cells: `gap_min` (below), the corpus marker weights, and the store's size floors. The corpus
 records no assay. Its assertions come mostly from whole-cell and tissue studies. A nucleus holds
 little of the cytoplasm's mRNA, so on nuclei a marker that lives there can be under-detected.
 Nothing corrects for that. The tool was nevertheless
 designed for, and has mostly been run on, single-nucleus data. A per-assay value would be a number
 the data has not yet decided, so none is invented here.
+
+## Some prints still say "cells" whatever the assay
+
+Only the two reports and annotate's own summary lines take their unit from `--assay`:
+`annotate --report`, and `scanno report`'s pages, `report.json`, tables and figures. These still
+say "cell(s)" under `snrna` too, so on nuclei they name the wrong unit:
+
+- `background`: the per-object and total lines (`scanno/cli.py` `_background`);
+- `calibrate`: the per-dataset line (`scanno/cli.py` `_calibrate`);
+- `annotate`: the `--resolve` summary (`force.py` `format_resolved`), the `--scope` summary
+  (`force.py` `format_force`), the `--l1-tree` summary (`emit.py` `format_independent_l1`), and
+  the hint printed when nothing was written ("per CELL");
+- `rescue`: "cell(s) renamed" and the reach line (`scanno/cli.py` `_rescue`);
+- `compare`: "they are not the same cells";
+- the README.md that `scanno report` writes beside the pages (`readme.py`);
+- the documents and help of the commands that take no assay (`rescue`, `compare`,
+  `joint-review`, `scope`, `resolution`, `embed`, `lab`), and help text in general.
+
+No string in the package names the nucleus outside `scanno/assay.py`, and
+tests/test_assay_rules.py fails if one does. This entry is the other direction: "cells" said of
+nuclei. The fix is the same as the reports': the words from the assay where there is one, and a
+neutral word where there is none.
+
+## `scanno report` over objects annotated before the assay was recorded needs `--assay`
+
+`annotate` records its assay in `uns['scanno_context']`, and `scanno report` reads it from there.
+Objects annotated before that record existed carry none, and `scanno report` refuses them by name
+until `--assay` is given, `--assay sn` for a nucleus cohort. It also refuses an `--assay` that
+contradicts the record, and a cohort whose objects record different assays. This is the intended
+behaviour, and the USER_GUIDE and `--help` say so. It is listed here because report jobs written
+before it will stop at that refusal until they add the flag.
 
 ## Upstream QC's declaration does not say which assay it was
 

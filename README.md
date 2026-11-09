@@ -70,9 +70,12 @@ cells are not single nuclei, and three things depend on which one you declared:
 - **the gene background.** A store records the assay it was built from, and `annotate` refuses a
   store of the other assay, or one that records none, by name. `--background-from-clusters`
   builds the background from the object being annotated, so it is always that object's assay.
-- **the words.** Every report, table, figure and print says cells for `scrna` and nuclei for
-  `snrna`. `annotate` records the assay in `uns['scanno_context']`, and `scanno report` reads it
-  from there. It refuses a cohort annotated under both.
+- **the words of the two reports and of annotate's summary.** `annotate --report`, `scanno
+  report`'s pages, `report.json`, tables and figures, and annotate's own summary lines name cells
+  for `scrna` and nuclei for `snrna`, or name no unit. `annotate` records the assay in
+  `uns['scanno_context']`, and `scanno report` reads it from there. It refuses a cohort annotated
+  under both. Some prints still say "cell(s)" whatever the assay, and they are listed as open in
+  [KNOWN_ISSUES](KNOWN_ISSUES.md).
 - **what `agent` tells the model** it is annotating.
 
 Every other rule is one rule for both assays: the corpus weights, the descent bar, the walk, the
@@ -241,7 +244,7 @@ and assay the run declared.
 | `scanno_cell_type` | the label, as a categorical |
 | `scanno_path` | the full root-to-leaf path the walk took |
 | `scanno_depth` | how deep it got before the evidence ran out |
-| `scanno_gap` | the margin of the last step the walk took: the step that chose the label or, where the walk stopped above a leaf, the step that declined to go deeper, which is below the bar by construction. NaN where the walk took no step at all |
+| `scanno_gap` | the gap of the **last** step: the accepted one when the walk reached a leaf or ran out of scorable children, the declining one (below the bar) when it truncated on the gap. NaN when no step was taken |
 | `scanno_survival` | how much of the node's evidence survived the sibling contrast |
 | `scanno_support` | curated tier-1/2 assertions behind the winning node |
 | `scanno_resolved_path` | with `--resolve`: the forced label, no holes, plus `scanno_resolved_origin` |
@@ -358,7 +361,7 @@ renamed — code that asks for a role passes both, code that knows a column name
 | ✅ validated | human blood: PBMC, two datasets, 18 populations, zero errors on both paths. One dataset is independent with FACS labels |
 | ⚠️ one tissue, one species | every number is an existence proof, not a range |
 | ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically. The gene background is per assay, and a store of the other assay is refused. The corpus weights and the descent bar are one rule for both and were chosen on whole cells |
-| ✅ assay rules | `--assay` decides the background a run accepts and the words it writes, with no default. Every other rule is one for both, listed with its basis in the user guide |
+| ✅ assay rules | `--assay` decides the background a run accepts and the unit its two reports and annotate's summary name, with no default. Every other rule is one for both, listed with its basis in the user guide. The prints that still say "cell(s)" are open in KNOWN_ISSUES |
 | ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
 | ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |

@@ -390,7 +390,7 @@ SCOPE_CANNOT_SHOW = (
     "where that shows, and a seal does not repair it. "
     "<b>A FORCE is not a seal and removes nothing.</b> It reassigns {units} that stopped on an "
     "open node to the child they already scored highest, so it changes which label those {units} "
-    "carry and never which labels exist. The cells it moves are the ones whose evidence was "
+    "carry and never which labels exist. The {units} it moves are the ones whose evidence was "
     "thinnest, so they are the least certain calls in the deliverable, not the most. "
     "<b>And it says nothing about whether any label is correct</b> — agreement between samples "
     "is agreement, not truth.")
@@ -505,7 +505,7 @@ def scope_section(scope, out_dir=None, *, words):
     body.append(
         f"<p class='lede'>Each sample walks independently, so a cohort produces as many scopes as "
         f"it has samples: on a lineage where the sibling contrast sits near the bar, one sample "
-        f"descends and the next truncates, so the same cells get a subtype in one library and its "
+        f"descends and the next truncates, so one population gets a subtype in one library and its "
         f"parent in another — which downstream is indistinguishable from a compositional shift. "
         f"The scope decides the depth <b>once</b>, from what the samples agree on, and every "
         f"sample is annotated against it. This section is that decision: the rule it was made "
@@ -698,7 +698,7 @@ def scope_section(scope, out_dir=None, *, words):
             f"scored highest at that node, so the reassignment needs no new scoring and no change "
             f"to the walk — it reads the choice the walk had already made and declined to act on "
             f"because the margin was thin. <b>The margin is why these are the least certain calls "
-            f"in the deliverable</b>: every one of them is a cell whose gap failed where the rest "
+            f"in the deliverable</b>: each of them failed its gap where the rest "
             f"of the cohort's cleared. They are concentrated rather than spread — the "
             f"<i>samples</i> column shows how few libraries produced them — so a subtype's count "
             f"can be moved appreciably in one sample and not at all in another, which is a "
@@ -843,7 +843,7 @@ def taxonomy_section(ctx, out_dir=None):
         f"<p class='lede'>Two columns were delivered for every {W.unit}: an <b>independent</b> "
         "level-1 compartment, walked against a depth-1 tree of its own, and the <b>scope-based</b> "
         "label from the deep walk. They are shown together here because they answer different "
-        "halves of one question — <i>what is this cell</i>, and <i>how far down did the cohort "
+        "halves of one question — <i>what is this</i>, and <i>how far down did the cohort "
         "let us go</i> — and reading either alone gives a confident answer to half of it. The "
         "compartment is the band; the taxonomy beneath it is what the scope permitted.</p>")
 
@@ -1095,7 +1095,7 @@ def write_cohort(ctx, out_dir, *, title="Annotation", version="", sample_links=N
             ("the RESCUED annotation", ctx_rs,
              "the delivered annotation with ONLY the clusters a targeted search located "
              "relabelled: a rare cell type one unit lacks and another carries, looked for in "
-             "the units that lack it. Every other cell keeps the label it was delivered with, "
+             "the units that lack it. Everything else keeps the label it was delivered with, "
              "so the difference from the FORCED block - which is what it corrects, not the "
              "joint route above it - is exactly the rescued set and nothing else",
              ctx.rescue_key),

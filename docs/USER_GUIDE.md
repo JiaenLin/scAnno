@@ -64,7 +64,7 @@ This table is `scanno/assay.py`'s `RULES`, and `scanno describe` prints it as `a
 | rule | what | `scrna` | `snrna` | where its numbers came from |
 |---|---|---|---|---|
 | `background` | the gene background: per-gene mean and spread across cell types | built from whole cells | built from nuclei | each cohort's own data. A store records its assay, and `annotate --store` refuses the other assay or none. `--background-from-clusters` is the annotated object's own |
-| `words` | the unit every report, table, figure and print names | cell, cells | nucleus, nuclei | the declared assay. Commands that take no assay say "observation" |
+| `words` | the unit named by `annotate --report`, by `scanno report`'s pages, `report.json`, tables and figures, and by annotate's own summary lines | cell, cells | nucleus, nuclei | the declared assay. Other prints still say "cell(s)" whatever the assay, and are open in [KNOWN_ISSUES](../KNOWN_ISSUES.md): `background`, `calibrate`, `rescue` and `compare`, annotate's `--resolve`, `--scope` and `--l1-tree` summaries, and the README.md `scanno report` writes |
 | `agent_prompt` | what `scanno agent` tells the model it is annotating | single-cell RNA-seq | single-nucleus RNA-seq | the declared assay. A prompt with none is refused |
 | `corpus_weights` | marker weights from the CellMarker-schema corpus | the same | the same | the corpus records no assay, and its assertions come mostly from whole-cell and tissue studies. **On nuclei, a marker whose mRNA sits in the cytoplasm can be under-detected, and nothing corrects for it** |
 | `gap_min` | the descent bar: 0.30 on the corpus path, 0.15 on profiles | the same | the same | declared, and chosen on human blood (PBMC), which is whole cells. **Not calibrated on nuclei** |

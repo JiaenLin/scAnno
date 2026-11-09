@@ -9,7 +9,10 @@ WHAT DEPENDS ON THE ASSAY HERE, AND WHAT DOES NOT, is `RULES` below. It is print
 `scanno describe` and set out in docs/USER_GUIDE.md. Three things depend on it:
   - the gene background. A store records the assay it was measured on, and `annotate` refuses a
     store of the other assay, or one that records none;
-  - the words. Every document and print names cells for `scrna` and nuclei for `snrna`;
+  - the words of the two reports and of annotate's summary: `annotate --report`, `scanno
+    report`'s pages, report.json, tables and figures, and annotate's own summary lines name cells
+    for `scrna` and nuclei for `snrna`, or name no unit. Other prints still say "cell(s)" whatever
+    the assay, and are open in KNOWN_ISSUES.md;
   - what the agent is told it is annotating.
 Everything else is one rule for both assays. Each such rule says where its numbers came from,
 because "the same for both" is a claim about calibration as well as about code.
@@ -110,9 +113,13 @@ RULES = [
               "and `annotate --store` refuses a store of the other assay or one that records none. "
               "`--background-from-clusters` builds it from the object being annotated, so it is "
               "that object's assay by construction"},
-    {"id": "words", "rule": "the unit every report, table, figure and print names",
+    {"id": "words", "rule": "the unit named by `annotate --report`, by `scanno report`'s pages, "
+                            "report.json, tables and figures, and by annotate's own summary lines",
      "scrna": "cell, cells", "snrna": "nucleus, nuclei", "depends": True,
-     "basis": "the declared assay. Commands that take no assay word the unit neutrally"},
+     "basis": "the declared assay. Other prints still say cell(s) whatever the assay, and are "
+              "open in KNOWN_ISSUES.md: background, calibrate, rescue and compare, annotate's "
+              "--resolve, --scope and --l1-tree summaries, and the README.md `scanno report` "
+              "writes"},
     {"id": "agent_prompt", "rule": "what `scanno agent` tells the model it is annotating",
      "scrna": "single-cell RNA-seq", "snrna": "single-nucleus RNA-seq", "depends": True,
      "basis": "the declared assay; a prompt with none is refused"},

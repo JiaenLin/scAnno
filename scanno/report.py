@@ -475,7 +475,7 @@ CANNOT = {
         "panel that happens to be wrong scores well on all three."),
     "labels": (
         "No figure or number here shows that a label is CORRECT. That needs a truth set - "
-        "sorted cells, genetic labels, an independent assay - and there is none in this object. "
+        "sorted {units}, genetic labels, an independent assay - and there is none in this object. "
         "Agreement with a published composition is reassurance, not validation."),
     "exclusion": (
         "This shows what was withheld and how unevenly, not whether withholding it was right. "

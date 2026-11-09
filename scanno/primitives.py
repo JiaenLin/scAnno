@@ -415,7 +415,7 @@ def dotplot(ax, *, rows, cols, frac, mean_scaled, cmap="Reds", cmap_range=(0.0, 
     return {"cmap": cm, "cmap_range": cmap_range}
 
 
-def dotplot_key(fig, ax, spec, *, size_label="Fraction of cells\nin group (%)",
+def dotplot_key(fig, ax, spec, *, size_label="Share of the group\ndetecting it (%)",
                 colour_label="Mean expression\nin group"):
     """The two keys without which a dotplot is undecodable, laid out beside the panel.
 

@@ -78,8 +78,8 @@ class Context:
         import pandas as pd
 
         from .assay import canonical, words
-        # REQUIRED, and as the run declared it. Every page names cells or nuclei from it, and a
-        # report built with no assay would have to pick one of the two for the reader.
+        # REQUIRED, and as the run declared it. Every page names its unit from it or names none,
+        # and a report built with no assay would have to pick one of the two for the reader.
         self.assay = canonical(assay)
         self.words = words(assay)
         self.objects = list(objects)
@@ -985,7 +985,7 @@ class Context:
         own = pd.Series(np.asarray(self.P[f"L{depth}"]), index=self.P.index.astype(str))
         shared = own.index.intersection(js.index)
         if not len(shared):
-            return {"error": "the two routes share no barcodes; they are not the same cells"}
+            return {"error": "the two routes share no barcodes; they are not the same observations"}
         a, b = own.loc[shared].astype(str), js.loc[shared].astype(str)
         scored = ~(a.str.startswith(EXCLUDED) | b.str.startswith(EXCLUDED))
         if not scored.any():

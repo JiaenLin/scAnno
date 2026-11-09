@@ -84,7 +84,7 @@ scanno annotate --h5ad clustered.h5ad --cluster-key leiden_1p0 \
 `cluster` writes one `leiden_<resolution>` column per resolution: `leiden_1p0` for 1.0.
 **`--assay` is required and has no default**: `scrna` for whole cells, `snrna` for nuclei. It
 decides which gene backgrounds a run accepts, since a store of the other assay is refused, and
-whether every page and print says cells or nuclei. See the
+whether the report and annotate's summary say cells or nuclei. See the
 [user guide](USER_GUIDE.md#the-assay-what-depends-on-it-and-what-does-not) for what it does and
 does not change.
 

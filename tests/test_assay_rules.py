@@ -352,4 +352,4 @@ print("\n" + "=" * 64)
 if fails:
     print(f"assay rules: {len(fails)} FAILED - " + "; ".join(fails[:12]))
     raise SystemExit(1)
-print("assay rules: the assay decides the background it accepts and the words it writes")
+print("assay rules: the assay decides the background a run accepts and the words of its reports")
