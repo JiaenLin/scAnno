@@ -119,10 +119,13 @@ function that produced it:
   - any FORCED cluster terminating on an internal node — `internal_terminals`. The recursion is
     meant to make this impossible; the check is what establishes that it did;
   - a chain that could not reach a leaf, because the tree loops, because a node's child set is
-    missing, or because those children cannot be scored. It is recorded as `unforceable` and the
-    push is NOT half-applied: the row is left exactly as the walk returned it, so the first check
-    above catches it and the caller refuses. A destination is never invented and a chain is
-    never re-entered.
+    missing, or because those children cannot be scored. The push is NOT half-applied and a
+    destination is never invented: the row keeps exactly the label the walk gave it - the walk's
+    own truncation, which is a true label (PRINCIPLES §2) - and its assignment is `unforceable`,
+    reported as REVIEW. It used to make the whole object refuse, so one cluster whose children the
+    corpus could not score withheld every label of the sample (single-cell-harness B1-033). Only a
+    `forced` row that ends on an internal node - a broken recursion - still refuses
+    (`must_refuse`).
 
 `tests/test_force.py` asserts each of them.
 """
@@ -144,7 +147,10 @@ from .sentinels import EXCLUDED, UNRESOLVED  # noqa: E402 — one definition
 
 BY_GAP = "gap"
 BY_FORCE = "forced"
-ASSIGNMENTS = (BY_GAP, BY_FORCE, EXCLUDED)
+#: A cluster stranded on a FORCE node whose chain cannot be scored to a leaf. It keeps the walk's
+#: own label - truncation, not a guess - and says that FORCE could not act on it.
+UNFORCEABLE = "unforceable"
+ASSIGNMENTS = (BY_GAP, BY_FORCE, EXCLUDED, UNFORCEABLE)
 
 
 def scope_verdicts(scope):
@@ -302,8 +308,8 @@ def apply_force(res, force_paths, counts=None, tree=None, scorer=None, sep=SEP):
     `tree` and `scorer` are what make the push RECURSIVE. With both, a cluster is pushed until it
     reaches a node the tree gives no children — including a node a seal made childless. With
     neither, one step is taken, exactly as before. A chain that cannot reach a leaf is recorded
-    in `unforceable` and NOT half-applied: that row is returned as the walk produced it, so
-    `bare_force` still reports it and the caller still refuses.
+    in `unforceable` and NOT half-applied: that row keeps the walk's label and path, with
+    assignment `unforceable`.
 
     `counts` is optional per-cluster cell counts, indexable by cluster id. With it the record
     carries how many CELLS each reassignment moved, which is the number a reader asks for first.
@@ -351,8 +357,8 @@ def apply_force(res, force_paths, counts=None, tree=None, scorer=None, sep=SEP):
                            "was measured; its children cannot be represented by the weights in "
                            "use"),
             }
-            row["assignment"] = BY_GAP
-            tally[BY_GAP] += 1
+            row["assignment"] = UNFORCEABLE
+            tally[UNFORCEABLE] += 1
             out.append(row)
             continue
 
@@ -370,8 +376,8 @@ def apply_force(res, force_paths, counts=None, tree=None, scorer=None, sep=SEP):
                 "n_cells": n,
                 "reason": refusal,
             }
-            row["assignment"] = BY_GAP
-            tally[BY_GAP] += 1
+            row["assignment"] = UNFORCEABLE
+            tally[UNFORCEABLE] += 1
             out.append(row)
             continue
 
@@ -572,6 +578,29 @@ def internal_terminals(res, tree, sep=SEP):
             for r in res if str(r.get("path", "")) in inner]
 
 
+def must_refuse(res, force_paths, tree=None, sep=SEP):
+    """The rows that must stop the run: the post-condition FORCE stands for, read off the
+    FINISHED rows. Empty is the only pass.
+
+    A `forced` row that ends on an internal node is a recursion that stopped short - it would
+    deliver a compartment name one level down, which is the defect FORCE exists to remove - and
+    so is any row left on a bare FORCE node that is NOT `unforceable`. An `unforceable` row is
+    neither: the walk truncated there and FORCE could not measure a child to push it to, so it
+    keeps the walk's label and is reported, not refused (single-cell-harness B1-033).
+    """
+    out, seen = [], set()
+    for s in bare_force(res, force_paths):
+        if s["assignment"] != UNFORCEABLE and s["cluster"] not in seen:
+            out.append(s)
+            seen.add(s["cluster"])
+    if tree is not None:
+        for t in internal_terminals(res, tree, sep=sep):
+            if t["assignment"] == BY_FORCE and t["cluster"] not in seen:
+                out.append(t)
+                seen.add(t["cluster"])
+    return out
+
+
 def bare_force(res, force_paths):
     """Clusters still terminating on a FORCE node. The post-condition; empty is the only pass.
 
@@ -637,8 +666,9 @@ def format_force(record, gap_min=None, sep=SEP, words=None):
                  f"the FIRST step's margin, and")
         L.append(f"    uns holds the rest — filter on them before any cross-sample claim.")
     for cid, u in sorted(record["unforceable"].items()):
-        L.append(f"    REFUSE  cluster {cid} stopped on {u['node']}, reached {u['reached']} and "
-                 f"cannot be forced to a leaf: {u['reason']}")
+        n = f" / {u['n_cells']:,} {W.units}" if u.get("n_cells") else ""
+        L.append(f"    REVIEW  cluster {cid}{n} stopped on {u['node']} and cannot be forced to a "
+                 f"leaf ({u['reason']}); it keeps the walk's label, assignment `{UNFORCEABLE}`")
     return L
 
 

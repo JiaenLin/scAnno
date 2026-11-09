@@ -15,8 +15,8 @@ change that breaks the behaviour. Each property is now RUN, on the synthetic sam
   3. without --l1-tree the L1 column is derived from the path and says nothing about independence;
   4. a depth-2 --l1-tree is refused (exit 2, naming the tree) BEFORE the object is read;
   5. --l1-tree and --scope are annotate's options and not another command's;
-  6. a FORCE node whose children cannot be scored: what the run does with the cluster stranded on
-     it (B1-033).
+  6. a FORCE node whose children cannot be scored: the cluster stranded on it keeps the walk's
+     label with assignment `unforceable`, and the run completes (B1-033).
 
 The sample: tests/_cohort.py's five populations, clustered so that T and B cells share one cluster.
 That cluster's profile sits between two siblings, so the walk stops on `Lymphoid` - a stranded
@@ -186,9 +186,28 @@ for kid in blind["children"]["Lymphoid"]:
 rc6, out6 = here("annotate", *BASE, "--tree", work / "blind.json",
                  "--scope", scope_file(work / "blind_force.json", blind, ("Lymphoid",)),
                  "--status-dir", work / "blind", "--out-h5ad", work / "blind" / "x.h5ad")
-check("the run refuses (exit 2): a stranded cluster with no measured child",
-      rc6 == 2 and "REFUSE" in out6, f"rc={rc6} {out6[-300:]}")
-check("and writes nothing", not (work / "blind" / "x.h5ad").exists())
+# It refused the whole object until single-cell-harness B1-033: one cluster FORCE could not push
+# withheld every label of the sample. The walk's own truncation is a true label.
+check("the run completes (exit 0)", rc6 == 0, f"rc={rc6} {out6[-300:]}")
+check("and says so: REVIEW, naming the assignment", "REVIEW" in out6 and "unforceable" in out6)
+st6 = {}
+try:
+    st6 = json.loads((work / "blind" / "STATUS.annotate.json").read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    pass
+check("STATUS is ok", st6.get("status") == "ok", str(st6.get("status")))
+if (work / "blind" / "x.h5ad").exists():
+    B6 = ad.read_h5ad(work / "blind" / "x.h5ad")
+    lym = B6.obs["scanno_path"].astype(str) == "Lymphoid"
+    check("the stranded cells keep the walk's label", bool(lym.any()))
+    check("with assignment `unforceable`, and no other cell has it",
+          set(B6.obs.loc[lym, "scanno_assignment"].astype(str)) == {"unforceable"}
+          and set(B6.obs.loc[~lym, "scanno_assignment"].astype(str)) <= {"gap", "EXCLUDED"})
+    check("and the object's provenance names them",
+          dict(dict(B6.uns["scanno_assignment_provenance"])["clusters_by_assignment"]).get(
+              "unforceable", 0) > 0)
+else:
+    check("the object is written", False)
 
 import shutil  # noqa: E402
 

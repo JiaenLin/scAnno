@@ -854,19 +854,18 @@ def _annotate(a):
     force_rec = None
     _scorer = None
     if force_paths:
-        from .force import BY_FORCE, apply_force, bare_force, format_force, internal_terminals
+        from .force import (BY_FORCE, UNFORCEABLE, apply_force, format_force,
+                            internal_terminals, must_refuse)
         from .step import node_scorer
         _scorer = node_scorer(Z, usable, tree, store=None if asr else store, assertions=asr)
         res, force_rec = apply_force(
             res, force_paths, counts=counts, tree=tree, scorer=_scorer)
-        # Both post-conditions read the FINISHED rows rather than trusting the function that
-        # produced them. A bare FORCE-node label is the original defect; a FORCED row on any
-        # other internal node is a recursion that stopped short, which delivers the same kind of
-        # compartment name one level down.
-        stuck = bare_force(res, force_paths)
+        # The post-condition reads the FINISHED rows rather than trusting the function that
+        # produced them. A FORCED row on an internal node is a recursion that stopped short, which
+        # delivers a compartment name one level down. An UNFORCEABLE row is not refused: FORCE
+        # could not measure a child for it, so it keeps the walk's own truncation (B1-033).
+        stuck = must_refuse(res, force_paths, tree)
         inner = internal_terminals(res, tree)
-        seen = {s["cluster"] for s in stuck}
-        stuck += [t for t in inner if t["assignment"] == BY_FORCE and t["cluster"] not in seen]
         if stuck:
             _ST.refuse(f"{len(stuck)} cluster(s) still terminate on an internal node "
                   f"after reassignment, so this object would deliver a compartment name where "
@@ -875,15 +874,22 @@ def _annotate(a):
                 print(f"        - cluster {s['cluster']} on {s['node']}", file=sys.stderr)
             for line in format_force(force_rec, gap_min=a.gap_min, words=W):
                 print(f"        {line.strip()}", file=sys.stderr)
-            print("        Nothing was written. Seal that node in the scope, or give its "
-                  "children corpus support.", file=sys.stderr)
+            print("        Nothing was written. A forced chain stopped on an internal node: a "
+                  "defect in the push, not in your data.", file=sys.stderr)
             return REFUSE
+        unforced = [t for t in inner if t["assignment"] == UNFORCEABLE]
+        if unforced:
+            n_u = sum(counts[t["cluster"]] for t in unforced)
+            print(f"  REVIEW  {len(unforced)} cluster(s) / {n_u:,.0f} {W.units} stopped on a FORCE "
+                  f"node whose children cannot be scored to a leaf. They keep the walk's label - "
+                  f"its own truncation - with assignment `{UNFORCEABLE}`; give those children "
+                  f"corpus support, or seal the node in the scope, to resolve them.")
         # Clusters the WALK truncated on a node the scope left open. Not a defect and not
         # refused - the scope's own verdict is that stopping there is admissible, and refusing
         # would replace truncation with abstention, which classify.py exists not to do - but it
         # is the number behind "nothing terminates on an internal node", so it is measured and
         # printed rather than assumed to be zero.
-        open_stop = [t for t in inner if t["assignment"] != BY_FORCE]
+        open_stop = [t for t in inner if t["assignment"] not in (BY_FORCE, UNFORCEABLE)]
         n_open = sum(counts[t["cluster"]] for t in open_stop)
         print(f"  terminating on an internal node: {len(open_stop)} cluster(s) / "
               f"{n_open:,.0f} {W.units}"
@@ -2486,7 +2492,9 @@ def main(argv=None):
                         f"gap bar while other samples' {_EITHER.units} cleared it, the two are "
                         f"never pooled silently: every {_EITHER.unit} carries "
                         "`<prefix>_assignment` (gap / forced / "
-                        "EXCLUDED) and `<prefix>_force_depth` (how many steps outside the walk "
+                        "EXCLUDED / unforceable: stranded on a FORCE node whose children cannot "
+                        "be scored, so it keeps the walk's label) and `<prefix>_force_depth` "
+                        "(how many steps outside the walk "
                         "produced its label), `<prefix>_gap` is the first step's margin, and "
                         "uns['<prefix>_assignment_provenance'] holds the node, the leaf and "
                         "every step's margin per cluster. Without it nothing changes")

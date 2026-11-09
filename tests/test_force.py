@@ -73,9 +73,10 @@ except ImportError:                                                       # noqa
 
     pytest = _Pytest()
 
-from scanno.force import (ASSIGNMENTS, BY_FORCE, BY_GAP, EXCLUDED,  # noqa: E402
+from scanno.force import (ASSIGNMENTS, BY_FORCE, BY_GAP, EXCLUDED, UNFORCEABLE,  # noqa: E402
                           apply_force, bare_force, check_scope, force_nodes, format_force,
-                          internal_terminals, push_to_leaf, scope_verdicts, sealed_nodes)
+                          internal_terminals, must_refuse, push_to_leaf, scope_verdicts,
+                          sealed_nodes)
 
 # ============================================================================ fixtures
 #
@@ -268,18 +269,24 @@ def test_bare_force_reads_the_finished_result_rather_than_trusting_apply_force()
 
 def test_a_cluster_the_walk_never_scored_is_not_forced_and_is_named():
     """`node_weights` returning None means no argmax was ever measured. Inventing one is the
-    single thing a classifier that truncates must not do — so it refuses, loudly."""
+    single thing a classifier that truncates must not do - so nothing is invented: the cluster
+    keeps the walk's own truncation, is marked `unforceable` and is REPORTED. It used to make the
+    whole object refuse (single-cell-harness B1-033)."""
     res = calls("Endothelial", trace={0: [at("root", "Endothelial", 0.9)]})   # broke BEFORE
     forced, rec = apply_force(res, ["Endothelial"], counts={0: 961})
 
     assert forced[0]["path"] == "Endothelial"          # unchanged: nothing was invented
+    assert forced[0]["assignment"] == UNFORCEABLE
     assert rec["n_forced"] == 0
+    assert rec["clusters_by_assignment"][UNFORCEABLE] == 1
     assert rec["unforceable"]["0"]["node"] == "Endothelial"
     assert rec["unforceable"]["0"]["stopped_at"] == "root"
     assert rec["unforceable"]["0"]["n_cells"] == 961
-    # and the post-condition catches it, which is what makes the CLI refuse rather than write
+    # it IS on a bare FORCE node, and it is NOT a reason to refuse: no push was attempted
     assert bare_force(forced, ["Endothelial"]) != []
-    assert "REFUSE" in "\n".join(format_force(rec))
+    assert must_refuse(forced, ["Endothelial"], TREE) == []
+    text = "\n".join(format_force(rec))
+    assert "REVIEW" in text and "REFUSE" not in text and UNFORCEABLE in text
 
 
 def test_an_excluded_cluster_is_never_forced():
@@ -290,7 +297,7 @@ def test_an_excluded_cluster_is_never_forced():
                               ["Endothelial"])
     assert forced[0]["path"] == "EXCLUDED" and forced[0]["assignment"] == EXCLUDED
     assert forced[1]["assignment"] == BY_FORCE
-    assert rec["clusters_by_assignment"] == {BY_GAP: 0, BY_FORCE: 1, EXCLUDED: 1}
+    assert rec["clusters_by_assignment"] == {BY_GAP: 0, BY_FORCE: 1, EXCLUDED: 1, UNFORCEABLE: 0}
 
 
 # ============================ 3. a forced call is marked per CELL, and stays filterable
@@ -1068,9 +1075,10 @@ def test_a_node_whose_children_cannot_be_scored_is_recorded_rather_than_invented
     assert u["n_steps"] == 1 and u["margins"] == [pytest.approx(0.05)]
     assert "cannot be scored" in u["reason"]
     assert u["n_cells"] == 99
-    # the post-condition still fires, which is what makes the CLI refuse rather than write
-    assert bare_force(forced, ["Stromal"]) != []
-    assert "REFUSE" in "\n".join(format_force(rec))
+    # the row keeps the walk's label and says FORCE could not act; the run does not refuse
+    assert forced[0]["assignment"] == UNFORCEABLE
+    assert must_refuse(forced, ["Stromal"], TREE) == []
+    assert "REVIEW" in "\n".join(format_force(rec))
 
 
 def test_a_tree_that_loops_stops_the_recursion_instead_of_running_forever():
@@ -1160,6 +1168,20 @@ def test_the_printed_reassignment_shows_every_step_and_says_when_there_was_more_
     # calling every step sub-threshold would be as wrong as calling none of them that
     assert "weakest step 0.050" in text
     assert "may" in text and "either side of the bar" in text
+
+
+def test_must_refuse_is_a_forced_row_on_an_internal_node_and_nothing_else():
+    """The post-condition that still stops a run: a FORCED row ending on an internal node is a
+    recursion that stopped short, and delivers a compartment name one level down. Read off
+    finished rows, so it catches a row built any other way."""
+    hand = calls("Stromal/Mural", "Cardiomyocyte/Working cardiomyocyte", "Endothelial")
+    hand[0]["assignment"] = BY_FORCE                  # forced, yet on the internal node Mural
+    hand[1]["assignment"] = BY_GAP
+    hand[2]["assignment"] = UNFORCEABLE               # on the FORCE node, nothing measured below
+    stuck = must_refuse(hand, ["Stromal", "Endothelial"], TREE)
+    assert [(s["cluster"], s["node"]) for s in stuck] == [(0, "Stromal/Mural")], stuck
+    hand[2]["assignment"] = BY_GAP                    # the same row NOT marked unforceable
+    assert [s["cluster"] for s in must_refuse(hand, ["Stromal", "Endothelial"], TREE)] == [2, 0]
 
 
 def test_internal_terminals_separates_a_broken_recursion_from_a_split_the_scope_left_open():
