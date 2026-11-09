@@ -28,10 +28,12 @@ Section D pins each statement GAP-031 found false to the code, as corrected.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -99,6 +101,9 @@ def run_document(name, brings):
     nothing itself, so the two documents can run at once and still report in order."""
     text = (ROOT / name).read_text(encoding="utf-8")
     work = Path(tempfile.mkdtemp(prefix="scanno_docs_"))
+    # Removed at exit, on a failure too: one run of the README writes the whole cohort chain,
+    # and a suite run on a compute node would otherwise leave it in that node's /tmp.
+    atexit.register(shutil.rmtree, work, True)
     shim = work / ".bin"
     shim.mkdir()
     (shim / "scanno").write_text(f'#!/bin/sh\nexec "{sys.executable}" -m scanno.cli "$@"\n')
