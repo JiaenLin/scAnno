@@ -125,8 +125,8 @@ def sweep_stability(labels_by_res, tree=None, groups=None, depth=None,
             "smallest": min(sizes.values()) if sizes else 0,
             # The parsimony unit. CLUSTERS if the caller supplied them, otherwise distinct
             # labels - which is a different quantity and is named as one. Labels alone cannot
-            # tell you how many clusters produced them, and pretending otherwise put "19
-            # clusters" next to a sweep that had 116.
+            # tell you how many clusters produced them, and pretending otherwise reported a
+            # sweep's label count as its cluster count.
             "n_units": (int(len(np.unique(np.asarray(clusters_by_res[r]))))
                         if clusters_by_res is not None else len(named)),
             "units_are": "clusters" if clusters_by_res is not None else "labels",

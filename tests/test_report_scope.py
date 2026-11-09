@@ -372,7 +372,9 @@ def test_the_module_hardcodes_no_node_name_and_no_cohort_size():
     for banned in ("Fibroblast", "Matrifibrocyte", "Lymphoid", "Cardiomyocyte", "Endothelial",
                    "B cell", "NK cell", "Macrophage", "Pericyte"):
         assert banned not in code, f"{banned} is one cohort's node name"
-    for m in re.finditer(r"/10\b|\b10 samples\b|109,?140|3,?799", code):
+    # The cohort's own counts are not spelled here: tests/test_portability.py reads them from
+    # $SCANNO_FORBIDDEN_TERMS, a file outside the repository, and scans this module with them.
+    for m in re.finditer(r"/10\b|\b10 samples\b", code):
         raise AssertionError(f"cohort literal in the section: {m.group(0)}")
     # the only node name the section may know is the root, which is structural
     assert code.count('"root"') <= 2

@@ -66,12 +66,12 @@ def node_votes(paths_by_sample, sep=SEP, sentinels=SENTINELS, descend_rule="any"
     THE CONDITIONING IS THE PART THAT GOES WRONG. A sample whose walk never reached the node
     casts NO vote — it is a missing observation, not a vote against. Counting absence as
     opposition seals every branch that is simply rare, and rare is not the same as unsupported.
-    Measured case: one cohort's `Lymphoid` node was reached by 7 of 10 animals, three of which
-    had too few lymphocytes to form a cluster at all.
+    A rare lineage's node goes unreached in samples that hold too few of its cells to form a
+    cluster at all, and those samples saw nothing to vote on.
 
     `descend_rule` decides what it means for one sample to have descended, and the two answers
     genuinely differ because a single sample can do BOTH — different clusters of one lineage
-    truncating differently inside one animal was observed in 4 of 10:
+    can truncate differently inside one animal:
 
       "any"       the sample descended if ANY of its cells went below. Strict: one cluster
                   descending is enough to count that animal as having made the split.
@@ -93,9 +93,9 @@ def node_votes(paths_by_sample, sep=SEP, sentinels=SENTINELS, descend_rule="any"
             # on nothing. UNRESOLVED is a TRUNCATION AT THE ROOT — the walk ran, arrived, and
             # declined to descend. Skipping both, as the first version of this did, left the
             # root with zero reaching samples and the vote structurally unable to see root-level
-            # failure. On the cohort this was written for that was a low-thousands count in 4 of 10
-            # animals, 973 of one animal's and 613 of another's being cells the joint route
-            # calls Pericyte — a whole population lost, invisible to a vote that ignores it.
+            # failure. A root truncation can be a whole population of one animal, cells another
+            # route places in a named lineage: a population lost, invisible to a vote that
+            # ignores it.
             if p == excluded:
                 continue
             arrive[ROOT][sample] += 1
@@ -383,8 +383,9 @@ def format_report(verdicts, removed=None, sealed=None, n_samples=None, words=Non
     """The vote as lines a human reads before approving it.
 
     `n_samples` is the cohort size. It is a PARAMETER because the first version of this printed
-    "/10" as a literal, which is the cohort this was written for baked into the tool: on seven
-    samples it would have printed "7/10" and nobody reading it would have known.
+    the denominator as a literal, the size of the cohort it was written for baked into the tool:
+    on a cohort of any other size it would have printed a wrong denominator and nobody reading
+    it would have known.
 
     `words` is scanno/assay.py's for the assay the objects recorded. Without it the unit is
     "cell or nucleus": a vote does not know which it counted unless it is told.
@@ -503,8 +504,8 @@ def truncate_tree(tree, depth=1, sep=SEP):
 
     Truncating the deep walk's path gives an L1 that INHERITS the deep walk's failures. A cell
     the walk sent to UNRESOLVED at the root has no path to truncate, so it has no L1 either --
-    on the cohort this was written for that was a low-thousands count in 4 of 10 animals, most of it one
-    animal's are a Pericyte population that simply vanishes from the L1 table.
+    and when the root declines a whole population in one animal, that population simply
+    vanishes from the animal's L1 table.
 
     Walking a depth-1 tree instead makes L1 its own annotation, produced by the UNCHANGED walk
     against a tree with no depth to seal. Two consequences worth stating plainly:

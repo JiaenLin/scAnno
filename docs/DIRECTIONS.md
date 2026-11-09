@@ -63,11 +63,10 @@ A label present in exactly **one** sample cannot be held out, so its transfer ca
 at all. That is not a threshold anyone chose; it falls out of the design, and the honest output
 for such a label is a NAMED refusal rather than a number.
 
-Measured on the cohort this was discussed against, and the awkwardness is the point: the label the
-whole discussion circled — the one the joint route absorbs — is present in **one** sample and
-would be declined. Neural (4 samples), Adipocyte (5), Smooth muscle (7) and Lymphoid (8) are all
-testable. A tool that says *"cannot be validated for this label, and here is why"* is worth more
-than one that returns a number for everything.
+The awkwardness is the point: the label a whole discussion circles — a rare one, of the kind the
+joint route absorbs — can be present in **one** sample and would be declined, while the labels
+present in several samples are all testable. A tool that says *"cannot be validated for this
+label, and here is why"* is worth more than one that returns a number for everything.
 
 ### The objection that has no clean answer
 
@@ -137,9 +136,10 @@ else**. The finer clustering LOCATES; it is never adopted.
 1. **A grid is not a search.** The first attempt ran a fixed eight-rung grid on every sample and
    reported "did not appear" for populations the grid could never have separated.
 2. **When the instrument does not reach, the finding is that it does not reach.** The second
-   attempt answered the first by extending the ladder to resolution 32 — 442 to 628 clusters of
-   14 to 24 nuclei per sample. That is dissolving a partition, not refining one, and choosing the
-   range by what makes the answer appear is choosing the analysis on its outcome.
+   attempt answered the first by extending the ladder far past the default grid, until every
+   sample was cut into clusters too small to be populations. That is dissolving a partition, not
+   refining one, and choosing the range by what makes the answer appear is choosing the analysis
+   on its outcome.
 3. **Adopting the finer annotation is a different claim.** Both attempts measured the whole
    sample's churn at the located rung — `UNRESOLVED` growth, compartment names taking
    macrophages, fibroblasts collapsing — and reported it as the cost of the rescue. None of it
@@ -175,9 +175,10 @@ resolution step was never an absence.
 
 ### The cost axis is Δ CLUSTERS, not Δ resolution
 
-Leiden resolution is a request, not a result, and it is nonlinear — one cohort went 14 → 18
-clusters over 0.25→0.5 and 32 → 36 over 1.75→2.0. Worse, "a small resolution difference" is an
-artefact of the sweep's own step: a finer sweep would make every label appear at a small one.
+Leiden resolution is a request, not a result, and it is nonlinear — doubling it at the bottom of
+a sweep and nudging it at the top can admit the same number of new clusters. Worse, "a small
+resolution difference" is an artefact of the sweep's own step: a finer sweep would make every
+label appear at a small one.
 
 **How many more clusters had to be admitted before `L` appeared** is step-independent, directly
 interpretable, and measured rather than requested — the same correction `cluster_weights` needed.
@@ -270,7 +271,7 @@ this zero real*, and answering it requires relabelling nothing.
   healthy gap is a free internal control
 - where the new `L` cells came from, by previous label — emerging from one plausible neighbour is
   a coherent story, scattering out of six unrelated labels is not
-- **the range searched, named, when nothing appears.** "Not found up to 36 clusters" is a bounded
+- **the range searched, named, when nothing appears.** "Not found up to N clusters" is a bounded
   claim; "not found" is not
 - the churn record above, stepwise as well as endpoint
 
@@ -323,11 +324,11 @@ vocabulary if they are ever both built.
 
 ### The case it came from
 
-The joint route ABSORBS a rare myeloid label — the per-sample route delivers 47 nuclei, the joint
-partition at the reconciled resolution has no cluster of its own for them, and its cells take
-their clusters' calls. **The PI's judgement is that this absorption is correct**, and it is: at
-that resolution the joint route genuinely says those cells group with macrophages. The label is a
-cluster's modal call only at the two finest resolutions of eight.
+The joint route ABSORBS a rare myeloid label — the per-sample route delivers a small population
+of it, the joint partition at the reconciled resolution has no cluster of its own for those
+cells, and they take their clusters' calls. **The PI's judgement is that this absorption is
+correct**, and it is: at that resolution the joint route genuinely says those cells group with
+macrophages. The label is a cluster's modal call only at the finest resolutions of the sweep.
 
 So absorption is not a defect to be fixed. What is missing is a principled account of **when it
 is right**, symmetric to Direction 2's account of when an absence is real.

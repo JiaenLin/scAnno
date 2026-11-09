@@ -808,7 +808,7 @@ def level_columns(adata, path_key, prefix="scAnno_L", sep="/", sentinels=("EXCLU
     and `Pericyte` where the walk reached depth 3 and `Stromal/Fibroblast` where it stopped at 2,
     because a shallower path keeps its own value. It is the walk's own answer, not a flat level:
     padding it down would invent a subtype the walk explicitly refused to choose, and reading L2
-    instead would discard the four subtypes that cleared their gap by 2.5-3.5x.
+    instead would discard every subtype that cleared its gap, however wide the margin.
 
     `suffix` mirrors `annotate_obs`: a sweep annotating one object at eight resolutions needs
     `scAnno_L1_r0p25 ... scAnno_L1_r2p0` rather than eight columns fighting over one name.
@@ -960,7 +960,7 @@ def trace_provenance(adata, res, prefix=DEFAULT_PREFIX, suffix=""):
 
     `classify()` computes this at every step of every walk and returns it, and until now it was
     thrown away - the object carried the winning label and the margin of the accepted step, and
-    nothing about the alternatives. A margin of 0.64 does not say 0.64 over WHAT, so a call that
+    nothing about the alternatives. A margin alone does not say over WHAT, so a call that
     beat a near-tie and one that beat nothing close read identically, and "why is this cluster
     labelled that" could only be answered by reconstructing it from a marker table.
 

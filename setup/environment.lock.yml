@@ -3,9 +3,9 @@
 #
 # WHY A LOCK AND NOT A RANGE. `pyproject.toml` declares `scanpy>=1.10` because scAnno's decision
 # layer genuinely tolerates a range. Its RESULTS do not: clustering is not bit-reproducible
-# across versions, and on this cohort a cluster flag moved by 47 nuclei between two commits of
-# the *upstream* tool on identical input. Bounds are what scAnno needs to IMPORT; this file is
-# what a result needs to REPRODUCE. Use it when you intend to compare against a published number.
+# across versions, and a cluster flag has moved between two commits of the *upstream* tool on
+# identical input. Bounds are what scAnno needs to IMPORT; this file is what a result needs to
+# REPRODUCE. Use it when you intend to compare against a published number.
 name: scanno
 channels: [conda-forge, bioconda]
 dependencies:

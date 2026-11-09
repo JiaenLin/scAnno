@@ -223,7 +223,7 @@ print("\n12 - AT REALISTIC SCALE: a big cluster with a few stray rare cells is N
 # The fixtures above are fourteen cells and clean. Real clusters are thousands of cells holding
 # one or two of a rare label, and on the first run against a real cohort the rule fired on every
 # rare label in every cluster: a cluster of thousands became a candidate to turn `Neural` on the
-# evidence of three Neural cells, and some candidates named the sentinel `EXCLUDED` as the label
+# evidence of a few Neural cells, and some candidates named the sentinel `EXCLUDED` as the label
 # somebody was missing.
 #
 # Both are fixed by the same thing - the candidate is anchored on ROUTE B'S OWN CALL for the

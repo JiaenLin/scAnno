@@ -532,8 +532,8 @@ def ratio_bars(ax, *, names, ratios, lo, hi, limit=3.0, clip=12.0, height=0.55,
                ann_fontsize=8.5, note=None, xlabel=None):
     """Bar length is `min(ratio, clip)`; the printed label carries the TRUE ratio.
 
-    A 206x differential draws a bar of length `clip` labelled "206.88x". Clipping the bar keeps
-    the other factors readable; clipping the NUMBER would hide the finding.
+    A ratio far beyond `clip` draws a bar of length `clip` labelled with its true value. Clipping
+    the bar keeps the other factors readable; clipping the NUMBER would hide the finding.
     """
     yy = np.arange(len(names))
     ax.barh(yy, [min(r, clip) for r in ratios], height=height,

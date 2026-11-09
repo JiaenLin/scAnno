@@ -8,8 +8,8 @@ about whether it runs.
 Two of them are defects this module actually shipped with, caught by running it on a real sweep:
   * it reported the first tie-break that narrowed the field rather than the one that decided,
     crediting completeness for a pick that rare-population retention made;
-  * it counted distinct LABELS and called them clusters, printing "19 clusters" for a sweep of
-    156.
+  * it counted distinct LABELS and called them clusters, printing a sweep's label count as its
+    cluster count.
 """
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ check("clusters are counted when given",
 check("...and labels are NOT silently called clusters",
       all(r["units_are"] == "labels" for r in without)
       and [r["n_units"] for r in without] == [2, 2],
-      "a label count printed as a cluster count is how '19 clusters' described a sweep of 156")
+      "a label count printed as a cluster count misreports the sweep it describes")
 
 print("\n6 · the tolerance is derived from the sweep, and has a floor")
 check("a noisy sweep gets a wider tolerance than a clean one",

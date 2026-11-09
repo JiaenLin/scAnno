@@ -9,7 +9,8 @@ same array.
 
 It reads `obs` for everything it can, and touches a matrix only for the marker and signature
 figures - composition, reliability, per-animal spread and the exclusion are all obs quantities,
-and opening ten matrices to compute them would make a report cost what the annotation cost.
+and opening every sample's matrix to compute them would make a report cost what the annotation
+cost.
 
 DEPTH IS READ FROM THE TAXONOMY, NEVER ASSUMED
 

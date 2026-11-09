@@ -130,8 +130,8 @@ def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50,
     log(f"  preflight: {len(objects)} object(s), all carry an expression matrix")
 
     parts = []
-    # Report the obs slimming ONCE rather than per sample: ten identical paragraphs bury the one
-    # line a reader needs, which is what was kept and what went.
+    # Report the obs slimming ONCE rather than per sample: an identical paragraph per sample
+    # buries the one line a reader needs, which is what was kept and what went.
     _reported = False
     for name, A in objects:
         B = A.copy()

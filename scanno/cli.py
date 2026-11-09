@@ -1062,8 +1062,8 @@ def _annotate(a):
         A.uns[CONTEXT_KEY] = {"species": str(a.species), "tissue": str(a.tissue),
                               "assay": str(a.assay)}
         # ALWAYS, not only when something was forced. The walk computes what every label beat and
-        # by how much, at every step, and it was thrown away - a run could say a cluster is
-        # `Neural, gap 0.64` and nothing about what Neural beat, so the reason for a call had to
+        # by how much, at every step, and it was thrown away - a run could give a cluster's label
+        # and its margin and nothing about what that label beat, so the reason for a call had to
         # be reconstructed from a marker table rather than read from the run.
         _tk = trace_provenance(A, res, prefix=a.label_prefix, suffix=a.label_suffix)
         print(f"    why each cluster got its label in uns[{_tk!r}]: every node scored, the "
@@ -2814,7 +2814,7 @@ def main(argv=None):
     s.set_defaults(fn=_lab)
 
     s = sub.add_parser("scope",
-                       help="step 2 of 3: vote the ten scouting walks into ONE common scope")
+                       help="step 2 of 3: vote the per-sample scouting walks into ONE common scope")
     s.add_argument("--h5ad", required=True, type=Path, nargs="+", metavar="H5AD",
                    help="every PASS 1 object — the independent per-sample walks")
     s.add_argument("--tree", required=True, type=Path, metavar="JSON",

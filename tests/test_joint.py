@@ -177,7 +177,7 @@ check("reconcile cannot be given a design",
 print("\n10 - the predicted summary and the delivered column agree, label for label")
 # Two routes to one quantity: `compare._impact` predicts from the candidate rows, and
 # `joint.summarise` counts the arrays that were actually written. They disagreed on the first
-# real object - 552 predicted for a label the column held 455 at - because a label that GAINS
+# real object - a label predicted above what the column held - because a label that GAINS
 # from one candidate and LOSES to another was only ever credited with the gain. Binding them
 # here is what stops that coming back, and the fixture makes one label do both.
 lab2 = [DC] * 6 + [MP] * 4 + [MP] * 4 + [DC] * 5 + [FB] * 3
@@ -245,8 +245,8 @@ rg = compare(A, Bg, path_key="lab", path_key_b="jp", sample_key="sample",
 cg = rg["merge_candidates"]["candidates"][0]
 check("the candidate carries a per-level breakdown", bool(cg.get("moving_by_group")),
       str(cg.get("moving_by_group")))
-pr = review_prompt(cg, lost={"labels": [{"label": DC, "n": 47,
-                                         "absorbed_into": {MP: 45}}]},
+pr = review_prompt(cg, lost={"labels": [{"label": DC, "n": 50,
+                                         "absorbed_into": {MP: 40}}]},
                    group_key="grp")
 check("the prompt states the criteria before the candidate", pr.startswith(BRIEF[:40]))
 # No `words` are given, so the unit is both: "cells or nuclei" (scanno/assay.py EITHER).
@@ -357,9 +357,9 @@ check("no key, model or temperature is anywhere in the record",
 
 print("\n17 - the standing instructions are written ONCE, not per candidate")
 # They were repeated per candidate because the first design put each one to a provider as its own
-# call. A reviewer reads one document: seven copies of the same nine paragraphs made an 18 KB
-# file that was mostly duplication, and a reader who scrolls past the same block six times stops
-# reading it - the criteria being exactly the part that must not be skimmed.
+# call. A reviewer reads one document: a copy of the same paragraphs per candidate made a file
+# that was mostly duplication, and a reader who scrolls past the same block again and again
+# stops reading it - the criteria being exactly the part that must not be skimmed.
 with_b = review_prompt(cands[0])
 without = review_prompt(cands[0], brief=False)
 # Asserted on a string unique to the BRIEF. "SAMPLE DOMINANCE" is in the evidence block too -

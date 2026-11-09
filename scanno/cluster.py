@@ -43,8 +43,8 @@ DEFAULTS = {
 }
 
 #: 0.25 to 2.0 in eight steps. Wide enough that the answer is inside it, coarse enough that
-#: adjacent points differ: on the calibration cohort 130 of 190 adjacent pairs of a 20-point
-#: sweep agreed at ARI > 0.90, so the finer sweep was measuring its own step size.
+#: adjacent points differ: where a finer sweep was measured, most of its adjacent pairs agreed
+#: at ARI > 0.90, so the finer sweep was measuring its own step size.
 DEFAULT_RESOLUTIONS = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 
 COUNTS_LAYER = "counts"

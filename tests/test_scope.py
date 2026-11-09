@@ -178,8 +178,8 @@ def test_the_root_is_counted_and_never_sealed():
     """UNRESOLVED is root truncation, so the root MUST be votable — and must never be actionable.
 
     Sealing the root would delete every level-1 compartment and return UNRESOLVED for every
-    nucleus. Its evidence is still reported, because root-level failure is real: it is where a
-    whole Pericyte population was lost in 2 of 10 animals.
+    nucleus. Its evidence is still reported, because root-level failure is real: a whole
+    population can be lost there, in one animal and not in the next.
     """
     p = {"S1": ["Stromal/Mural/Pericyte", "UNRESOLVED", "EXCLUDED"],
          "S2": ["UNRESOLVED", "UNRESOLVED"]}
@@ -315,7 +315,7 @@ def test_truncate_tree_refuses_depth_zero():
 
 
 def test_report_does_not_hardcode_a_cohort_size():
-    """The first version printed "/10" as a literal — this cohort's size, baked into the tool."""
+    """The first version printed its denominator as a literal, a cohort size baked into the tool."""
     from scanno.scope import format_report
     p = {f"S{i}": ["Cardiomyocyte/Working cardiomyocyte"] for i in range(7)}
     v = vote(p, TREE, min_support=1.0)

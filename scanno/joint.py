@@ -239,9 +239,9 @@ def review_prompt(cand, *, lost=None, group_key=None, per_sample=None, brief=Tru
 
     `brief=False` omits the standing instructions. They were repeated per candidate because the
     first design put each candidate to a provider as its own call, where every call needs them.
-    A reviewer reads ONE document, and seven copies of the same nine paragraphs made an 18 KB
-    file that is mostly duplication - which is not a formatting complaint: a reader who scrolls
-    past the same block six times stops reading it, and the criteria are the part that matters.
+    A reviewer reads ONE document, and a copy of the same paragraphs per candidate made a file
+    that is mostly duplication - which is not a formatting complaint: a reader who scrolls past
+    the same block again and again stops reading it, and the criteria are the part that matters.
     """
     from .assay import EITHER
     W = words or EITHER

@@ -865,8 +865,8 @@ def test_a_name_at_two_positions_is_refused_because_the_trace_is_keyed_by_bare_n
 #: RE-PINNED, OUT LOUD, as this guard demands. Two edits since the --scope commit, both to what
 #: the walk RECORDS and neither to what it decides:
 #:   868c23d  the trace gained `second` and `scores` - what each call beat, and by how much.
-#:            A run could say `Neural, gap 0.64` and nothing about what Neural beat, so the
-#:            reason for a call had to be reconstructed from a marker table instead of read.
+#:            A run could give a label and its margin and nothing about what that label beat,
+#:            so the reason for a call had to be reconstructed from a marker table instead of read.
 #: Every invariant this test exists for is checked below and still holds: the argument list is
 #: unchanged, the walk mentions no scope/force/SEAL/assignment, the gap constants are 0.30/0.15,
 #: and `trace[-1]["top"]` is still `order[srt[0]]`. A digest cannot tell an added trace key from
@@ -879,7 +879,13 @@ def test_a_name_at_two_positions_is_refused_because_the_trace_is_keyed_by_bare_n
 #: tests/test_emit.py promise NaN for a call that was not made. It now returns NaN. No path,
 #: label, depth or trace changes, so no forced call can: the push to a leaf reads the trace, and
 #: such a cluster has none. The invariants below are unchanged and still hold.
-CLASSIFY_SHA = "3241848a217257f3bed1c0cd95633d9ad8cac8a25cef23adba0506a4c17b6545"
+#:
+#: RE-PINNED, OUT LOUD, a third time (single-cell-harness wave W011, GAP-C17). One edit, to a
+#: COMMENT and to nothing the walk records or decides: the comment above the trace quoted a
+#: measurement from the cohort the walk was first run on, and now states the method instead.
+#: A comment is not in the syntax tree, and the tree of classify.py with every string included
+#: is identical before and after. The invariants below are unchanged and still hold.
+CLASSIFY_SHA = "81a24d75be26a79ee937611d6f0ecc95cf31def64d46db8ac4f6a2a5e6119001"
 
 
 def test_classify_py_is_not_touched_by_the_scope_feature():

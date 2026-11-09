@@ -63,9 +63,9 @@ an invisible one, which is the worse of the two, because nothing downstream woul
 A LATER STEP IS NOT AUTOMATICALLY A SUB-THRESHOLD ONE, and saying so would be the same error in
 the other direction. Only the FIRST step is below the bar by construction — that is why the walk
 stopped there. Each step after it is scored fresh at a node the walk never reached and its
-margin may fall either side of the bar; measured on the cohort this was written for, a second
-step cleared it at 0.540 where the first had failed at 0.190. So depth counts decisions, not
-rejections, and it is never a substitute for reading the margins: every one of them is reported.
+margin may fall either side of the bar: a second step can clear the bar by a wide margin where
+the first failed it. So depth counts decisions, not rejections, and it is never a substitute
+for reading the margins: every one of them is reported.
 
 So every cell carries HOW it was assigned and HOW FAR it was pushed:
 

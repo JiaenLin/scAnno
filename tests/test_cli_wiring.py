@@ -6,7 +6,7 @@ WHY THIS EXISTS
 because the edit that inserted it anchored on `--gene-key` and `background` happens to define one
 too, earlier in the file. argparse is perfectly happy: the option exists, just on the wrong
 command. Nothing fails until someone runs `annotate` and it reaches the line - which, in a
-ten-library sweep, was after clustering and after the background had been built.
+multi-library sweep, was after clustering and after the background had been built.
 
 That is the third defect of this shape in one sitting. The other two:
 
@@ -201,7 +201,7 @@ check("no handler uses an aliased import it never binds", not _unbound,
 print("\n0 - an optional argument is never coerced as though it were required")
 # WHAT THIS CAUGHT. `--gap-min` defaults to None, which does not mean "no bar" but "the bar
 # classify picks for this weight source". A provenance record built it with `float(a.gap_min)`
-# and raised TypeError - on PBS 702931, AFTER an eight-resolution sweep had been walked, at the
+# and raised TypeError - in a scheduler job, AFTER an eight-resolution sweep had been walked, at the
 # last statement before anything was written. Coercing an optional is a whole class of that
 # failure and it is invisible until the option is left out, which is the common case.
 # A COERCION UNDER A NONE-CHECK IS CORRECT AND MUST NOT BE FLAGGED. The first version of this
