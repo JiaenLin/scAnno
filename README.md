@@ -70,12 +70,14 @@ cells are not single nuclei, and three things depend on which one you declared:
 - **the gene background.** A store records the assay it was built from, and `annotate` refuses a
   store of the other assay, or one that records none, by name. `--background-from-clusters`
   builds the background from the object being annotated, so it is always that object's assay.
-- **the words of the two reports and of annotate's summary.** `annotate --report`, `scanno
-  report`'s pages, `report.json`, tables and figures, and annotate's own summary lines name cells
-  for `scrna` and nuclei for `snrna`, or name no unit. `annotate` records the assay in
-  `uns['scanno_context']`, and `scanno report` reads it from there. It refuses a cohort annotated
-  under both. Some prints still say "cell(s)" whatever the assay, and they are listed as open in
-  [KNOWN_ISSUES](KNOWN_ISSUES.md).
+- **the words.** Every print and every document names cells for `scrna` and nuclei for `snrna`,
+  or names no unit: the declared assay words `background`, `calibrate`, `annotate` and `report`;
+  the assay the annotated objects recorded words `rescue`, `scope`, `compare`, `joint-review`,
+  `embed` and `readme`; and `cluster`, `lab`, `resolution`, objects that record none and all help
+  text say "cells or nuclei". `annotate` records the assay in `uns['scanno_context']`, and
+  `scanno report`, `scope` and `rescue` read it from there and refuse a cohort annotated under
+  both. Strings recorded in data products still say "cell(s)" whatever the assay, and are listed
+  in [KNOWN_ISSUES](KNOWN_ISSUES.md).
 - **what `agent` tells the model** it is annotating.
 
 Every other rule is one rule for both assays: the corpus weights, the descent bar, the walk, the
@@ -361,7 +363,7 @@ renamed — code that asks for a role passes both, code that knows a column name
 | ✅ validated | human blood: PBMC, two datasets, 18 populations, zero errors on both paths. One dataset is independent with FACS labels |
 | ⚠️ one tissue, one species | every number is an existence proof, not a range |
 | ⚠️ no single-nucleus validation | nuclear and whole-cell transcriptomes differ systematically. The gene background is per assay, and a store of the other assay is refused. The corpus weights and the descent bar are one rule for both and were chosen on whole cells |
-| ✅ assay rules | `--assay` decides the background a run accepts and the unit its two reports and annotate's summary name, with no default. Every other rule is one for both, listed with its basis in the user guide. The prints that still say "cell(s)" are open in KNOWN_ISSUES |
+| ✅ assay rules | `--assay` decides the background a run accepts and the unit every print and document names, with no default; a command that takes no assay reads it from the objects or names both units. Every other rule is one for both, listed with its basis in the user guide. Strings recorded in data products that still say "cell(s)" are listed in KNOWN_ISSUES |
 | ❌ novelty detection | a cluster whose type is absent from the store may be assigned to a sibling. Two formulations failed — see KNOWN_ISSUES |
 | ✅ cluster, assign, report | `--out-h5ad` and `--report`, with the h5ad round trip asserted down to the categorical encoding |
 | ✅ joint route | a third column correcting the forced one, with the document, the per-sample impact, and the populations the joint clustering ABSORBED reported beside what it recovered |
