@@ -79,21 +79,62 @@ for bad, why in (({1.0: coarse}, "one-resolution sweep"),
         check(f"REFUSES a {why}", True, str(e)[:46])
 
 print("")
-print("the sweep votes on NOTHING - asserted on the source, not assumed")
+print("the sweep votes on NOTHING - measured through the real CLI, not read off the source")
 
-import ast
-_src = (Path(__file__).resolve().parents[1] / "scanno" / "resolution.py").read_text("utf-8")
-_mod = ast.parse(_src)
-_names = {n.name for n in _mod.body if isinstance(n, ast.FunctionDef)}
-check("no consensus/vote function survives in resolution.py",
-      not {n for n in _names if "consensus" in n or "vote" in n}, str(sorted(_names)))
-_cli = (Path(__file__).resolve().parents[1] / "scanno" / "cli.py").read_text("utf-8")
-check("annotate declares no vote-shaped option",
-      "--consensus-weight" not in _cli and "--consensus-plain-majority" not in _cli)
-_emit = (Path(__file__).resolve().parents[1] / "scanno" / "emit.py").read_text("utf-8")
-_ef = {n.name for n in ast.walk(ast.parse(_emit)) if isinstance(n, ast.FunctionDef)}
-check("emit has one sweep writer and it writes no label",
-      "sweep_agreement_column" in _ef and "consensus_columns" not in _ef, str(sorted(_ef)[:6]))
+# It was a name ban: no function called *consensus*/*vote* in resolution.py, no --consensus-*
+# option, no consensus_columns in emit.py (single-cell-harness B1-037). A name says nothing about
+# what a function does, and the goal's own word for this annotation is "consensus-based". The
+# property is that adding resolutions changes no label, and that is what is run here: the same
+# object annotated with one --cluster-key and with two writes the same unsuffixed columns.
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+try:
+    import anndata as _ad
+
+    from _cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree
+
+    def _annotate(td, out, keys):
+        cmd = [sys.executable, "-m", "scanno.cli", "annotate", "--h5ad", str(Path(td) / "obj.h5ad"),
+               "--tree", str(Path(td) / "tree.json"), "--db", str(Path(td) / "corpus.db"),
+               "--species", SPECIES, "--tissue", TISSUE, "--assay", "scrna",
+               "--background-from-clusters", "--out-h5ad", str(Path(td) / out)]
+        for k in keys:
+            cmd += ["--cluster-key", k]
+        root = str(Path(__file__).resolve().parents[1])
+        return subprocess.run(cmd, cwd=root, capture_output=True, text=True,
+                              env={**os.environ, "PYTHONPATH": root, "MPLBACKEND": "Agg"})
+
+    with tempfile.TemporaryDirectory() as td:
+        O = make_object("S1")
+        O.obs["leiden_1p0"] = O.obs["cluster"].astype(str).astype("category")
+        # a coarser partition of the same cells: the five populations in two groups
+        O.obs["leiden_0p5"] = O.obs["cluster"].astype(str).map(
+            {"0": "0", "1": "0", "2": "0", "3": "1", "4": "1"}).astype("category")
+        O.write_h5ad(Path(td) / "obj.h5ad")
+        write_corpus(Path(td) / "corpus.db")
+        write_tree(Path(td) / "tree.json")
+        one = _annotate(td, "one.h5ad", ["leiden_1p0"])
+        two = _annotate(td, "two.h5ad", ["leiden_1p0", "leiden_0p5"])
+        check("both runs exit 0", one.returncode == 0 and two.returncode == 0,
+              (one.stderr + two.stderr)[-300:] if (one.returncode or two.returncode) else "")
+        if one.returncode == 0 and two.returncode == 0:
+            a1 = _ad.read_h5ad(Path(td) / "one.h5ad").obs
+            a2 = _ad.read_h5ad(Path(td) / "two.h5ad").obs
+            made = [c for c in a1.columns if c not in O.obs.columns]
+            check("the one-resolution run wrote its label columns",
+                  "scanno_cell_type" in made and "scanno_path" in made, str(made))
+            differ = [c for c in made if c not in a2.columns
+                      or not a1[c].astype(str).equals(a2[c].astype(str))]
+            check("a second --cluster-key changes NO column the first run wrote", not differ,
+                  str(differ))
+            extra = [c for c in a2.columns if c not in a1.columns]
+            check("it only ADDS the sweep's columns, and none of them is a label",
+                  extra and all(c.startswith(("scanno_path_r", "scanno_sweep_agreement"))
+                                for c in extra), str(extra))
+except ImportError as e:                                   # noqa: BLE001
+    print(f"  SKIP  the CLI check needs anndata ({e})")
 
 print("")
 print("sweep_stem: finding the sweep that was written")

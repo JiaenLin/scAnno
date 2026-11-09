@@ -306,8 +306,8 @@ def sweep_path(adata, res, y, flag=None, *, prefix=DEFAULT_PREFIX, suffix="", ta
 
     `annotate_obs` writes five to eleven columns because the answer needs all of them - the
     label, its depth, its margin, how it was assigned. A SWEEP does not: its columns exist to be
-    read together by `scanno resolution` and `resolution.consensus`, both of which read paths
-    and nothing else. Writing the full set per resolution put sixty-four columns on an object
+    read together - by `scanno resolution`, by `scanno rescue --sweep-prefix` and by
+    `resolution.sweep_agreement` - and all three read paths and nothing else. Writing the full set per resolution put sixty-four columns on an object
     for eight resolutions, of which eight were read.
 
     The name is `<prefix>_resolved_path<suffix>_r<tag>` - `_r<tag>` LAST, which is where
