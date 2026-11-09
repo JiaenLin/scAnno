@@ -718,6 +718,11 @@ def _annotate(a):
         return REFUSE
     for line in decision.lines:
         print(line)
+    if decision.active and decision.schema_known is False:
+        # Acted on a declaration whose schema this version does not know, because the flag
+        # checked out by column, count and digest: the record says so (B1-099).
+        _ST.record("upstream", {"schema": decision.schema, "known": False,
+                                "column": decision.column, "verified": "column, n_obs, digest"})
     flag = decision.mask
     drop, excl = None, None
 

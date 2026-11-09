@@ -35,9 +35,13 @@ from __future__ import annotations
 KEY = "scqc"
 SCHEMA_PREFIX = "scqc/provenance@"
 
-#: Understood schemas. A declaration from a future scQC is REPORTED and not acted on: its fields
-#: may mean something else, and acting on a record you do not understand while citing its
-#: authority is the thing this module exists to prevent.
+#: Understood schemas. A declaration from a schema not listed here is not trusted for its MEANING,
+#: and it does not have to be: what proves "exactly the observations upstream flagged" is the flag
+#: column, the observation count and the flag's digest, none of which depends on the schema's
+#: version. So an unknown schema goes on to those three checks, and the flag is acted on only when
+#: all three pass - with a NOTE naming both schemas, and the schema recorded. One that carries no
+#: digest cannot be verified and is refused (single-cell-harness B1-099: a schema bump in scQC used
+#: to stop every scAnno run, although the docstring said such a declaration was only reported).
 SUPPORTED = ("scqc/provenance@1",)
 
 
@@ -75,9 +79,7 @@ def verify(adata, decl) -> tuple[bool, str]:
     from .exclude import flag_digest
 
     schema = str(decl.get("schema", ""))
-    if schema not in SUPPORTED:
-        return False, (f"the declaration is {schema!r} and this scAnno understands "
-                       f"{', '.join(SUPPORTED)}. It is reported and not acted on")
+    known = schema in SUPPORTED
     col = str(decl.get("flag_column") or "")
     if not col:
         return True, "the declaration records no flag column, so there is nothing to withhold"
@@ -97,6 +99,14 @@ def verify(adata, decl) -> tuple[bool, str]:
     if want and got != want:
         return False, (f"{col!r} does not match the declaration: digest {got} against {want}. "
                        f"The column has been altered since upstream wrote it")
+    if not known and not want:
+        return False, (f"the declaration is {schema!r}, a schema this scAnno does not know "
+                       f"({', '.join(SUPPORTED)}), and it carries no flag digest - so nothing "
+                       f"proves {col!r} is the column upstream flagged")
+    if not known:
+        return True, (f"{col!r} matches the declaration's column, observation count and digest; "
+                      f"its schema {schema!r} is not one this scAnno knows "
+                      f"({', '.join(SUPPORTED)})")
     return True, f"{col!r} matches the declaration"
 
 
@@ -127,6 +137,8 @@ class Decision:
         self.lines = list(lines)
         self.refuse = refuse            # a string when the run must stop
         self.declaration = decl
+        self.schema = str((decl or {}).get("schema", "")) if decl else None
+        self.schema_known = (self.schema in SUPPORTED) if decl else None
 
     @property
     def active(self) -> bool:
@@ -194,6 +206,7 @@ def decide(adata, explicit=None, disabled=False, *, words) -> Decision:
             f"{tool} declaration found: it records no flag column, so nothing is withheld"])
 
     mask = as_mask_column(adata, col)
+    schema = str(decl.get("schema", ""))
     lines = [
         f"{tool} declaration found -> exclusion ARMED on {col!r}",
         f"    {int(mask.sum()):,} of {int(adata.n_obs):,} {W.units} "
@@ -207,4 +220,11 @@ def decide(adata, explicit=None, disabled=False, *, words) -> Decision:
         lines.append(f"    what it means: {meaning}")
     lines.append(f"    scAnno did not choose these {W.units} and cannot widen the set. "
                  "--no-exclude annotates them instead.")
-    return Decision(column=col, mask=mask, source="scqc", lines=lines, decl=decl)
+    if schema not in SUPPORTED:
+        lines.insert(1, f"    NOTE the declaration's schema is {schema!r} and this scAnno knows "
+                        f"{', '.join(SUPPORTED)}: it is acted on because its column, observation "
+                        f"count and digest all check out, and the schema is recorded")
+    d = Decision(column=col, mask=mask, source="scqc", lines=lines, decl=decl)
+    d.schema = schema
+    d.schema_known = schema in SUPPORTED
+    return d

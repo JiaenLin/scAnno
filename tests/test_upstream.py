@@ -7,6 +7,8 @@ tests hold is:
     an object with `cluster_FLAG` and NO declaration gets nothing
     an object with a declaration gets exactly what the declaration names, verified by digest
     an object whose flag no longer matches its declaration is REFUSED, not quietly used
+    a declaration of a schema this version does not know is acted on only when the flag's column,
+      observation count and digest all check out
 
 The last one matters most. A column rewritten since upstream wrote it is not upstream's decision
 any more, and withholding nuclei on it while citing upstream's provenance would attribute a
@@ -104,11 +106,68 @@ d = up.decide(D[:20].copy(), words=SN)
 check("refused", bool(d.refuse))
 check("...in those terms", "subset" in (d.refuse or ""), (d.refuse or "")[:90])
 
-print("\n5 - an unknown schema is reported and not acted on")
+print("\n5 - an unknown schema is acted on when its flag checks out, and refused when it does not")
+# The digest, the column and the observation count prove "exactly the observations upstream
+# flagged"; none of them depends on the schema's version (single-cell-harness B1-099). A schema
+# bump upstream used to stop every run here.
 E = toy(schema="scqc/provenance@99")
 d = up.decide(E, words=SN)
-check("refused rather than guessed", bool(d.refuse))
-check("naming both schemas", "@99" in (d.refuse or "") and "@1" in (d.refuse or ""))
+check("@99 with a good digest: ARMED", d.active and not d.refuse and d.source == "scqc",
+      str(d.refuse)[:90])
+check("withholding exactly the flag", d.n == int(up.as_mask_column(E, "cluster_FLAG").sum()))
+check("with a NOTE naming both schemas",
+      any("NOTE" in ln and "@99" in ln and "@1" in ln for ln in d.lines), str(d.lines[:2]))
+check("and the schema is on the decision, marked unknown",
+      d.schema == "scqc/provenance@99" and d.schema_known is False)
+E2 = toy(schema="scqc/provenance@99")
+E2.obs["cluster_FLAG"] = pd.array([True] * E2.n_obs, dtype="boolean")
+d = up.decide(E2, words=SN)
+check("@99 with a bad digest: REFUSED, naming the digest", bool(d.refuse) and "digest" in (d.refuse or ""))
+E3 = toy(schema="scqc/provenance@99")
+E3.uns["scqc"] = {**dict(E3.uns["scqc"]), "flag_digest": ""}
+d = up.decide(E3, words=SN)
+check("@99 with no digest: REFUSED, nothing proves the column",
+      bool(d.refuse) and "no flag digest" in (d.refuse or ""), (d.refuse or "")[:90])
+d = up.decide(toy(schema="scqc/provenance@99")[:20].copy(), words=SN)
+check("@99 on a subset: REFUSED, as any declaration is", bool(d.refuse) and "subset" in (d.refuse or ""))
+d = up.decide(toy(), words=SN)
+check("@1 is unchanged: armed, no NOTE", d.active and not any("NOTE" in ln for ln in d.lines)
+      and d.schema_known is True)
+
+print("\n5b - through the CLI: an @99 object is annotated, and STATUS records the schema")
+import contextlib  # noqa: E402
+import io  # noqa: E402
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _cohort import SPECIES, TISSUE, make_object, write_corpus, write_tree  # noqa: E402
+from scanno import cli as _cli  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _td:
+    _td = Path(_td)
+    O = make_object("S1")
+    O.obs["qc_flag"] = pd.array([i % 7 == 0 for i in range(O.n_obs)], dtype="boolean")
+    _m = up.as_mask_column(O, "qc_flag")
+    O.uns["scqc"] = {"schema": "scqc/provenance@99", "tool": "scQC", "flag_column": "qc_flag",
+                     "n_obs": int(O.n_obs), "n_flagged": int(_m.sum()), "flag_digest": flag_digest(_m)}
+    O.write_h5ad(_td / "S1.h5ad")
+    _o, _e = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_o), contextlib.redirect_stderr(_e):
+        _rc = _cli.main(["annotate", "--h5ad", str(_td / "S1.h5ad"), "--cluster-key", "cluster",
+                         "--tree", str(write_tree(_td / "t.json")),
+                         "--db", str(write_corpus(_td / "c.db")), "--species", SPECIES,
+                         "--tissue", TISSUE, "--assay", "scrna", "--background-from-clusters",
+                         "--out-h5ad", str(_td / "a" / "S1.h5ad")])
+    check("annotate exits 0 on an @99 declaration whose flag checks out", _rc == 0,
+          _e.getvalue()[-200:])
+    _st = json.loads((_td / "a" / "STATUS.annotate.json").read_text(encoding="utf-8"))
+    check("STATUS records the unknown schema it acted on",
+          (_st.get("upstream") or {}).get("schema") == "scqc/provenance@99"
+          and (_st.get("upstream") or {}).get("known") is False, str(_st.get("upstream")))
+    _A = ad.read_h5ad(_td / "a" / "S1.h5ad")
+    check("exactly the flagged observations are EXCLUDED",
+          int((_A.obs["scanno_cell_type"].astype(str) == "EXCLUDED").sum()) == int(_m.sum()))
 
 print("\n6 - --no-exclude wins over the declaration, and says what it costs")
 F = toy()
