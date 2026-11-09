@@ -44,6 +44,12 @@ and in the annotated object.
 
 ## 3 · Declare a tree
 
+Write it yourself, or start from a draft the corpus proposes - root, the corpus's lineages,
+their cell names - and edit it: `scanno tree propose --db corpus.db --species Human --tissue
+Blood --out tree.draft.json`. A draft says it is one (`proposed.approved_by` is empty), and
+every `annotate` run that uses it prints REVIEW and records `tree: proposed draft` until you
+set your name there. The tree is yours either way.
+
 Save it as `tree.json`: a JSON file with three keys. **The tree must be rooted** — that is what
 lets scAnno return `Lymphoid` when it cannot separate T from NK, instead of giving up.
 

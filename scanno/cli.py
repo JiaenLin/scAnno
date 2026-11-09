@@ -553,6 +553,15 @@ def _annotate(a):
     _ST.lap("import")
 
     tree = json.loads(Path(a.tree).read_text(encoding="utf-8"))
+    # A tree `scanno tree propose` drafted is the user's only once they approve it (B1-098).
+    from .propose import provenance as _tree_provenance
+    _tp = _tree_provenance(tree)
+    if _tp is not None:
+        _ST.record("tree", _tp)
+        if not _tp["approved_by"]:
+            print(f"  REVIEW  --tree {a.tree} is a draft `scanno tree propose` wrote from the "
+                  f"corpus, and nobody has approved it: its lineages are the corpus curators' "
+                  f"filing. Read it, edit it, and set proposed.approved_by to your name.")
 
     # --- the assay, against the store, BEFORE the object is read ---
     #
@@ -2362,6 +2371,45 @@ def _build_markers(a):
     return 0
 
 
+def _tree(a):
+    """`scanno tree propose`: a draft tree from the corpus, for the user to approve or edit."""
+    from . import __version__
+    from .propose import propose
+    from .scope import bare_names_unique
+    if Path(a.out).exists():
+        _ST.refuse(f"{a.out} exists. A tree is the user's; a draft never overwrites one",
+                   fix="choose another --out", code="out_exists")
+        return REFUSE
+    ctx = _corpus_context(a)
+    if ctx is None:
+        return REFUSE
+    try:
+        tree, summary = propose(a.db, ctx, min_tier=a.min_tier, min_markers=a.min_markers,
+                                max_lineages=a.max_lineages, max_types=a.max_types,
+                                version=__version__)
+    except ValueError as e:
+        _ST.refuse(str(e), fix="lower --min-markers or --min-tier, or read `scanno panel`",
+                   code="tree_too_thin")
+        return REFUSE
+    dup = bare_names_unique(tree)
+    if dup:                                       # cannot happen by construction; checked anyway
+        _ST.refuse(f"the draft names a node twice: {dup}", code="tree_duplicate")
+        return REFUSE
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(a.out).write_text(json.dumps(tree, indent=2) + "\n", encoding="utf-8")
+    _ST.record("tree", {"source": "proposed draft", "approved_by": None,
+                        "lineages": summary["lineages"], "types": summary["types"],
+                        "lineage_from": summary["lineage_from"]})
+    print(f"wrote {a.out}: a DRAFT - {summary['lineages']} lineages, {summary['types']} types "
+          f"below them ({summary['lineage_from']})")
+    for top in tree["children"]["root"]:
+        kids = tree["children"].get(top, [])
+        print(f"  {top}" + (f" -> {', '.join(kids)}" if kids else ""))
+    print("  REVIEW  this tree is yours to approve or edit. Every annotate run that uses it says "
+          "so, and records 'tree: proposed draft', until its proposed.approved_by names you.")
+    return 0
+
+
 def _store_info(a):
     import numpy as np
     d = np.load(a.store, allow_pickle=True)
@@ -3003,6 +3051,30 @@ def main(argv=None):
                         f"or the archive's only text file)")
     s.set_defaults(fn=_build_markers)
 
+    s = sub.add_parser("tree",
+                       help="propose a DRAFT tree from the corpus: root -> its lineages -> their "
+                            "cell names. Yours to approve or edit; annotate records that it is a "
+                            "draft until you approve it")
+    s.add_argument("verb", choices=["propose"])
+    s.add_argument("--db", required=True, type=Path, help="the marker corpus")
+    s.add_argument("--species", required=True)
+    s.add_argument("--tissue", required=True)
+    s.add_argument("--out", required=True, type=Path, metavar="tree.draft.json")
+    s.add_argument("--min-tier", type=int, default=4,
+                   help="read markers of evidence tier <= this (default 4, annotate's)")
+    s.add_argument("--min-markers", type=int, default=3,
+                   help="a cell name needs this many distinct markers to become a node (default 3, "
+                        "the floor below which the walk cannot score a node)")
+    s.add_argument("--max-lineages", type=int, default=10)
+    s.add_argument("--max-types", type=int, default=6, help="cell names per lineage")
+    s.add_argument("--tissue-fallback", choices=["species"], default=None,
+                   help="ESCAPE: read every tissue of the species when the corpus names no "
+                        "--tissue for it. Printed as REVIEW and recorded")
+    s.add_argument("--marker-species", default=None, metavar="SPECIES",
+                   help="ESCAPE: draft from another species' corpus. Printed as REVIEW and "
+                        "recorded")
+    s.set_defaults(fn=_tree)
+
     s = sub.add_parser("calibrate", help="learn marker reliability from annotated atlases")
     s.add_argument("--manifest", required=True, type=Path,
                    help="TSV: path, source_id, label_key, provenance")
@@ -3162,8 +3234,8 @@ def _describe(a):
 
 
 _COMMANDS = ("selftest", "cluster", "background", "annotate", "rescue", "compare", "joint-review",
-             "report", "embed", "lab", "scope", "readme", "panel", "build-markers", "calibrate",
-             "store-info", "agent", "resolution", "describe")
+             "report", "embed", "lab", "scope", "readme", "panel", "build-markers", "tree",
+             "calibrate", "store-info", "agent", "resolution", "describe")
 
 
 def _escapes(a) -> list:
@@ -3224,7 +3296,8 @@ def _with_status(a, argv):
         else:
             _ST.finish(d, a.cmd, status="ok" if rc == 0 else "failed", exit_code=rc or 0,
                        headline={"annotate": "annotated", "report": "document written", "cluster": "clustered",
-                                 "rescue": "targeted rescue done", "compare": "compared"}.get(a.cmd, "done"))
+                                 "rescue": "targeted rescue done", "compare": "compared",
+                                 "tree": "tree: proposed draft"}.get(a.cmd, "done"))
     return rc
 
 

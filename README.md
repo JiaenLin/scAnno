@@ -57,7 +57,8 @@ scanno annotate   --h5ad clustered/S1_clustered.h5ad --cluster-key leiden_1p0 --
 ```
 
 `qc.h5ad` is your QC'd cohort with a `sample` column. `tree.json` is the tree you declare
-([QUICKSTART](docs/QUICKSTART.md) §3), and `corpus.db` is your marker corpus.
+([QUICKSTART](docs/QUICKSTART.md) §3) - `scanno tree propose` drafts one from the corpus for you
+to approve or edit - and `corpus.db` is your marker corpus.
 
 `cluster` normalises, selects variable genes over every gene, runs PCA, neighbours and Leiden at
 every resolution asked for, keeping all of them, one `leiden_<resolution>` column each (`leiden_1p0`
