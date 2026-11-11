@@ -252,6 +252,11 @@ old = provenance({"proposed": {"by": "scanno tree propose", "approved_by": None}
 check("a draft that records no lineage tests (drafted before they existed) reads as unchecked",
       old.get("unchecked") == ["evidence", "share", "specificity", "disease"]
       and "unchecked" in str(old.get("source")), str(old))
+edited = provenance({"proposed": {"approved_by": None, "parameters": {"lineage_tests": "off"},
+                                  "lineage_tests": {t: "applied" for t in
+                                                    ("evidence", "share", "specificity", "disease")}}})
+check("a draft whose parameters say the tests were off reads as unchecked, whatever lineage_tests says",
+      edited.get("unchecked") == ["evidence", "share", "specificity", "disease"], str(edited))
 
 print("\n6 - the cap never hides a verdict")
 rc, out, dc = propose(db, work / "cap" / "tree.json", "--max-lineages", "2")

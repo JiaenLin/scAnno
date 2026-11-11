@@ -177,9 +177,11 @@ def _ratio(num, den):
 def propose(db, ctx, *, min_tier=4, min_markers=3, max_lineages=10, max_types=6,
             min_studies=DEFAULTS["min_studies"], min_share=DEFAULTS["min_share"],
             min_enrichment=DEFAULTS["min_enrichment"], lineage_tests=True, version=""):
-    """(tree, summary) for the corpus context `ctx` (corpus.resolve's). Raises CannotTell when the
-    context has fewer healthy studies than a lineage needs, and ValueError when the corpus has too
-    little for a tree: fewer than two names clear the floors, or they all sit under one lineage."""
+    """(tree, summary) for the corpus context `ctx` (corpus.resolve's). Raises CannotTell (its
+    `code` says which) when the corpus has no per-study rows, when no row of the species reads as
+    healthy, or when the context has fewer healthy studies than a lineage needs (unless
+    `lineage_tests` is off), and ValueError when the corpus has too little for a tree: fewer than
+    two names clear the floors, or they all sit under one lineage."""
     where, params = ctx.where()
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
@@ -497,9 +499,10 @@ def provenance(tree):
         return None
     who = prop.get("approved_by")
     tests = prop.get("lineage_tests")
-    if isinstance(tests, dict) and tests:
+    par = prop.get("parameters") if isinstance(prop.get("parameters"), dict) else {}
+    if isinstance(tests, dict) and tests and par.get("lineage_tests", "on") != "off":
         unchecked = [t for t in TESTS if not str(tests.get(t, "")).startswith("applied")]
-    else:
+    else:       # no record of the tests, or the draft's parameters say they were off: the same fact
         unchecked = list(TESTS)
     nd = prop.get("not_default") if isinstance(prop.get("not_default"), dict) else {}
     lifted = {k: v for k, v in nd.items() if k in DEFAULTS or k == "lineage_tests"}
