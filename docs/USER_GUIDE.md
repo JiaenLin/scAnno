@@ -28,7 +28,7 @@ the cluster rather than of the run.
 
 Standardising against the run's own clusters instead makes the score depend on what else
 was sequenced. Measured: deleting 2% of an object — none of it from the clusters being
-scored — moved every winning score by a median of 19.4% and flipped one call. If your
+scored — moved every winning score and flipped one call. If your
 composition varies across samples, and it usually does, so do your labels.
 
 **The background is not an atlas.** It is ~20k numbers per species and it is

@@ -50,7 +50,7 @@ def _retired_share_rule(labels, flagged, share=0.5):
 
 
 print("\n1 - the retired rule takes passengers; the flag itself cannot")
-# cluster 0: 6 of 10 flagged -> the share rule excludes all 10, four of them unflagged
+# cluster 0: ten cells, six flagged -> the share rule excludes all ten, four of them unflagged
 labels = np.array([0] * 10 + [1] * 10)
 flag = np.array([True] * 6 + [False] * 4 + [False] * 10)
 
@@ -73,7 +73,7 @@ print("\n2 - one fixed flag, three clusterings: the excluded set does not move")
 # never reaches a majority anywhere, so it excludes nothing at every granularity and the contrast
 # this section exists to measure cannot appear. A fixture that cannot express the failure is not
 # a test of it. Concentrated, one flag produces all three pathologies at once:
-#     k=2   excludes NOTHING though 80 nuclei are flagged   (the flag is not honoured)
+#     k=2   excludes NOTHING though 80 of its nuclei are flagged   (the flag is not honoured)
 #     k=8   excludes 100, of which 20 carry no flag         (passengers)
 #     k=40  excludes 80                                     (the size moved with granularity)
 n, n_flagged = 400, 80

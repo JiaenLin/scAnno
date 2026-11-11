@@ -33,7 +33,7 @@ import numpy as np
 
 GREY = "#dcdcdc"
 INK = "#1a1a1a"
-MUT = "#5b5b5b"
+MUTED = "#5b5b5b"
 ACCENT = "#c0504d"
 COOL = "#4472a8"
 AMBER = "#b06d12"
@@ -331,7 +331,7 @@ def quartile_boxes(ax, *, data, tick_labels, showfliers, facecolors="#cfe3f2", w
                     medianprops=dict(color=INK))
     faces = facecolors if isinstance(facecolors, (list, tuple)) else [facecolors] * len(data)
     for b, fc in zip(bp["boxes"], faces):
-        b.set(facecolor=fc, edgecolor=MUT)
+        b.set(facecolor=fc, edgecolor=MUTED)
     ax.set_xticks(np.arange(1, len(tick_labels) + 1))
     ax.set_xticklabels(tick_labels, rotation=tick_rotation,
                        ha="right" if tick_rotation else "center", fontsize=tick_fontsize)

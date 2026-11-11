@@ -12,7 +12,7 @@ the run. The same population scores differently in two samples, and **if composi
 the study design — which is usually the hypothesis — the labels shift with it.**
 
 Measured: deleting 2% of an object, none of it from the clusters being scored, moved every
-winning score by a median of 19.4% and flipped one call.
+winning score and flipped one call (`tests/test_adversarial.py` A1 repeats the experiment on a public dataset).
 
 `Z` is therefore standardised against a **gene background** — per-gene mean and sd across cell
 types, held in the store. Nothing in the query's own composition enters. The residual after the

@@ -1,12 +1,13 @@
 #!/bin/bash
 #PBS -N scanno
-#PBS -q workq
+#PBS -q YOUR_QUEUE
 #PBS -l select=1:ncpus=12:mem=48gb
 #PBS -l walltime=10:00:00
 #PBS -j oe
 #
 # A template for running scAnno as a batch job. Copy it into your project's
-# stages/NN_name/jobs/ and edit the marked block. Submit with:
+# stages/NN_name/jobs/ and edit the marked block, and YOUR_QUEUE above (the queue your site
+# gives a job of this size). Submit with:
 #
 #     mkdir "$RUNDIR" && mkdir "$RUNDIR/logs"          # plain mkdir: a collision must ABORT
 #     qsub -v RUNDIR="$RUNDIR" -o "$RUNDIR/logs/pbs.log" thisfile.pbs

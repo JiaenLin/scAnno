@@ -141,7 +141,7 @@ def test_seal_removes_the_named_labels_not_a_category():
 def test_a_sample_that_never_reached_the_node_casts_no_vote():
     """Absence is a missing observation, not a vote against — the easiest way to get this wrong.
 
-    Lymphocyte is reached by 7 of 10. If the 3 that never reached it counted as opposition the
+    Lymphocyte is reached by seven of the ten. If the three that never reached it counted as opposition the
     support would be 4/10 = 0.40; conditioned correctly it is 4/7 = 0.571.
     """
     v = node_votes(paths())
