@@ -61,11 +61,20 @@ def embed(paths, *extra, out="joint.h5ad"):
     r = subprocess.run([sys.executable, "-m", "scanno.cli", "embed", "--h5ad", *map(str, paths),
                         "--out", str(o), "--n-hvg", "50", "--n-pcs", "5", "--n-neighbors", "5",
                         *extra], cwd=str(ROOT), capture_output=True, text=True)
-    return r.returncode, r.stdout + r.stderr, (ad.read_h5ad(o) if o.exists() else None)
+    J = None
+    if o.exists():
+        try:
+            J = ad.read_h5ad(o)
+        except Exception as e:                                            # noqa: BLE001
+            # At 9fb561c a name the format forbids failed at the write and left a half-written
+            # file at --out that no reader opens: that is a result too, and not a pass.
+            J = f"unreadable: {type(e).__name__}"
+    return r.returncode, r.stdout + r.stderr, J
 
 
 def names(J, key="sample"):
-    return sorted(map(str, J.obs[key].unique())) if J is not None and key in J.obs else None
+    return (sorted(map(str, J.obs[key].unique())) if isinstance(J, ad.AnnData) and key in J.obs
+            else (J if isinstance(J, str) else None))
 
 
 def refused_early(rc, text, J):
@@ -81,7 +90,7 @@ rc, text, J = embed(up)
 check("exit 0", rc == 0, text.strip().splitlines()[-1:] if rc else "")
 check("the joint library column holds the libraries' own names, not the file stems",
       names(J) == libs, f"got {names(J)}")
-rec = dict(J.uns["scanno_embed"].get("library_names", {})) if J is not None else {}
+rec = dict(J.uns["scanno_embed"].get("library_names", {})) if isinstance(J, ad.AnnData) else {}
 check("the record names the upstream declaration as each name's source",
       list(rec.get("source", [])) == ["uns['scqc']['sample']"] * 3, f"got {rec}")
 check("the record keeps each file's base name, never a folder",
@@ -95,7 +104,7 @@ man.write_text("# libraries\npath\tsample\n" + "".join(f"{p.name}\t{s}\n" for p,
 rc, text, J = embed(bare, "--manifest", str(man))
 check("exit 0 with --manifest", rc == 0, text.strip().splitlines()[-1:] if rc else "")
 check("the joint library column holds the manifest's names", names(J) == libs, f"got {names(J)}")
-rec = dict(J.uns["scanno_embed"].get("library_names", {})) if J is not None else {}
+rec = dict(J.uns["scanno_embed"].get("library_names", {})) if isinstance(J, ad.AnnData) else {}
 check("the record names the manifest", list(rec.get("source", [])) == ["manifest"] * 3, f"got {rec}")
 
 print("3. the refusals, each by file and before anything is computed")
@@ -151,8 +160,8 @@ rc, text, J = embed(own)
 want = np.concatenate([np.asarray(ad.read_h5ad(p).obs["sample"].astype(str)) for p in own])
 check("exit 0", rc == 0)
 check("the joint library column is the objects' own, cell for cell",
-      J is not None and np.array_equal(np.asarray(J.obs["sample"].astype(str)), want))
-rec = dict(J.uns["scanno_embed"].get("library_names", {})) if J is not None else {}
+      isinstance(J, ad.AnnData) and np.array_equal(np.asarray(J.obs["sample"].astype(str)), want))
+rec = dict(J.uns["scanno_embed"].get("library_names", {})) if isinstance(J, ad.AnnData) else {}
 check("the record names the objects' own column", list(rec.get("source", [])) == ["obs['sample']"] * 3,
       f"got {rec}")
 agree = TMP / "own" / "agree.csv"
