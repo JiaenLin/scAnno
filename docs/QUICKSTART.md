@@ -51,8 +51,9 @@ many markers it lists. A lineage is the tissue's own when at least 2 of the tiss
 studies report it (`--min-studies`), they are at least 2% of its healthy studies (`--min-share`),
 its share of them is at least its share of healthy reports across the species' tissues
 (`--min-enrichment`, 1.0), and at least `--min-studies` of those healthy studies are
-healthy-only: they sampled no disease in the tissue. A lineage whose healthy reports come only from
-studies that also sampled the disease (tumour-adjacent tissue) is set aside as the disease's. The
+healthy-only: they sampled no disease in the tissue. A lineage with fewer healthy-only studies than
+that is set aside as the disease's (its other healthy reports come from studies that also sampled
+the disease, such as tumour-adjacent tissue), even when no disease sample reports it. The
 test never asks how often disease studies report a lineage, so a disease that expands the tissue's
 own cells does not remove them; every entry still reports its disease ratio. The values are
 recorded in `proposed.parameters`, and stdout names any that is not its default (NOT DEFAULT; a
@@ -67,7 +68,8 @@ the corpus cannot tell, `tree propose` refuses and says why: the release's disea
 Normal (read trimmed and in any case; a blank field or only "Healthy" is not, and the refusal names
 the field and what it holds), the corpus has no per-study rows (it was not built by `scanno
 build-markers`), or the tissue has fewer healthy studies than `--min-studies`. A tissue with fewer
-than 50 healthy studies is drafted with a `proposed.cannot_tell` line. `--lineage-tests off` drafts
+than 50 healthy studies is drafted with a `proposed.cannot_tell` line, or refused, saying so first,
+when fewer than two of its names pass the tests. `--lineage-tests off` drafts
 every lineage the tissue mentions, unchecked: it is an escape, recorded in STATUS `escapes`, and
 every `annotate` run on that draft records it in its own STATUS `escapes` and tree record. A draft says
 it is one (`proposed.approved_by` is empty), and

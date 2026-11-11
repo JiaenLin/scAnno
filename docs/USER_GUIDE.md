@@ -409,7 +409,8 @@ an output directory overwrite one another's record. `--status-dir` keeps each on
   place, each with its studies, healthy, healthy-only and disease studies and claims and with why.
   A release whose disease field never reads Normal (read trimmed and in any case), a corpus with no
   per-study rows, and a tissue with fewer than 2 healthy studies are refused, saying why; a tissue
-  with few healthy studies is drafted with a `proposed.cannot_tell` line. `--lineage-tests off`
+  with few healthy studies is drafted with a `proposed.cannot_tell` line, or refused, saying so
+  first, when fewer than two of its names pass the tests. `--lineage-tests off`
   drafts unchecked and is an escape, recorded in STATUS `escapes` by `tree propose` and by every
   `annotate` run on that draft. It marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
   records `tree: proposed draft` in STATUS meanwhile. Sibling sets decide every comparison.
