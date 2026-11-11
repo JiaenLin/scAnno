@@ -80,6 +80,7 @@ DESIGN = [
     (A, HEALTHY, "Visitor cell", "Lost type", 4),
     (A, SICK, "Tumour cell", "Tumour type one", 8),
     (A, SICK, "Tumour cell", "Tumour type two", 6),
+    (A, HEALTHY, "Rare visitor cell", "Second type one", 3),
     (B, HEALTHY, "Visitor cell", "Visitor type one", 20),
     (B, HEALTHY, "Visitor cell", "Visitor type three", 20),
     (B, HEALTHY, "Beta resident cell", "Beta type one", 6),
@@ -87,6 +88,7 @@ DESIGN = [
     (G, HEALTHY, "Visitor cell", "Visitor type one", 20),
     (G, HEALTHY, "Gamma resident cell", "Gamma type one", 6),
     (G, HEALTHY, "Gamma resident cell", "Gamma type two", 6),
+    (G, HEALTHY, "Rare visitor cell", "Rare type one", 10),
 ]
 
 
@@ -153,6 +155,9 @@ v = aside.get("Visitor cell", {})
 check("the visitor lineage is set aside as shared: its enrichment is below 1",
       "shared" in str(v.get("reason", "")) and isinstance(v.get("enrichment"), (int, float))
       and v["enrichment"] < 1, str(v))
+check("a set-aside lineage is recorded even when its one name is placed under a kept lineage",
+      "shared" in str(aside.get("Rare visitor cell", {}).get("reason", ""))
+      and "Second type one" in ch.get("Second resident cell", []), str(aside.get("Rare visitor cell")))
 kept = {r.get("lineage"): r for r in prop.get("kept") or [] if isinstance(r, dict)}
 check("each kept lineage carries its numbers, enrichment at least 1",
       set(kept) == {"Alpha resident cell", "Second resident cell"}
