@@ -182,6 +182,26 @@ rc, text, J = embed([two])
 check("the same file without a manifest: its two libraries kept cell for cell, as before",
       rc == 0 and names(J) == ["S1", "S2"], f"exit {rc}")
 
+print("5. a file rewritten between the read of its names and the read of its matrix (ATTACKS 8)")
+import scanno.cli as CLI                                                        # noqa: E402
+_real = ad.read_h5ad
+def _rewritten(path, *a, **k):
+    A = _real(path, *a, **k)
+    if not k.get("backed") and "sample" in A.obs:     # the matrix read: the column has gone
+        del A.obs["sample"]
+    return A
+ad.read_h5ad = _rewritten
+try:
+    try:
+        rc = CLI.main(["embed", "--h5ad", *map(str, own), "--out", str(TMP / "swap.h5ad"),
+                       "--n-hvg", "50", "--n-pcs", "5", "--n-neighbors", "5"])
+    except SystemExit as e:
+        rc = e.code
+finally:
+    ad.read_h5ad = _real
+check("refused by name, nothing written (at 9fb561c: the stems written into the column)",
+      rc == 2 and not (TMP / "swap.h5ad").exists(), f"exit {rc}")
+
 print("")
 if fails:
     print(f"{len(fails)} FAILED: {', '.join(fails)}"); raise SystemExit(1)

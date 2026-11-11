@@ -158,7 +158,8 @@ def resolve(entries, *, key, manifest=None) -> list:
             (carried if o["fill"] is None else filled).setdefault(n, []).append(Path(o["file"]).name)
     for n, fs in filled.items():
         if len(fs) > 1 or n in carried:
-            problems.append(f"{n!r} would name the cells of {', '.join(fs + carried.get(n, []))}: "
+            problems.append(f"{n!r} would name the observations of "
+                            f"{', '.join(fs + carried.get(n, []))}: "
                             f"one library's name given to two files")
     if problems:
         fix = (f"pass --sample-key naming a column every object carries, or --manifest with a "

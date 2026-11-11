@@ -2246,8 +2246,22 @@ def _embed(a):
                   f"{r['fill']!r} from {r['source']}")
     # An object that carries the column is labelled for messages as it always was; only an object
     # without it takes its library's name, which `build` writes into the column.
-    objs = [(r["fill"] if r["fill"] is not None else Path(src).stem.replace("_annotated", ""),
-             ad.read_h5ad(src)) for src, r in zip(a.h5ad, named)]
+    # THE OBJECT READ IS THE OBJECT NAMED. A file rewritten between the two reads could lose its
+    # column, and `build` would then write the display label - the file's stem - into it.
+    objs = []
+    for src, r in zip(a.h5ad, named):
+        A = ad.read_h5ad(src)
+        now = (sorted({str(v) for v in A.obs[a.sample_key].astype(str).unique()})
+               if a.sample_key in A.obs else None)
+        if now != (r["names"] if r["fill"] is None else None):
+            _ST.refuse(f"embed: {Path(src).name} changed between the read of its names and the read "
+                       f"of its matrix (its {a.sample_key!r} column: "
+                       f"{'absent' if r['fill'] is not None else r['names']} then "
+                       f"{'absent' if now is None else now})",
+                       fix="do not rewrite the inputs while embed runs", code="input_changed")
+            return 2
+        objs.append((r["fill"] if r["fill"] is not None
+                     else Path(src).stem.replace("_annotated", ""), A))
     print(f"{len(objs)} object(s)")
     # THE UNIT, FROM WHAT THE OBJECTS RECORDED. `embed` takes no assay. One assay between them
     # words its prints; none, or two, names both units rather than guessing one.
@@ -2949,8 +2963,8 @@ def main(argv=None):
     s.add_argument("--out", required=True, type=Path, metavar="H5AD",
                    help="the joint object, for `scanno report --joint`")
     s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN",
-                   help="the obs column naming each cell's library (default sample). An object "
-                        "that carries it is taken cell for cell. For one that does not, the "
+                   help="the obs column naming each observation's library (default sample). An "
+                        "object that carries it is taken as it stands. For one that does not, the "
                         "library's name comes from --manifest or from the name the upstream QC "
                         "recorded (uns['scqc']['sample']), never from the file's name; none, or two "
                         "that disagree, refuses by name. Recorded in "
