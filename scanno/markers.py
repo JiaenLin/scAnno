@@ -349,7 +349,10 @@ def _ingest(con, fh, universe, log):
             payload = [p + (1 if ("fetal" in p[ti].lower() or "embry" in p[ti].lower()) else 0,)
                        for p in payload]
         elif name == "disease":
-            payload = [p + (1 if p[1] == "Normal" else 0,) for p in payload]
+            # the release's healthy word, read trimmed and in any case: "normal", " Normal " and
+            # "NORMAL" are the release's Normal, never silently a disease (W044 fix round 2)
+            payload = [p + (1 if str(p[1] or "").strip().lower() == "normal" else 0,)
+                       for p in payload]
         con.executemany(f"INSERT INTO {name} VALUES ({','.join(['?'] * len(payload[0]))})",
                         payload)
     con.commit()

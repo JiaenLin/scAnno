@@ -13,8 +13,8 @@ THE RULE, from the corpus's own fields (each row's study, disease, tissue_class,
 nothing else - no list of tissues, lineages or names. A study counts once however many markers it
 lists. A lineage is the tissue's own when at least min_studies healthy studies report it in the
 context, they are at least min_share of the context's healthy studies, it is enriched there against
-the species' healthy reports (min_enrichment), and the context's disease studies do not report it
-disease_ratio times as often, as a share, as its healthy studies do.
+the species' healthy reports (min_enrichment), and at least min_studies of its healthy studies are
+healthy-only (they sampled no disease in the context; fix round 2 replaced a disease-ratio test).
 
 WHAT IS CHECKED, on invented releases built by `scanno build-markers` and read by `scanno tree propose`
 through the real CLI:
@@ -26,8 +26,8 @@ through the real CLI:
      one-study class, marked single_study);
   4. a context the corpus holds only in disease samples is refused for that reason; a thin context is
      drafted and says it is thin;
-  5. a release whose disease field never reads Normal is drafted unchecked and says why, and
-     --lineage-tests off does so on purpose;
+  5. a release whose disease field never reads Normal is refused and says why (fix round 2; it was
+     drafted unchecked), and --lineage-tests off drafts unchecked on purpose;
   6. the draft stays a draft: approved_by is null.
 
     python tests/test_tree_evidence.py
@@ -170,15 +170,15 @@ check("every not-placed entry carries its studies and claims' markers",
 
 print("\n3 - the thresholds are values in the draft, and the flags move them")
 par = prop.get("parameters") or {}
-check("the draft records the four thresholds as values",
-      (par.get("min_studies"), par.get("min_share"), par.get("min_enrichment"),
-       par.get("disease_ratio")) == (2, 0.02, 1.0, 2.0), str(par))
-rc, out, d1 = propose(db, A, work / "a1" / "tree.json", "--min-studies", "1", "--disease-ratio", "3")
+check("the draft records the three thresholds as values",
+      (par.get("min_studies"), par.get("min_share"), par.get("min_enrichment"))
+      == (2, 0.02, 1.0) and "disease_ratio" not in par, str(par))
+rc, out, d1 = propose(db, A, work / "a1" / "tree.json", "--min-studies", "1", "--min-enrichment", "0.5")
 k1 = {x.get("lineage"): x for x in (d1.get("proposed") or {}).get("kept") or []}
 check("--min-studies 1 drafts the one-study class, marked single_study",
       rc == 0 and k1.get("Filing artefact", {}).get("single_study") is True, str(k1.get("Filing artefact")) + out[-200:])
 check("and the draft records the values the flags set",
-      ((d1.get("proposed") or {}).get("parameters") or {}).get("disease_ratio") == 3.0)
+      ((d1.get("proposed") or {}).get("parameters") or {}).get("min_enrichment") == 0.5)
 
 print("\n4 - a context held only in disease samples is refused for that; a thin one says it is thin")
 rc, out, _ = propose(db, D, work / "d" / "tree.json")
@@ -190,17 +190,16 @@ check("a thin context is drafted, and the draft and stdout say it holds only 3 h
       rc == 0 and any("only 3 healthy studies" in x for x in cg) and "REVIEW  this context holds only 3" in out,
       f"rc={rc} {cg} " + out[-300:])
 
-print("\n5 - a release whose disease field never reads Normal: drafted unchecked, and it says why")
+print("\n5 - a release whose disease field never reads Normal: refused, and it says why")
 for word in ("", "Healthy"):
     dbw = work / f"word_{word or 'blank'}.db"
     rc, out = here("build-markers", "--release", write_release(work / f"r_{word or 'blank'}.txt", word),
                    "--out", dbw)
     rc, out, dw = propose(dbw, A, work / f"w_{word or 'blank'}" / "tree.json")
     pw = dw.get("proposed") or {}
-    check(f"disease field {word or 'blank'!r}: drafted, cannot_tell names Normal, the tests marked not applied",
-          rc == 0 and any("Normal" in x for x in pw.get("cannot_tell") or [])
-          and str((pw.get("lineage_tests") or {}).get("evidence", "")).startswith("not applied")
-          and "REVIEW" in out, f"rc={rc} " + out[-300:])
+    check(f"disease field {word or 'blank'!r}: refused, naming the disease field and Normal",
+          rc == 2 and not dw and "disease field" in out and "Normal" in out
+          and "--lineage-tests off" in out, f"rc={rc} " + out[-300:])
 rc, out, doff = propose(db, A, work / "off" / "tree.json", "--lineage-tests", "off")
 poff = doff.get("proposed") or {}
 check("--lineage-tests off drafts every lineage unchecked, and says so",

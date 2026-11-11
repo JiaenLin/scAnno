@@ -13,7 +13,8 @@ release in tests/fixtures:
      STATUS says 'tree: proposed draft';
   2. `annotate --tree <draft>` runs, prints REVIEW, and records 'tree: proposed draft' in STATUS;
      once proposed.approved_by names someone, it records who and the REVIEW goes;
-  3. a corpus with no cell_name_class gets a flat draft and says so;
+  3. a corpus with no cell_name_class gets a flat draft and says so (this one also has no per-study
+     rows, so it is refused unless `--lineage-tests off` asks for the unchecked draft);
   4. it never overwrites a tree, and a context the corpus does not name is refused with the
      tissues it does.
 
@@ -131,7 +132,11 @@ check("a tree nobody proposed records nothing about it", rc == 0
 print("\n3 - a corpus with no cell_name_class: a flat draft, and it says so")
 flat_db = write_corpus(work / "flat.db")
 rc, out = here("tree", "propose", "--db", flat_db, "--species", "Human", "--tissue", "Blood",
-               "--out", work / "f" / "tree.json")
+               "--out", work / "f0" / "tree.json")
+check("with no per-study rows it is refused, naming them and the escape", rc == 2
+      and "per-study rows" in out and "--lineage-tests off" in out, out[-200:])
+rc, out = here("tree", "propose", "--db", flat_db, "--species", "Human", "--tissue", "Blood",
+               "--out", work / "f" / "tree.json", "--lineage-tests", "off")
 flat = json.loads((work / "f" / "tree.json").read_text()) if rc == 0 else {}
 check("it drafts root -> names", rc == 0 and len(flat.get("children", {}).get("root", [])) == 5
       and list(flat.get("children", {})) == ["root"], out[-200:])

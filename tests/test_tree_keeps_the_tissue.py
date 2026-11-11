@@ -163,10 +163,10 @@ check("a set-aside lineage is recorded even when its one name is placed under a 
       and "Second type one" in ch.get("Second resident cell", []), str(aside.get("Rare visitor cell")))
 kept = {r.get("lineage"): r for r in prop.get("kept") or [] if isinstance(r, dict)}
 check("each kept lineage carries its numbers: enrichment at least 1, two healthy studies or more, "
-      "a disease ratio below 2",
+      "two of them healthy-only",
       set(kept) == {"Alpha resident cell", "Second resident cell"}
       and all(r.get("enrichment", 0) >= 1 and r.get("healthy_studies", 0) >= 2
-              and (r.get("disease_ratio") or 0) < 2 for r in kept.values()), str(kept))
+              and r.get("healthy_only_studies", 0) >= 2 for r in kept.values()), str(kept))
 check("the rule the draft applied is named in it", "healthy" in str(prop.get("rule", "")).lower()
       and all(v == "applied" for v in (prop.get("lineage_tests") or {"x": 0}).values()),
       str(prop.get("lineage_tests")))

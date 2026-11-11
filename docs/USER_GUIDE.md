@@ -400,13 +400,18 @@ an output directory overwrite one another's record. `--status-dir` keeps each on
   corpus - root, the tissue's own `cell_name_class` lineages, their cell names with at least
   three markers. Evidence is counted in studies. A lineage needs at least 2 healthy studies of the
   tissue, at least 2% of them, a share of them at least its share of healthy reports across the
-  species' tissues, and a share of the tissue's disease studies under twice its share of the healthy
-  ones (tested only when at least 2 disease studies report it). Each threshold is a flag and is recorded in `proposed.parameters`. The draft lists what it
-  kept, what it set aside and every name it could not place, each with its studies, healthy
-  studies, disease studies and claims and with why (`proposed.kept`, `proposed.set_aside`,
-  `proposed.not_placed`). It says in `proposed.cannot_tell` where the corpus cannot tell: few
-  healthy studies, or a disease field that never reads Normal (then every lineage is drafted
-  unchecked). It marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
+  species' tissues, and at least 2 of those healthy studies healthy-only (they sampled no disease in
+  the tissue); how often disease studies report a lineage is reported and tested nowhere, so a
+  disease that expands the tissue's own cells does not remove them. Each threshold is a flag, is
+  recorded in `proposed.parameters`, and is named on stdout when not its default. The draft lists
+  what it kept, what passed every test but was cut by `--max-lineages` (`proposed.capped`) or has no
+  name over the marker floor (`proposed.no_panel`), what it set aside and every name it could not
+  place, each with its studies, healthy, healthy-only and disease studies and claims and with why.
+  A release whose disease field never reads Normal (read trimmed and in any case), a corpus with no
+  per-study rows, and a tissue with fewer than 2 healthy studies are refused, saying why; a tissue
+  with few healthy studies is drafted with a `proposed.cannot_tell` line. `--lineage-tests off`
+  drafts unchecked and is an escape, recorded in STATUS `escapes` by `tree propose` and by every
+  `annotate` run on that draft. It marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
   records `tree: proposed draft` in STATUS meanwhile. Sibling sets decide every comparison.
   A node whose members are biologically heterogeneous will be scored on a diluted panel
   and will lose to a tighter competitor.

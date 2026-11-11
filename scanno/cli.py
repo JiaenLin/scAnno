@@ -558,6 +558,21 @@ def _annotate(a):
     _tp = _tree_provenance(tree)
     if _tp is not None:
         _ST.record("tree", _tp)
+        if _tp["unchecked"] or _tp["not_default"]:
+            # an escape the tree carries in: the labels rest on a draft drafted without (some of)
+            # the lineage tests, or with a test's threshold moved; recorded as this run's escape
+            _ST.escape({"ask": {"gate": "lineage-tests", "refused": "a tree whose lineages passed "
+                                "the lineage tests at their defaults"},
+                        "decision": {"flag": "--tree", "value": str(a.tree), "inherited": True,
+                                     "unchecked": list(_tp["unchecked"]),
+                                     "not_default": dict(_tp["not_default"]),
+                                     "by": None, "when": _ST._now()}})
+            print(f"  REVIEW  --tree {a.tree} was drafted "
+                  + (f"without the lineage tests {', '.join(_tp['unchecked'])}"
+                     if _tp["unchecked"] else "with a lineage test's threshold moved")
+                  + (f" ({', '.join(f'{k}={v}' for k, v in _tp['not_default'].items())})"
+                     if _tp["not_default"] else "")
+                  + ": recorded in STATUS escapes and in its tree record")
         if not _tp["approved_by"]:
             print(f"  REVIEW  --tree {a.tree} is a draft `scanno tree propose` wrote from the "
                   f"corpus, and nobody has approved it: its lineages are the corpus curators' "
@@ -2389,12 +2404,17 @@ def _tree(a):
         tree, summary = propose(a.db, ctx, min_tier=a.min_tier, min_markers=a.min_markers,
                                 max_lineages=a.max_lineages, max_types=a.max_types,
                                 min_studies=a.min_studies, min_share=a.min_share,
-                                min_enrichment=a.min_enrichment, disease_ratio=a.disease_ratio,
+                                min_enrichment=a.min_enrichment,
                                 lineage_tests=a.lineage_tests == "on", version=__version__)
     except CannotTell as e:
-        _ST.refuse(str(e), fix="`--lineage-tests off` drafts every lineage the context mentions, "
-                   "unchecked, and says so in the draft; or lower --min-studies; or read `scanno panel`",
-                   code="tree_cannot_tell")
+        _ST.refuse(str(e), fix={
+            "tree_no_study_rows": "build the corpus with `scanno build-markers`",
+            "tree_no_healthy_rows": "write Normal in the disease field of the healthy samples and "
+                                    "rebuild the corpus"}.get(
+            e.code, "choose a --tissue whose healthy studies are more, or lower --min-studies "
+                    "(recorded as an escape), or read `scanno panel`")
+            + "; `--lineage-tests off` drafts every lineage unchecked, recorded as an escape",
+            code=e.code)
         return REFUSE
     except ValueError as e:
         _ST.refuse(str(e), fix="lower --min-markers or --min-tier, or read `scanno panel`",
@@ -2406,6 +2426,16 @@ def _tree(a):
         return REFUSE
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(tree, indent=2) + "\n", encoding="utf-8")
+    # ESCAPES: a draft without the lineage tests, or with a test's threshold moved, is recorded
+    # as one, beside the flags `_escapes` reads, so a reader can tell it from a checked draft
+    from .propose import DEFAULTS as _PD
+    nd = summary["not_default"]
+    for k in [k for k in nd if k in _PD or k == "lineage_tests"]:
+        _ST.escape({"ask": {"gate": k.replace("_", "-"), "refused": (
+            "a draft whose lineages pass the lineage tests" if k == "lineage_tests" else
+            f"the lineage test's default {nd[k]['default']}")},
+            "decision": {"flag": "--" + k.replace("_", "-"), "value": nd[k]["value"],
+                         "by": getattr(a, "by", None), "when": _ST._now()}})
     _ST.record("tree", {"source": "proposed draft", "approved_by": None,
                         "lineages": summary["lineages"], "types": summary["types"],
                         "lineage_from": summary["lineage_from"],
@@ -2413,7 +2443,9 @@ def _tree(a):
                         "cannot_tell": summary["cannot_tell"],
                         "parameters": summary["parameters"], "context": summary["context"],
                         "set_aside": [r["lineage"] for r in summary["set_aside"]],
-                        "not_placed": summary["not_placed"]})
+                        "capped": [r["lineage"] for r in summary["capped"]],
+                        "no_panel": [r["lineage"] for r in summary["no_panel"]],
+                        "not_default": nd, "not_placed": summary["not_placed"]})
     print(f"wrote {a.out}: a DRAFT - {summary['lineages']} lineages, {summary['types']} types "
           f"below them ({summary['lineage_from']}), the tissue's own by the corpus")
     kept = {r["lineage"]: r for r in summary["kept"]}
@@ -2422,8 +2454,18 @@ def _tree(a):
         r = kept.get(top, {})
         print(f"  {top} [{r.get('healthy_studies', 0)} healthy of {r.get('studies', 0)} studies]"
               + (f" -> {', '.join(kids)}" if kids else ""))
+    for k, v in nd.items():
+        print(f"  NOT DEFAULT  {k}={v['value']} (default {v['default']})"
+              + ("; recorded in STATUS escapes" if k in _PD or k == "lineage_tests" else ""))
     for line in summary["cannot_tell"]:
         print(f"  REVIEW  {line}")
+    # THE CAP never hides a verdict: what passed every test and was not drafted is said here
+    for r in summary["capped"]:
+        print(f"  CAPPED  {r['lineage']} [{r['healthy_studies']} healthy of {r['studies']} "
+              f"studies]: {r['reason']}")
+    for r in summary["no_panel"]:
+        print(f"  NO PANEL  {r['lineage']} [{r['healthy_studies']} healthy of {r['studies']} "
+              f"studies]: {r['reason']}")
     # GAP-C85: what the corpus mentions in this context and the draft left out, said where it is read
     for r in summary["set_aside"]:
         print(f"  SET ASIDE  {r['lineage']}: {r['reason']}")
@@ -3085,7 +3127,7 @@ def main(argv=None):
     s = sub.add_parser("tree",
                        help="propose a DRAFT tree from the corpus: root -> the tissue's own lineages "
                             "(counted in studies: reported by enough of its healthy studies, not "
-                            "more often elsewhere, not mostly by its disease studies) -> their cell "
+                            "more often elsewhere, and by studies that sampled no disease) -> their cell "
                             "names, with what it set aside and why. Yours to approve or edit; "
                             "annotate records that it is a draft until you approve it")
     s.add_argument("verb", choices=["propose"])
@@ -3107,11 +3149,10 @@ def main(argv=None):
                    help=_PP["min_share"] + f" (default {_PD['min_share']})")
     s.add_argument("--min-enrichment", type=float, default=_PD["min_enrichment"],
                    help=_PP["min_enrichment"] + f" (default {_PD['min_enrichment']})")
-    s.add_argument("--disease-ratio", type=float, default=_PD["disease_ratio"],
-                   help=_PP["disease_ratio"] + f" (default {_PD['disease_ratio']})")
     s.add_argument("--lineage-tests", choices=["on", "off"], default="on",
-                   help="ESCAPE: off drafts every lineage the context mentions, unchecked; the "
-                        "draft's cannot_tell and stdout say so (default on)")
+                   help="ESCAPE: off drafts every lineage the context mentions, unchecked; "
+                        "recorded in STATUS escapes, the draft's proposed.lineage_tests and "
+                        "cannot_tell, and by every annotate run on that draft (default on)")
     s.add_argument("--tissue-fallback", choices=["species"], default=None,
                    help="ESCAPE: read every tissue of the species when the corpus names no "
                         "--tissue for it. Printed as REVIEW and recorded")
@@ -3265,7 +3306,8 @@ def _describe(a):
                      {"flag": "--background-from-clusters", "lifts": "the calibrated store", "recorded": "STATUS.annotate.json escapes[]"},
                      {"flag": "--gap-min", "lifts": "the descent threshold", "recorded": "STATUS.annotate.json escapes[]"},
                      {"flag": "--tissue-fallback", "lifts": "the declared tissue: every tissue of the species is read", "recorded": "STATUS.<cmd>.json escapes[] and corpus"},
-                     {"flag": "--marker-species", "lifts": "the declared species, for markers only", "recorded": "STATUS.<cmd>.json escapes[] and corpus"}],
+                     {"flag": "--marker-species", "lifts": "the declared species, for markers only", "recorded": "STATUS.<cmd>.json escapes[] and corpus"},
+                     {"flag": "--lineage-tests off (tree propose), or a lineage test's threshold moved", "lifts": "the lineage tests of a proposed draft", "recorded": "STATUS.tree.json escapes[], the draft's proposed, and STATUS.annotate.json escapes[] for every run on that draft"}],
          "cannot_show": CANNOT_SHOW,
          # Which rules depend on the assay and which do not, and where each one's numbers came
          # from. scanno/assay.py is the only copy; docs/USER_GUIDE.md sets it out for a reader.

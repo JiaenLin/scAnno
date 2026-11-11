@@ -50,20 +50,26 @@ Blood --out tree.draft.json`. Its evidence is counted in studies, so a study cou
 many markers it lists. A lineage is the tissue's own when at least 2 of the tissue's healthy
 studies report it (`--min-studies`), they are at least 2% of its healthy studies (`--min-share`),
 its share of them is at least its share of healthy reports across the species' tissues
-(`--min-enrichment`, 1.0), and its share of the tissue's disease studies is less than twice its
-share of the healthy ones (`--disease-ratio`, 2.0; tested only when at least `--min-studies` of the
-tissue's disease studies report it). The values are recorded in
-`proposed.parameters`. The draft lists each kept lineage, each lineage it set aside and each name it
+(`--min-enrichment`, 1.0), and at least `--min-studies` of those healthy studies are
+healthy-only: they sampled no disease in the tissue. A lineage whose healthy reports come only from
+studies that also sampled the disease (tumour-adjacent tissue) is set aside as the disease's. The
+test never asks how often disease studies report a lineage, so a disease that expands the tissue's
+own cells does not remove them; every entry still reports its disease ratio. The values are
+recorded in `proposed.parameters`, and stdout names any that is not its default (NOT DEFAULT; a
+moved test threshold is also recorded as an escape). The draft lists each kept lineage, each one
+that passed every test but was cut by `--max-lineages` (`proposed.capped`, printed CAPPED) or holds
+no name over the marker floor (`proposed.no_panel`), each lineage it set aside and each name it
 could not place, with the studies and claims that decided it and why (`proposed.kept`,
 `proposed.set_aside`, `proposed.not_placed`). The rule can keep a lineage in transit that the
-tissue's healthy studies report as often as studies elsewhere do. It can also set aside a resident
-lineage that disease studies report more: read the numbers, add back what your sample holds and
-remove what it cannot hold (a culture or an organoid is not the tissue). Where the corpus cannot
-tell, the draft says so in `proposed.cannot_tell`. That happens when the tissue has few healthy
-studies, or when the release's disease field never reads Normal (a blank field or "Healthy" is not
-read as healthy; then the tests are not applied and every lineage is drafted unchecked). A tissue
-with fewer healthy studies than `--min-studies` is refused for that
-reason, and `--lineage-tests off` drafts every lineage, unchecked. A draft says
+tissue's healthy studies report as often as studies elsewhere do: read the numbers, add back what
+your sample holds and remove what it cannot hold (a culture or an organoid is not the tissue). When
+the corpus cannot tell, `tree propose` refuses and says why: the release's disease field never reads
+Normal (read trimmed and in any case; a blank field or only "Healthy" is not, and the refusal names
+the field and what it holds), the corpus has no per-study rows (it was not built by `scanno
+build-markers`), or the tissue has fewer healthy studies than `--min-studies`. A tissue with fewer
+than 50 healthy studies is drafted with a `proposed.cannot_tell` line. `--lineage-tests off` drafts
+every lineage the tissue mentions, unchecked: it is an escape, recorded in STATUS `escapes`, and
+every `annotate` run on that draft records it in its own STATUS `escapes` and tree record. A draft says
 it is one (`proposed.approved_by` is empty), and
 every `annotate` run that uses it prints REVIEW and records `tree: proposed draft` until you
 set your name there. The tree is yours either way.

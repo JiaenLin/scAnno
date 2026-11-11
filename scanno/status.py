@@ -49,6 +49,10 @@ CLOCK: dict = {"t0": None, "at": 0.0, "steps": [], "n_obs": None}
 #: facts the running command recorded with `record`, written into its STATUS by `finish`
 RECORDED: dict = {}
 
+#: escapes the running command inherited from an input after `begin` (a tree drafted with its
+#: lineage tests off), merged into its STATUS `escapes` by `finish`, beside its own flags'
+ESCAPED: list = []
+
 #: keys `record` may not overwrite: the contract's own fields
 _RESERVED = {"contract", "tool", "command", "version", "commit", "state_version", "status",
              "headline", "started", "finished", "job", "python", "argv", "products", "absent",
@@ -61,6 +65,13 @@ def clock_start() -> None:
     recorded."""
     CLOCK.update(t0=time.perf_counter(), at=0.0, steps=[], n_obs=None)
     RECORDED.clear()
+    ESCAPED.clear()
+
+
+def escape(entry: dict) -> None:
+    """Record an escape the running command inherited from an input rather than lifted by its own
+    flags (a tree whose lineage tests were off), for its STATUS `escapes`."""
+    ESCAPED.append(dict(entry))
 
 
 def record(key: str, value) -> None:
@@ -212,6 +223,9 @@ def finish(d: Path, cmd: str, *, status: str, headline: str, exit_code: int,
         refusal.setdefault("reason", headline)
         refusal.setdefault("fix", "the refusal names what to change; read the line above it")
     rec.update(dict(RECORDED))
+    if ESCAPED:
+        rec["escapes"] = list(rec.get("escapes") or []) + [
+            e for e in ESCAPED if e not in (rec.get("escapes") or [])]
     rec.update({"status": status, "headline": headline, "finished": _now(), "exit": exit_code,
                 "timings": timings(), "products": products, "missing": missing,
                 "refusal": refusal if status == "refused" else None,
