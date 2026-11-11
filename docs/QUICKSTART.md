@@ -51,7 +51,8 @@ many markers it lists. A lineage is the tissue's own when at least 2 of the tiss
 studies report it (`--min-studies`), they are at least 2% of its healthy studies (`--min-share`),
 its share of them is at least its share of healthy reports across the species' tissues
 (`--min-enrichment`, 1.0), and its share of the tissue's disease studies is less than twice its
-share of the healthy ones (`--disease-ratio`, 2.0). The values are recorded in
+share of the healthy ones (`--disease-ratio`, 2.0; tested only when at least `--min-studies` of the
+tissue's disease studies report it). The values are recorded in
 `proposed.parameters`. The draft lists each kept lineage, each lineage it set aside and each name it
 could not place, with the studies and claims that decided it and why (`proposed.kept`,
 `proposed.set_aside`, `proposed.not_placed`). The rule can keep a lineage in transit that the
@@ -60,7 +61,8 @@ lineage that disease studies report more: read the numbers, add back what your s
 remove what it cannot hold (a culture or an organoid is not the tissue). Where the corpus cannot
 tell, the draft says so in `proposed.cannot_tell`. That happens when the tissue has few healthy
 studies, or when the release's disease field never reads Normal (a blank field or "Healthy" is not
-read as healthy). A tissue with fewer healthy studies than `--min-studies` is refused for that
+read as healthy; then the tests are not applied and every lineage is drafted unchecked). A tissue
+with fewer healthy studies than `--min-studies` is refused for that
 reason, and `--lineage-tests off` drafts every lineage, unchecked. A draft says
 it is one (`proposed.approved_by` is empty), and
 every `annotate` run that uses it prints REVIEW and records `tree: proposed draft` until you
