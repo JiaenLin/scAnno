@@ -6,12 +6,26 @@
 # across versions, and a cluster flag has moved between two commits of the *upstream* tool on
 # identical input. Bounds are what scAnno needs to IMPORT; this file is what a result needs to
 # REPRODUCE. Use it when you intend to compare against a published number.
+#
+# THE WHOLE CLOSURE IS PINNED, not only the packages scAnno imports by name. The manager's pip
+# step is `pip install -U -r` (conda's and micromamba's both), so a dependency this file does not
+# pin is resolved at build time to its newest release. Until 2026-11-11 this file pinned 15 names
+# and their 36 dependencies moved freely; one of them, pynndescent 0.7.0, returns a `csr_array`
+# that scanpy 1.12.3's neighbour graph calls `.getnnz` on, and `scanno cluster` died on every
+# object of 8,192 cells or more (scanpy hands the search to pynndescent from that size).
+# The 36 are at the versions of the cluster environment the reference runs used, as scQC's
+# conf/env/requirements.lock.txt records that environment's `pip freeze` (scAnno's 15 equal its
+# pins). tests/test_the_lock_pins_its_closure.py fails when a pinned package requires a package
+# this file does not pin, or a version its pin does not satisfy; what each pin requires on linux
+# x86_64 under CPython 3.12 is recorded in setup/environment.lock.requires.tsv, read from each
+# version's own metadata.
 name: scanno
 channels: [conda-forge, bioconda]
 dependencies:
   - python=3.12.12
   - pip
   - pip:
+      # what scAnno imports
       - anndata==0.13.2
       - scanpy==1.12.3
       - numpy==2.4.6
@@ -30,3 +44,40 @@ dependencies:
       # certainly want the figures, not because the tool needs them to run.
       - matplotlib==3.11.1
       - seaborn==0.13.2
+      # what those require, on linux x86_64 under CPython 3.12 (the closure)
+      - annotated-types==0.8.0
+      - array-api-compat==1.15.0
+      - certifi==2026.7.22
+      - contourpy==1.3.3
+      - cycler==0.12.1
+      - donfig==0.8.1.post1
+      - fast-array-utils==1.5
+      - fonttools==4.63.0
+      - google-crc32c==1.8.0
+      - joblib==1.5.3
+      - kiwisolver==1.5.0
+      - legacy-api-wrap==1.5
+      - llvmlite==0.48.0
+      - narwhals==2.24.0
+      - networkx==3.6.1
+      - numcodecs==0.16.5
+      - patsy==1.0.2
+      - pillow==12.3.0
+      - pydantic==2.13.4
+      - pydantic_core==2.46.4
+      - pydantic-settings==2.14.2
+      - pynndescent==0.6.0
+      - pyparsing==3.3.2
+      - python-dateutil==2.9.0.post0
+      - python-dotenv==1.2.2
+      - PyYAML==6.0.3
+      - scverse-misc==0.1.3
+      - session-info2==0.4.2
+      - six==1.17.0
+      - statsmodels==0.14.6
+      - texttable==1.7.0
+      - threadpoolctl==3.6.0
+      - tqdm==4.70.0
+      - typing_extensions==4.16.0
+      - typing-inspection==0.4.2
+      - zarr==3.3.0

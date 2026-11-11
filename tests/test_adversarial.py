@@ -4,10 +4,12 @@ This is not a unit-test suite and is not trying to be. Every case below is a def
 shipped in a prototype, survived reading, and was caught only by attacking the code with a
 hostile input. A fix nobody re-attacked is a hypothesis.
 
-Needs PBMC 3k and PBMC 68k, which scanpy downloads. Skips cleanly without them.
+Needs PBMC 3k and PBMC 68k, which scanpy downloads - into tests/_data, or into
+$SCANNO_SELFTEST_DATA when that is set. Skips cleanly without them.
 """
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -60,7 +62,9 @@ def main():
     except ImportError:
         print("SKIP — scanpy not installed. A SKIP is not a pass.")
         return 0
-    sc.settings.datasetdir = str(Path(__file__).parent / "_data")
+    # Where PBMC 3k is downloaded to. $SCANNO_SELFTEST_DATA when set, so a cluster job can keep
+    # the download in its own run directory instead of writing into the tool's checkout.
+    sc.settings.datasetdir = os.environ.get("SCANNO_SELFTEST_DATA") or str(Path(__file__).parent / "_data")
     A = sc.datasets.pbmc3k_processed()
     G = np.array([str(v).upper() for v in A.raw.var_names])
     L = A.obs["louvain"].astype(str).values

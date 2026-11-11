@@ -25,10 +25,16 @@ pip install -e '.[run]'      # '.[run]' adds anndata + scanpy for reading .h5ad
 scanno selftest
 ```
 
+To compare against a published number, build the locked environment instead:
+`setup/install_env.sh --prefix <path>` creates it from `setup/environment.lock.yml`, which pins the
+whole closure (51 packages), and refuses the result unless every version is the locked one and
+nothing unpinned was added; `--no-editable` writes nothing into the checkout.
+
 The decision layer is numpy and scipy only. The marker corpus is **not** distributed, and the
 database built from it is never redistributed: fetch the CellMarker 3.0 release
 (`all_cell_marker.zip`) yourself and build your own. `--reference-genes` takes your data's gene
-axis (a text file of names, or an `.h5ad`) and records which markers it can measure.
+axis (a text file of names, or an `.h5ad`, whose names are read as `annotate` reads them:
+`--gene-key`, else `var['gene_symbol']` when present) and records which markers it can measure.
 
 ```bash
 scanno build-markers --release all_cell_marker.zip --out corpus.db
