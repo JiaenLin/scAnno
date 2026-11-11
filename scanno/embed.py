@@ -97,7 +97,10 @@ def build(objects, *, sample_key="sample", label_map=None, n_hvg=2000, n_pcs=50,
           min_dist=0.2, seed=0, gene_key=None, log=print, words=None):
     """Concatenate, normalise, select HVGs over all genes, PCA, neighbours, UMAP.
 
-    `objects` is [(name, AnnData), ...] with raw counts in `layers['counts']` or in `.X`.
+    `objects` is [(name, AnnData), ...] with raw counts in `layers['counts']` or in `.X`. An
+    object without `obs[sample_key]` has `name` written into that column, so for such an object
+    `name` must be its library's recorded name: `scanno embed` resolves it with scanno/libnames.py
+    and never passes a file's name.
     Returns the joint AnnData. Every step prints what it did, because an embedding whose
     parameters are not recorded cannot be reproduced or argued with. `words` is
     scanno/assay.py's for the assay the objects recorded; without it the unit is "cell or nucleus".

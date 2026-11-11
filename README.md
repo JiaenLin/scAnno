@@ -207,6 +207,11 @@ for f in clustered/*_clustered.h5ad; do
 done
 scanno embed --h5ad annotated/*.h5ad --out per_sample.h5ad \
              --label-obs scanno_resolved_path=cell_type_forced
+# embed's library column (--sample-key, default `sample`) is each object's own, cell for cell. An
+# object without it takes its library's name from --manifest (a `path` column and a column named
+# as --sample-key) or from the name the upstream QC recorded (uns['scqc']['sample']), never from
+# its file name; none, or two that disagree, refuses by name before anything is computed.
+# uns['scanno_embed']['library_names'] records each name's source.
 
 # route B: ONE clustering over every sample together, annotated against the SAME scope,
 # at EVERY resolution — one command, one store digest, one walk per granularity

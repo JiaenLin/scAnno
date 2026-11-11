@@ -73,7 +73,10 @@ for k, v in dict(A.uns.get("scanno_embed", {})).items():
 ```
 
 `uns['scanno_embed']` records `n_hvg`, `n_pcs`, `n_neighbors`, `min_dist`, `seed`, whether the
-object is `integrated`, and `label_map` — which column is a rename of which.
+object is `integrated`, `label_map` — which column is a rename of which — and `library_names`:
+the library column's name (`key`) and, per library per input file, the `name`, the `file`'s base
+name and the `source` (`obs['<key>']` when the object carried the column, else `manifest` or
+`uns['scqc']['sample']`; never the file's name).
 
 ### Set your variables once
 

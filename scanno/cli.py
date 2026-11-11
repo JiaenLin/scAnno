@@ -2207,7 +2207,47 @@ def _embed(a):
             return 2
         label_map[old] = new or old
 
-    objs = [(Path(src).stem.replace("_annotated", ""), ad.read_h5ad(src)) for src in a.h5ad]
+    # EVERY NAME THE JOINT OBJECT WILL HOLD AS A KEY, checked before a matrix is read: the library
+    # column (written when an object lacks it) and each renamed label column. A name the format
+    # forbids used to fail at the write, after the whole embedding had been computed.
+    from . import libnames as LN
+    from .upstream import declaration
+    for what, col in [("--sample-key", a.sample_key)] + [("--label-obs", v) for v in label_map.values()]:
+        why = LN.column_problem(col)
+        if why:
+            _ST.refuse(f"embed: {what} {col!r} {why}", fix="name an obs column the .h5ad can hold",
+                       code="column_name")
+            return 2
+
+    # WHICH LIBRARY EACH OBJECT HOLDS, from what the object and the manifest record (scanno/
+    # libnames.py), never from the file's name: through a pipeline the name carries the stage that
+    # wrote it, and the joint object's library column held `<library>.ladder`. Read from obs and
+    # uns alone, so a library that cannot be told costs seconds, not the cohort's matrices.
+    try:
+        manifest = LN.read_manifest(a.manifest, a.sample_key) if a.manifest else None
+        entries = []
+        for src in a.h5ad:
+            B = ad.read_h5ad(src, backed="r")
+            try:
+                d = declaration(B) or {}
+                entries.append({"file": str(src),
+                                "values": (list(B.obs[a.sample_key].astype(str).unique())
+                                           if a.sample_key in B.obs else None),
+                                "recorded": str(d.get("sample") or "")})
+            finally:
+                B.file.close()
+        named = LN.resolve(entries, key=a.sample_key, manifest=manifest)
+    except LN.NameRefusal as e:
+        _ST.refuse(e.reason, fix=e.fix, code=e.code)
+        return 2
+    for r in named:
+        if r["fill"] is not None:
+            print(f"  {Path(r['file']).name}: no column {a.sample_key!r}; library "
+                  f"{r['fill']!r} from {r['source']}")
+    # An object that carries the column is labelled for messages as it always was; only an object
+    # without it takes its library's name, which `build` writes into the column.
+    objs = [(r["fill"] if r["fill"] is not None else Path(src).stem.replace("_annotated", ""),
+             ad.read_h5ad(src)) for src, r in zip(a.h5ad, named)]
     print(f"{len(objs)} object(s)")
     # THE UNIT, FROM WHAT THE OBJECTS RECORDED. `embed` takes no assay. One assay between them
     # words its prints; none, or two, names both units rather than guessing one.
@@ -2221,6 +2261,8 @@ def _embed(a):
               n_hvg=a.n_hvg, n_pcs=a.n_pcs,
               n_neighbors=a.n_neighbors, min_dist=a.min_dist, seed=a.seed,
               gene_key=a.gene_key, words=W)
+    # WHERE EACH LIBRARY'S NAME CAME FROM, kept with the object (one row per library per file).
+    J.uns["scanno_embed"]["library_names"] = LN.record(named, a.sample_key)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     plain_string_labels(J)
     with classic_string_encoding():
@@ -2906,7 +2948,18 @@ def main(argv=None):
                         "layers['counts'] where present, else from .X")
     s.add_argument("--out", required=True, type=Path, metavar="H5AD",
                    help="the joint object, for `scanno report --joint`")
-    s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN")
+    s.add_argument("--sample-key", default="sample", metavar="OBS_COLUMN",
+                   help="the obs column naming each cell's library (default sample). An object "
+                        "that carries it is taken cell for cell. For one that does not, the "
+                        "library's name comes from --manifest or from the name the upstream QC "
+                        "recorded (uns['scqc']['sample']), never from the file's name; none, or two "
+                        "that disagree, refuses by name. Recorded in "
+                        "uns['scanno_embed']['library_names']")
+    s.add_argument("--manifest", type=Path, default=None, metavar="TABLE",
+                   help="each object's library: a TSV or CSV with a `path` column (relative to the "
+                        "table's folder) and a column named as --sample-key. When given, it must "
+                        "name every object that does not carry --sample-key, and it is checked "
+                        "against the ones that do")
     s.add_argument("--label-obs", dest="label_obs", nargs="*", default=None, metavar="OLD=NEW",
                    help="which ANNOTATION columns survive into the joint object, and what to call "
                         "them there, e.g. `scanno_path_scope=cell_type "
