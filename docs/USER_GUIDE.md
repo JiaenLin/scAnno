@@ -401,11 +401,12 @@ an output directory overwrite one another's record. `--status-dir` keeps each on
   three markers. Evidence is counted in studies. A lineage needs at least 2 healthy studies of the
   tissue, at least 2% of them, a share of them at least its share of healthy reports across the
   species' tissues, and a share of the tissue's disease studies under twice its share of the healthy
-  ones. Each threshold is a flag and is recorded in `proposed.parameters`. The draft lists what it
+  ones (tested only when at least 2 disease studies report it). Each threshold is a flag and is recorded in `proposed.parameters`. The draft lists what it
   kept, what it set aside and every name it could not place, each with its studies, healthy
   studies, disease studies and claims and with why (`proposed.kept`, `proposed.set_aside`,
   `proposed.not_placed`). It says in `proposed.cannot_tell` where the corpus cannot tell: few
-  healthy studies, or a disease field that never reads Normal. It marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
+  healthy studies, or a disease field that never reads Normal (then every lineage is drafted
+  unchecked). It marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
   records `tree: proposed draft` in STATUS meanwhile. Sibling sets decide every comparison.
   A node whose members are biologically heterogeneous will be scored on a diluted panel
   and will lose to a tighter competitor.
