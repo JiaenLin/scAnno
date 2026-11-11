@@ -36,7 +36,7 @@ def standardise(M, D, query_genes, store, exclude=None):
 
     1. Nothing here depends on which other clusters are present. Standardising against the
        run's own clusters made a label depend on what else was sequenced: deleting 2% of an
-       object shifted every score by a median 19.4% and flipped a call.
+       object shifted every score and flipped a call (tests/test_adversarial.py A1).
 
     2. `Z` is returned in the STORE's gene space. It was once returned in the query's,
        while every consumer indexed by the store's - which coincide only when the query

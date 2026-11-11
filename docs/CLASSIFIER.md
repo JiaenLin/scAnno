@@ -90,8 +90,8 @@ Z[c, g] = ( mean_expr(c, g) − gene_mu[g] ) / safe_scale( gene_sd[g] )
 
 **Nothing in this depends on which other clusters are present.** That is the point: standardising
 against the run's own clusters made a label depend on what else was sequenced — deleting 2% of an
-object shifted every score by a median 19.4% and flipped a call. Against the store it is 5.9% with
-no flips, and the residual is only the gene set moving.
+object shifted every score and flipped a call. Against the store the shift is under a third of that,
+with no flips, and the residual is only the gene set moving (`tests/test_adversarial.py` A1 repeats the experiment on a public dataset).
 
 Two further rules, each from a defect:
 

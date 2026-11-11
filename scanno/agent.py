@@ -3,7 +3,8 @@
 WHAT THIS IS FOR
 
 The classifier scores clusters against a curated corpus. A corpus is finite, and for most
-tissues it is thin - mouse heart carries 618 tier-1/2 assertions where human lung carries 60,501.
+tissues it is thin - mouse heart carries about a hundredth of the tier-1/2 assertions human lung
+does (`scanno panel` prints a context's counts).
 A language model has read papers the corpus has not, and may have web search. On a thin panel it
 is worth asking.
 

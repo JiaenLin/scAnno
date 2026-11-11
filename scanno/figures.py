@@ -34,7 +34,7 @@ from __future__ import annotations
 import numpy as np
 
 from .context import MIN_FLAGGED_PER_ANIMAL, SENTINELS
-from .primitives import (ACCENT, AMBER, COOL, GREY, INK, MUT, NotDrawable, continuous_scatter,
+from .primitives import (ACCENT, AMBER, COOL, GREY, INK, MUTED, NotDrawable, continuous_scatter,
                          dotplot, dotplot_key, leaf, line_with_band, paired_barh, panel_grid,
                          points_over_bars, plt, quartile_boxes, ratio_bars, save,
                          scale_per_column, scatter_sized, signed_barh, stacked_rows,
@@ -955,7 +955,7 @@ def F155(ctx, depth=1):
            color=[ctx.colour(r["label"]) for r in rows], edgecolor="none")
     for i, r in enumerate(rows):
         ax.text(i, r["pct_of_label"], f"{r['flagged']:,}\n{r['pct_of_flagged']:.0f}% of all",
-                ha="center", va="bottom", fontsize=7.5, color=MUT)
+                ha="center", va="bottom", fontsize=7.5, color=MUTED)
     ax.axhline(cohort, ls="--", lw=1.2, color=INK)
     ax.text(len(rows) - .4, cohort, f" cohort {cohort:.1f}%", fontsize=8.5, va="bottom",
             ha="right")

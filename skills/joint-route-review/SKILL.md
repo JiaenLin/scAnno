@@ -57,7 +57,7 @@ checked against the run it describes and is gone when the session ends.
 ```bash
 scanno joint-review --payload <run>/report/joint_route.json \
     --reviewer "<who you are>" \
-    --verdict "17=adopt:siblings under one parent, 85.6% agreement, spread across three levels" \
+    --verdict "17=adopt:siblings under one parent, <share> agreement, spread across three levels" \
     --verdict "20=refuse:every corrected cell falls in one level of a confounded factor, and the first route disagrees on 82.5% of the cluster" \
     --out <run>/compare/verdicts.json \
     --out-report <run>/report/joint_route.html

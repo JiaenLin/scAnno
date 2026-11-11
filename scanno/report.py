@@ -492,27 +492,27 @@ CANNOT = {
 }
 
 _CSS = """
-:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#e3e3e3;--accent:#4C72B0;--warn:#C44E52}
-@media(prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e8e6e3;--mut:#9aa0a6;
+:root{--bg:#fff;--fg:#1a1a1a;--muted:#666;--line:#e3e3e3;--accent:#4C72B0;--warn:#C44E52}
+@media(prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e8e6e3;--muted:#9aa0a6;
 --line:#2c2f34;--accent:#7aa2d6;--warn:#e07b7e}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px}
 h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:38px 0 10px;
 padding-bottom:6px;border-bottom:1px solid var(--line)}
-.sub{color:var(--mut);font-size:13px;margin-bottom:24px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
 .tiles{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 6px}
 .tile{border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:120px}
-.tile b{display:block;font-size:21px}.tile span{color:var(--mut);font-size:12px}
+.tile b{display:block;font-size:21px}.tile span{color:var(--muted);font-size:12px}
 table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}
 th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line)}
-th{color:var(--mut);font-weight:600}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:600}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 figure{margin:16px 0}figure img{width:100%;border:1px solid var(--line);border-radius:8px}
-figcaption{color:var(--mut);font-size:12px;margin-top:6px}
+figcaption{color:var(--muted);font-size:12px;margin-top:6px}
 .cannot{border-left:3px solid var(--warn);padding:8px 12px;margin:14px 0;
 background:rgba(196,78,82,.06);font-size:13px}
 .cannot b{color:var(--warn)}
-.absent{border:1px dashed var(--line);border-radius:8px;padding:18px;color:var(--mut);
+.absent{border:1px dashed var(--line);border-radius:8px;padding:18px;color:var(--muted);
 font-size:13px;text-align:center}
 code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(128,128,128,.12);
 padding:1px 5px;border-radius:4px}

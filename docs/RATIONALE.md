@@ -13,7 +13,7 @@ Three failures shaped this, all measured rather than imagined.
 
 - **A label that depended on what else was in the sample.** Standardising a cluster against the
   other clusters in its own run makes its score a property of the run, not of the cluster.
-  Deleting 2% of an object shifted every score by a median 19.4% and flipped a call. For any study
+  Deleting 2% of an object shifted every score and flipped a call. For any study
   measuring composition, that turns a technical property into the result.
 - **A confidence gate that destroyed correct answers.** A softmax posterior over node scores was
   given veto power without anyone checking it predicted correctness. It didn't: it discarded three
