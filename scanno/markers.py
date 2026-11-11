@@ -27,7 +27,9 @@ E1 two or more experimental publications (Experiment/Review), E2 one, E3 two or 
 publications, E4 one, E5 algorithm-derived only. `scanno annotate` reads tiers <= 4 by default.
 
 THE REFERENCE GENES (`--reference-genes`) are the gene axis of the data the corpus will be used on.
-They fill `in_reference` (the gene can be measured there, compared case-insensitively),
+An .h5ad is read by scanno/genes.py, the reader `annotate` and `background` use, with the same
+`--gene-key`; `corpus_info.reference_gene_names` says which names were read. They fill
+`in_reference` (the gene can be measured there, compared case-insensitively),
 `exact_reference` (spelled the same) and the spelling `symbol_display` prefers. Without them those
 two columns are NULL - unknown, not "absent" - and scAnno's annotation does not read them.
 
@@ -235,14 +237,17 @@ def open_release(path, member=None):
     return path.open("r", encoding="utf-8", errors="replace"), path.name
 
 
-def reference_genes(paths):
+def reference_genes(paths, gene_key=None):
     """(set of names or None, record). Text files hold one name per line; `#` starts a comment.
-    An .h5ad gives its var_names. Several inputs must describe ONE gene axis, as the ingest this
-    was ported from required: `in_reference` means 'measurable in this data', and two axes would
-    make it mean two things."""
+    An .h5ad gives the names `annotate` would match on: scanno/genes.py, the one reader, with the
+    same --gene-key (harness GAP-C83: this read var_names while annotate read var['gene_symbol'],
+    so on an object keyed by accession every marker read as unmeasurable). Several inputs must
+    describe ONE gene axis, as the ingest this was ported from required: `in_reference` means
+    'measurable in this data', and two axes would make it mean two things."""
     if not paths:
         return None, {"reference_genes": "none"}
-    sets = []
+    from .genes import GeneKeyMissing, gene_names
+    sets, read_from = [], []
     for p in paths:
         p = Path(p)
         if not p.is_file():
@@ -251,8 +256,16 @@ def reference_genes(paths):
         if p.suffix == ".h5ad":
             import anndata as ad
             A = ad.read_h5ad(p, backed="r")
-            names = {str(v) for v in A.var_names}
-            A.file.close()
+            try:
+                listed, source = gene_names(A, gene_key)
+            except GeneKeyMissing as e:
+                raise ReleaseError(f"{p.name} has {e}", code="reference_gene_key",
+                                   fix="name the column that holds the symbols with --gene-key, "
+                                       "or '' for var_names") from None
+            finally:
+                A.file.close()
+            names = set(listed)
+            read_from.append(f"{p.name}: {source}")
         else:
             names = {ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()
                      if ln.strip() and not ln.lstrip().startswith("#")}
@@ -264,8 +277,11 @@ def reference_genes(paths):
                            + ". in_reference would not be well defined", code="reference_axes",
                            fix="pass the gene axis of the data the corpus will be used on, once")
     digest = hashlib.sha256("\n".join(sorted(first)).encode("utf-8")).hexdigest()
-    return first, {"reference_genes": str(len(first)), "reference_sha256": digest,
-                   "reference_sources": ", ".join(n for n, _ in sets)}
+    record = {"reference_genes": str(len(first)), "reference_sha256": digest,
+              "reference_sources": ", ".join(n for n, _ in sets)}
+    if read_from:
+        record["reference_gene_names"] = "; ".join(read_from)
+    return first, record
 
 
 def _ingest(con, fh, universe, log):
@@ -440,7 +456,8 @@ def _ortholog(con):
     return len(pairs)
 
 
-def build(release, out, *, reference=None, member=None, version="", log=print) -> dict:
+def build(release, out, *, reference=None, member=None, version="", log=print,
+          gene_key=None) -> dict:
     """Build the corpus at `out` from `release`. Returns what `corpus_info` records.
 
     Written to `<out>.partial` and renamed when complete, so a corpus that exists was finished. An
@@ -452,7 +469,7 @@ def build(release, out, *, reference=None, member=None, version="", log=print) -
         raise ReleaseError(f"{out} exists. A corpus a run may have read is not replaced",
                            fix="choose another --out, or move the old corpus aside yourself",
                            code="out_exists")
-    universe, ref_info = reference_genes(reference)
+    universe, ref_info = reference_genes(reference, gene_key)
     log(f"release {Path(release).name}: hashing (read only; the file is not modified)")
     digest = sha256(release)
     log(f"  sha256 {digest}")

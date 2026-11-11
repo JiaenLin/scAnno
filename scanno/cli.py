@@ -700,18 +700,16 @@ def _annotate(a):
     # produced 0 overlapping genes and 100% UNRESOLVED, silently: every marker panel came out
     # empty, every node was dropped, and the run exited 0 with a full table of UNRESOLVED.
     # `scanno agent` had used the symbol column since it was written; this path had not.
-    gene_key = a.gene_key
-    if gene_key is None and "gene_symbol" in src.var:
-        gene_key = "gene_symbol"
-    if gene_key and gene_key not in src.var:
-        print(f"scanno: {a.h5ad} has no var column {gene_key!r}. Columns: "
-              f"{', '.join(map(str, src.var.columns))}", file=sys.stderr)
+    # ONE READER (scanno/genes.py) for annotate, background and build-markers: harness GAP-C83.
+    from .genes import GeneKeyMissing, gene_names
+    try:
+        _names, gene_source = gene_names(src, a.gene_key)
+    except GeneKeyMissing as e:
+        print(f"scanno: {a.h5ad} has {e}", file=sys.stderr)
         return 1
     X = src.X
-    genes = np.array([str(v).upper() for v in
-                      (src.var[gene_key] if gene_key else src.var_names)])
-    print(f"gene names from {'var[' + repr(gene_key) + ']' if gene_key else 'var_names'}"
-          f"   e.g. {', '.join(genes[:3])}")
+    genes = np.array([v.upper() for v in _names])
+    print(f"gene names from {gene_source}   e.g. {', '.join(genes[:3])}")
     # THE DECLARED SPECIES, AGAINST THE DATA (single-cell-harness ADR-0027, N2). It filtered the
     # corpus and was never compared with the object; with symbols upper-cased on both sides, a
     # corpus of one species scored another's genes in silence.
@@ -1440,11 +1438,15 @@ def _background(a):
         # Same default as `annotate`: the store and the annotation must be built on the same
         # naming or `standardise` matches nothing, and the two commands disagreeing about which
         # column holds the gene names is a silent way to get an empty background.
-        gk = a.gene_key
-        if gk is None and "gene_symbol" in A.var:
-            gk = "gene_symbol"
-        genes = np.array([str(v).upper() for v in
-                          (A.var[gk] if gk and gk in A.var else A.var_names)])
+        # ONE READER (scanno/genes.py), annotate's: a named column the object lacks is refused, as
+        # annotate refuses it, never read as var_names (harness GAP-C83).
+        from .genes import GeneKeyMissing, gene_names
+        try:
+            _names, _source = gene_names(A, a.gene_key)
+        except GeneKeyMissing as e:
+            print(f"scanno: {src} has {e}", file=sys.stderr)
+            return 1
+        genes = np.array([v.upper() for v in _names])
         # Qualified by object, so cluster 0 of one library is not pooled with cluster 0 of
         # another. They are different populations and averaging them is not a background, it is
         # a blur.
@@ -2358,7 +2360,7 @@ def _build_markers(a):
     from .markers import ReleaseError, build
     try:
         info = build(a.release, a.out, reference=a.reference_genes, member=a.member,
-                     version=__version__, log=print)
+                     version=__version__, log=print, gene_key=a.gene_key)
     except ReleaseError as e:
         _ST.refuse(e.reason, fix=e.fix, code=e.code)
         return REFUSE
@@ -3044,8 +3046,14 @@ def main(argv=None):
                    help="the SQLite corpus to write. An existing file is refused, never replaced")
     s.add_argument("--reference-genes", nargs="+", type=Path, default=None, metavar="FILE",
                    help="the gene axis of the data the corpus will be used on: a text file of "
-                        "names, one per line, or an .h5ad's var_names. Fills in_reference and "
-                        "exact_reference and the display spelling; without it they are NULL")
+                        "names, one per line, or an .h5ad, read as `annotate` reads it "
+                        "(--gene-key). Fills in_reference and exact_reference and the display "
+                        "spelling; without it they are NULL")
+    s.add_argument("--gene-key", metavar="VAR_COLUMN", default=None,
+                   help="for an .h5ad reference: the var column holding the names, read as "
+                        "`annotate` and `background` read it - var['gene_symbol'] when present, "
+                        "else var_names; '' for var_names. A named column the object lacks is "
+                        "refused")
     s.add_argument("--member", default=None,
                    help=f"the archive member holding the release (default {'all_cell_marker.txt'} "
                         f"or the archive's only text file)")

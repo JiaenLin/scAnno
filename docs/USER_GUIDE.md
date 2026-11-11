@@ -256,7 +256,10 @@ scanno build-markers --release all_cell_marker.zip --out corpus.db [--reference-
 E1: two or more experimental publications (Experiment, Review). E2: one. E3: two or more single-cell
 publications. E4: one. E5: a marker detector ran and no paper asserts it. `annotate` reads E1-E4 by
 default (`--min-tier 4`). `--reference-genes` is your data's gene axis; it fills `in_reference`,
-`exact_reference` and the display spelling, which are NULL without it. The zip is read in place.
+`exact_reference` and the display spelling, which are NULL without it. An `.h5ad` is read as
+`annotate` and `background` read it (scanno/genes.py): `--gene-key COLUMN`, `--gene-key ''` for
+`var_names`, else `var['gene_symbol']` when present; `corpus_info.reference_gene_names` records
+which. The zip is read in place.
 An existing `--out` is refused, never replaced. `specificity` is entropy over CLAIMS - a gene named
 once scores 1.0 - so it never ranks or filters on its own.
 
