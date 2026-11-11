@@ -3069,9 +3069,10 @@ def main(argv=None):
     s.set_defaults(fn=_build_markers)
 
     s = sub.add_parser("tree",
-                       help="propose a DRAFT tree from the corpus: root -> its lineages -> their "
-                            "cell names. Yours to approve or edit; annotate records that it is a "
-                            "draft until you approve it")
+                       help="propose a DRAFT tree from the corpus: root -> the tissue's own lineages "
+                            "(mostly healthy claims, not more common elsewhere) -> their cell "
+                            "names, with what it set aside and why. Yours to approve or edit; "
+                            "annotate records that it is a draft until you approve it")
     s.add_argument("verb", choices=["propose"])
     s.add_argument("--db", required=True, type=Path, help="the marker corpus")
     s.add_argument("--species", required=True)
