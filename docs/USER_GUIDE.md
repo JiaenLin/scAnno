@@ -397,8 +397,11 @@ an output directory overwrite one another's record. `--status-dir` keeps each on
 - **Validated on human PBMC only**, two datasets, common types, single-cell. No
   single-nucleus validation exists.
 - **The tree is yours and it is the biggest lever.** `scanno tree propose` drafts one from the
-  corpus - root, its `cell_name_class` lineages, their cell names with at least three markers -
-  and marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
+  corpus - root, the tissue's own `cell_name_class` lineages (at least half their claims there
+  from healthy samples, and reported by the tissue's healthy samples at least as often, as a
+  share, as by healthy samples across the species' tissues), their cell names with at least
+  three markers - lists what it set aside and every name it could not place, with why
+  (`proposed.set_aside`, `proposed.not_placed`), and marks it a draft until `proposed.approved_by` names you; `annotate` prints REVIEW and
   records `tree: proposed draft` in STATUS meanwhile. Sibling sets decide every comparison.
   A node whose members are biologically heterogeneous will be scored on a diluted panel
   and will lose to a tighter competitor.

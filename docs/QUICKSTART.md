@@ -44,9 +44,14 @@ and in the annotated object.
 
 ## 3 · Declare a tree
 
-Write it yourself, or start from a draft the corpus proposes - root, the corpus's lineages,
+Write it yourself, or start from a draft the corpus proposes - root, the tissue's own lineages,
 their cell names - and edit it: `scanno tree propose --db corpus.db --species Human --tissue
-Blood --out tree.draft.json`. A draft says it is one (`proposed.approved_by` is empty), and
+Blood --out tree.draft.json`. A lineage is the tissue's own when most of its claims there come
+from healthy samples and healthy samples of the tissue report it at least as often as healthy
+samples across the corpus do; what the draft set aside (tumour and infiltrating lineages, the
+blood and vessels every tissue carries) and every name it could not place are listed, with why,
+in `proposed.set_aside` and `proposed.not_placed`: add back what your sample holds, and remove
+what it cannot hold (a culture or an organoid is not the tissue). A draft says it is one (`proposed.approved_by` is empty), and
 every `annotate` run that uses it prints REVIEW and records `tree: proposed draft` until you
 set your name there. The tree is yours either way.
 
