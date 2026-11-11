@@ -117,7 +117,7 @@ def propose(db, ctx, *, min_tier=4, min_markers=3, max_lineages=10, max_types=6,
 
     # THE NAMES. One home per name: the kept lineage where it has the most markers (then the
     # lineage's name, for a stable tie). The rest are recorded, with the most-markered filing.
-    best, unplaced = {}, {}
+    best, unplaced, held = {}, {}, set()
 
     def miss(name, k, n, nh, why):
         cur = unplaced.get(name)
@@ -129,6 +129,7 @@ def propose(db, ctx, *, min_tier=4, min_markers=3, max_lineages=10, max_types=6,
         if n < min_markers or not str(name).strip() or str(name).lower() == "root":
             continue
         k = key(cls, name)
+        held.add(k)
         if k in aside:
             miss(name, k, n, nh, f"its lineage is set aside ({aside[k]})")
         elif has_health and 2 * nh < n:
@@ -182,9 +183,10 @@ def propose(db, ctx, *, min_tier=4, min_markers=3, max_lineages=10, max_types=6,
                          "rooted draft needs two lineages - edit one by hand from `scanno panel`'s list"
                          + (f" (set aside: {', '.join(sorted(map(str, aside)))})" if aside else ""))
     placed_somewhere = {nm for nms in children.values() for nm in nms} | set(lineages)
-    named_aside = {r["lineage"] for r in unplaced.values()}
+    # every lineage set aside that held a name clearing the floor, even when each of its names is
+    # placed under a kept lineage or recorded under another filing
     set_aside = [dict(stats[k], reason=aside[k]) for k in sorted(
-        aside, key=lambda k: (-stats[k]["claims"], str(k))) if k in named_aside]
+        aside, key=lambda k: (-stats[k]["claims"], str(k))) if k in held]
     not_placed = sorted((r for nm, r in unplaced.items() if nm not in placed_somewhere),
                         key=lambda r: (str(r["lineage"]), -r["markers"], str(r["name"])))
     lineage_tests = {
