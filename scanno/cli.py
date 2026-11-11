@@ -2376,7 +2376,7 @@ def _build_markers(a):
 def _tree(a):
     """`scanno tree propose`: a draft tree from the corpus, for the user to approve or edit."""
     from . import __version__
-    from .propose import propose
+    from .propose import CannotTell, propose
     from .scope import bare_names_unique
     if Path(a.out).exists():
         _ST.refuse(f"{a.out} exists. A tree is the user's; a draft never overwrites one",
@@ -2388,7 +2388,14 @@ def _tree(a):
     try:
         tree, summary = propose(a.db, ctx, min_tier=a.min_tier, min_markers=a.min_markers,
                                 max_lineages=a.max_lineages, max_types=a.max_types,
-                                version=__version__)
+                                min_studies=a.min_studies, min_share=a.min_share,
+                                min_enrichment=a.min_enrichment, disease_ratio=a.disease_ratio,
+                                lineage_tests=a.lineage_tests == "on", version=__version__)
+    except CannotTell as e:
+        _ST.refuse(str(e), fix="`--lineage-tests off` drafts every lineage the context mentions, "
+                   "unchecked, and says so in the draft; or lower --min-studies; or read `scanno panel`",
+                   code="tree_cannot_tell")
+        return REFUSE
     except ValueError as e:
         _ST.refuse(str(e), fix="lower --min-markers or --min-tier, or read `scanno panel`",
                    code="tree_too_thin")
@@ -2403,13 +2410,20 @@ def _tree(a):
                         "lineages": summary["lineages"], "types": summary["types"],
                         "lineage_from": summary["lineage_from"],
                         "lineage_tests": summary["lineage_tests"],
+                        "cannot_tell": summary["cannot_tell"],
+                        "parameters": summary["parameters"], "context": summary["context"],
                         "set_aside": [r["lineage"] for r in summary["set_aside"]],
                         "not_placed": summary["not_placed"]})
     print(f"wrote {a.out}: a DRAFT - {summary['lineages']} lineages, {summary['types']} types "
           f"below them ({summary['lineage_from']}), the tissue's own by the corpus")
+    kept = {r["lineage"]: r for r in summary["kept"]}
     for top in tree["children"]["root"]:
         kids = tree["children"].get(top, [])
-        print(f"  {top}" + (f" -> {', '.join(kids)}" if kids else ""))
+        r = kept.get(top, {})
+        print(f"  {top} [{r.get('healthy_studies', 0)} healthy of {r.get('studies', 0)} studies]"
+              + (f" -> {', '.join(kids)}" if kids else ""))
+    for line in summary["cannot_tell"]:
+        print(f"  REVIEW  {line}")
     # GAP-C85: what the corpus mentions in this context and the draft left out, said where it is read
     for r in summary["set_aside"]:
         print(f"  SET ASIDE  {r['lineage']}: {r['reason']}")
@@ -3070,7 +3084,8 @@ def main(argv=None):
 
     s = sub.add_parser("tree",
                        help="propose a DRAFT tree from the corpus: root -> the tissue's own lineages "
-                            "(mostly healthy claims, not more common elsewhere) -> their cell "
+                            "(counted in studies: reported by enough of its healthy studies, not "
+                            "more often elsewhere, not mostly by its disease studies) -> their cell "
                             "names, with what it set aside and why. Yours to approve or edit; "
                             "annotate records that it is a draft until you approve it")
     s.add_argument("verb", choices=["propose"])
@@ -3085,6 +3100,18 @@ def main(argv=None):
                         "the floor below which the walk cannot score a node)")
     s.add_argument("--max-lineages", type=int, default=10)
     s.add_argument("--max-types", type=int, default=6, help="cell names per lineage")
+    from .propose import DEFAULTS as _PD, PARAMETERS as _PP
+    s.add_argument("--min-studies", type=int, default=_PD["min_studies"],
+                   help=_PP["min_studies"] + f" (default {_PD['min_studies']})")
+    s.add_argument("--min-share", type=float, default=_PD["min_share"],
+                   help=_PP["min_share"] + f" (default {_PD['min_share']})")
+    s.add_argument("--min-enrichment", type=float, default=_PD["min_enrichment"],
+                   help=_PP["min_enrichment"] + f" (default {_PD['min_enrichment']})")
+    s.add_argument("--disease-ratio", type=float, default=_PD["disease_ratio"],
+                   help=_PP["disease_ratio"] + f" (default {_PD['disease_ratio']})")
+    s.add_argument("--lineage-tests", choices=["on", "off"], default="on",
+                   help="ESCAPE: off drafts every lineage the context mentions, unchecked; the "
+                        "draft's cannot_tell and stdout say so (default on)")
     s.add_argument("--tissue-fallback", choices=["species"], default=None,
                    help="ESCAPE: read every tissue of the species when the corpus names no "
                         "--tissue for it. Printed as REVIEW and recorded")

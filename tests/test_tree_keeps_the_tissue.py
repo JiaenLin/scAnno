@@ -7,13 +7,16 @@ the immune cells that infiltrate those tumours, and the blood and vessels every 
 draft for one tissue drafted lineages that belong to another: a person was asked to approve a tree
 whose lineages the sample cannot hold, and cells walked to them.
 
-THE RULE, from the corpus's own fields (disease, tissue_class, cell_name_class) and nothing else - no
-list of tissues or lineages, so it holds for any tissue. A lineage is the tissue's own when
-  (a) at least half its claims in the tissue come from healthy samples (else it is the disease's), and
-  (b) the tissue's healthy samples report it at least as often, as a share of their claims, as healthy
-      samples across every tissue of the species do (else it is shared, more common elsewhere).
-A name is placed under the kept lineage where it has the most markers, if at least half its claims
-there are healthy. Everything that cleared the marker floor and was not placed is recorded with why.
+THE RULE, from the corpus's own fields (each row's study, disease, tissue_class, cell_name_class) and
+nothing else - no list of tissues or lineages, so it holds for any tissue. Counted in studies (here
+every marker row is its own invented study), a lineage is the tissue's own when
+  (a) at least two healthy studies of the tissue report it, and its disease studies do not report it
+      twice as often, as a share, as its healthy studies (else it is the disease's), and
+  (b) the tissue's healthy studies report it at least as often, as a share, as healthy studies across
+      every tissue of the species do (else it is shared, more common elsewhere).
+A name is placed under the kept lineage where it has the most markers, if two healthy studies report
+it. Everything that cleared the marker floor and was not placed is recorded with why
+(tests/test_tree_evidence.py checks the study counting itself).
 
 WHAT IS CHECKED, on an invented release built by `scanno build-markers` and read by `scanno tree
 propose` through the real CLI. Three invented tissues; in the first, a resident lineage and a second
@@ -148,9 +151,9 @@ check("a placed name is not also listed as not placed", "Shared-filed type" not 
 
 print("\n3 - what was set aside is recorded with its reason and numbers, and printed")
 aside = {r.get("lineage"): r for r in prop.get("set_aside") or [] if isinstance(r, dict)}
-check("the tumour lineage is set aside as the disease's (no healthy claim)",
+check("the tumour lineage is set aside as the disease's (no healthy study)",
       "disease" in str(aside.get("Tumour cell", {}).get("reason", ""))
-      and aside.get("Tumour cell", {}).get("healthy") == 0, str(aside.get("Tumour cell")))
+      and aside.get("Tumour cell", {}).get("healthy_studies") == 0, str(aside.get("Tumour cell")))
 v = aside.get("Visitor cell", {})
 check("the visitor lineage is set aside as shared: its enrichment is below 1",
       "shared" in str(v.get("reason", "")) and isinstance(v.get("enrichment"), (int, float))
@@ -159,12 +162,14 @@ check("a set-aside lineage is recorded even when its one name is placed under a 
       "shared" in str(aside.get("Rare visitor cell", {}).get("reason", ""))
       and "Second type one" in ch.get("Second resident cell", []), str(aside.get("Rare visitor cell")))
 kept = {r.get("lineage"): r for r in prop.get("kept") or [] if isinstance(r, dict)}
-check("each kept lineage carries its numbers, enrichment at least 1",
+check("each kept lineage carries its numbers: enrichment at least 1, two healthy studies or more, "
+      "a disease ratio below 2",
       set(kept) == {"Alpha resident cell", "Second resident cell"}
-      and all(r.get("enrichment", 0) >= 1 and r.get("healthy", 0) * 2 >= r.get("claims", 1)
-              for r in kept.values()), str(kept))
+      and all(r.get("enrichment", 0) >= 1 and r.get("healthy_studies", 0) >= 2
+              and (r.get("disease_ratio") or 0) < 2 for r in kept.values()), str(kept))
 check("the rule the draft applied is named in it", "healthy" in str(prop.get("rule", "")).lower()
-      and (prop.get("lineage_tests") or {}).get("health") == "applied", str(prop.get("lineage_tests")))
+      and all(v == "applied" for v in (prop.get("lineage_tests") or {"x": 0}).values()),
+      str(prop.get("lineage_tests")))
 check("stdout says what was set aside, and why", "SET ASIDE" in out and "Visitor cell" in out
       and "Tumour cell" in out, out[-600:])
 
