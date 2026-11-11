@@ -28,7 +28,9 @@ scanno selftest
 To compare against a published number, build the locked environment instead:
 `setup/install_env.sh --prefix <path>` creates it from `setup/environment.lock.yml`, which pins the
 whole closure (51 packages), and refuses the result unless every version is the locked one and
-nothing unpinned was added; `--no-editable` writes nothing into the checkout.
+nothing unpinned was added (pip, setuptools and wheel, the manager's own, aside; the check reads
+what the new interpreter imports, so run it with PYTHONPATH unset and PYTHONNOUSERSITE=1);
+`--no-editable` writes nothing into the checkout.
 
 The decision layer is numpy and scipy only. The marker corpus is **not** distributed, and the
 database built from it is never redistributed: fetch the CellMarker 3.0 release

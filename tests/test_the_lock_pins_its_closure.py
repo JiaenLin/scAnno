@@ -13,7 +13,8 @@ for - is itself pinned, at a version the requirement accepts. The requirements a
 setup/environment.lock.requires.tsv, which records each pinned version's own metadata; a pin with
 no record is read from the installed distribution when that is the pinned version, and is a
 failure when neither says what it requires. Wherever both exist they must agree, so the record
-cannot drift from the packages it describes. Offline: nothing is fetched.
+cannot drift from the packages it describes. Offline: nothing is fetched. The top is checked too:
+every requirement scAnno's pyproject.toml declares is pinned (the installer adds scAnno with no deps).
 
 TO RE-RECORD after changing a pin (needs the network; nothing is installed):
     pip install --dry-run --ignore-installed --report report.json --only-binary=:all: \\
@@ -215,6 +216,14 @@ for n in recorded:
 n_cross = sum(1 for n in recorded if n in PINS and installed(n) is not None)
 check(f"the record agrees with the installed metadata ({n_cross} of {len(recorded)} could be compared)",
       not cross, ", ".join(cross))
+
+print("\n5 - what scAnno itself declares (pyproject.toml) is pinned, at a version it accepts")
+declared = [Requirement(s) for deps in re.findall(r"^(?:dependencies|run|report|test) = \[(.*)\]$", (ROOT /
+            "pyproject.toml").read_text(encoding="utf-8"), re.M) for s in re.findall(r'"([^"]+)"', deps)]
+off = sorted(str(r) for r in declared if norm(r.name) not in PINS
+             or not r.specifier.contains(PINS[norm(r.name)][1], prereleases=True))
+check(f"each of scAnno's {len(declared)} declared requirements is pinned and satisfied",
+      bool(declared) and not off, ", ".join(off) or "none found in pyproject.toml")
 
 print("\n" + "=" * 64)
 if fails:
