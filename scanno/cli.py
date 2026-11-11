@@ -2401,12 +2401,21 @@ def _tree(a):
     Path(a.out).write_text(json.dumps(tree, indent=2) + "\n", encoding="utf-8")
     _ST.record("tree", {"source": "proposed draft", "approved_by": None,
                         "lineages": summary["lineages"], "types": summary["types"],
-                        "lineage_from": summary["lineage_from"]})
+                        "lineage_from": summary["lineage_from"],
+                        "lineage_tests": summary["lineage_tests"],
+                        "set_aside": [r["lineage"] for r in summary["set_aside"]],
+                        "not_placed": summary["not_placed"]})
     print(f"wrote {a.out}: a DRAFT - {summary['lineages']} lineages, {summary['types']} types "
-          f"below them ({summary['lineage_from']})")
+          f"below them ({summary['lineage_from']}), the tissue's own by the corpus")
     for top in tree["children"]["root"]:
         kids = tree["children"].get(top, [])
         print(f"  {top}" + (f" -> {', '.join(kids)}" if kids else ""))
+    # GAP-C85: what the corpus mentions in this context and the draft left out, said where it is read
+    for r in summary["set_aside"]:
+        print(f"  SET ASIDE  {r['lineage']}: {r['reason']}")
+    if summary["not_placed"]:
+        print(f"  NOT PLACED  {summary['not_placed']} name(s) that clear the marker floor; the "
+              f"draft's proposed.not_placed lists each with its lineage and why")
     print("  REVIEW  this tree is yours to approve or edit. Every annotate run that uses it says "
           "so, and records 'tree: proposed draft', until its proposed.approved_by names you.")
     return 0
